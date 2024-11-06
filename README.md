@@ -33,7 +33,7 @@ Make sure the following are installed:
      - `desktop`
      - `mobile`
 
-   If you want to change the status:
+   To change the status:
 
    - `STATUS` Can be set to any of the following:
      - `online`
@@ -41,7 +41,7 @@ Make sure the following are installed:
      - `invisible`
      - `dnd`
 
-   If you want to set an activity:
+   To set an activity:
 
    - `ACTIVITY` Activity name or custom status.
    - `ACTIVITY_TYPE` Can be set to any of the following:
