@@ -13,7 +13,7 @@ Make sure the following are installed:
 
 1. **Clone Project**
 
-   Run the following in a terminal, replace `[repository]` with the actual url:
+   Run the following in a terminal, replace `[repository]` with the git repository link:
 
    ```
    git clone [repository]
@@ -21,21 +21,21 @@ Make sure the following are installed:
 
 2. **Install Dependencies**
 
-   Now, `cd` into the cloned directory and run `(p)npm install`.
+   `cd` into the cloned directory and run `(p)npm install`.
 
 3. **Configuration**
 
    Create an `.env` file in the root of the directory with the following variables:
 
-   - `TOKEN` Set this to your discord account token. Required.
-   - `DEVICE` Can be set to any of the following:
+   - `TOKEN` Discord account token. Required.
+   - `DEVICE` One of the following:
      - `web` (default)
      - `desktop`
      - `mobile`
 
    To change the status:
 
-   - `STATUS` Can be set to any of the following:
+   - `STATUS` One of the following:
      - `online`
      - `idle`
      - `invisible`
@@ -44,7 +44,7 @@ Make sure the following are installed:
    To set an activity:
 
    - `ACTIVITY` Activity name or custom status.
-   - `ACTIVITY_TYPE` Can be set to any of the following:
+   - `ACTIVITY_TYPE` One of the following:
      - `custom` (custom status)
      - `playing`
      - `streaming`
@@ -55,11 +55,11 @@ Make sure the following are installed:
 
    The following variables will only apply if `ACTIVITY_TYPE` is `custom`.
 
-   - `ACTIVITY_EMOJI` Can be an emoji or emoji id.
+   - `ACTIVITY_EMOJI` Emoji or emoji id.
 
    The following variables will only apply if `ACTIVITY_TYPE` is **not** `custom`.
 
-   - `ACTIVITY_PLATFORM` Can be set to any of the following:
+   - `ACTIVITY_PLATFORM` One of the following:
      - `desktop`
      - `samsung`
      - `xbox`
@@ -69,9 +69,9 @@ Make sure the following are installed:
      - `ps4`
      - `ps5`
    - `ACTIVITY_TIMESTAMP` Timestamp of when the activity started.
-   - `ACTIVITY_APPLICATION_ID` Activity application id. `1` by default.
+   - `ACTIVITY_APPLICATION_ID` Activity application id, `1` by default.
    - `ACTIVITY_DETAILS` Activity description.
-   - `ACTIVITY_URL` If streaming, URL of media.
+   - `ACTIVITY_URL` Media URL, if streaming.
    - `ACTIVITY_LARGE_IMAGE` Large image, can be a discord cdn url.
    - `ACTIVITY_LARGE_IMAGE_TEXT` Pop-up text when large image is hovered.
    - `ACTIVITY_SMALL_IMAGE` Small image, can be a discord cdn url.
@@ -80,19 +80,19 @@ Make sure the following are installed:
    To add a button to the activity:
 
    - `ACTIVITY_BUTTON` Button text.
-   - `ACTIVITY_BUTTON_URL` What URL the button points to.
+   - `ACTIVITY_BUTTON_URL` Button URL.
 
-   **Tip:** You can also add a second button via `ACTIVITY_BUTTON_2` and `ACTIVITY_BUTTON_2_URL`.
+   **Tip:** For a second button, use `ACTIVITY_BUTTON_2` and `ACTIVITY_BUTTON_2_URL`.
 
    To set a "party" for the activity:
 
-   - `ACTIVITY_PARTY_ID` Activity party id. `1` by default.
+   - `ACTIVITY_PARTY_ID` Activity party id, `1` by default.
    - `ACTIVITY_PARTY_CURRENT` Amount of current users.
    - `ACTIVITY_PARTY_MAX` Amount of max users.
 
 4. **Start**
 
-   To start, run `pnpm start / npm run start`.
+   Run `pnpm start / npm run start`.
 
 ## Credits
 
