@@ -73,10 +73,6 @@ const client = new Client({
   },
 });
 
-if (device) {
-  console.log(chalk.green(`Set device to '${device}'.`));
-}
-
 client.on("ready", function () {
   process.on("SIGINT", async function () {
     client.destroy();
@@ -92,6 +88,10 @@ client.on("ready", function () {
     : client.user.username;
 
   console.log(chalk.green(`Logged in as ${username}.`));
+
+  if (device) {
+    console.log(chalk.green(`Set device to '${device}'.`));
+  }
 
   if (status) {
     client.user.setStatus(status);
