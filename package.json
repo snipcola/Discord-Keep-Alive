@@ -6,7 +6,8 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node ."
+    "start": "node .",
+    "release": "git push origin main:release --force"
   },
   "dependencies": {
     "chalk": "5.3.0",
