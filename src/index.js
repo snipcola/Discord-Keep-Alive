@@ -67,8 +67,8 @@ const client = new Client({
         device === "desktop"
           ? "Discord Client"
           : device === "mobile"
-          ? "Discord iOS"
-          : undefined,
+            ? "Discord iOS"
+            : undefined,
     },
   },
 });
