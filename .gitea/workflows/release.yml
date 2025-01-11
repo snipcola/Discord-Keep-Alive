@@ -25,7 +25,7 @@ jobs:
           github-server-url: ${{ env.SERVER_URL }}
 
       - name: Setup QEMU
-        uses: docker/setup-qemu-action@v3.2.0
+        uses: docker/setup-qemu-action@v3.3.0
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3.8.0
@@ -38,7 +38,7 @@ jobs:
           password: ${{ secrets.auth }}
 
       - name: Build & Push
-        uses: docker/build-push-action@v6.10.0
+        uses: docker/build-push-action@v6.11.0
         with:
           platforms: linux/amd64,linux/arm64
           tags: ${{ env.TAG }}
