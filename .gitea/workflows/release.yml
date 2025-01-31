@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu
 
     container:
-      image: catthehacker/ubuntu:act-22.04
+      image: catthehacker/ubuntu:act-24.04
 
     env:
       SERVER_URL: https://git.snipcola.com
@@ -40,7 +40,7 @@ jobs:
           password: ${{ secrets.auth }}
 
       - name: Build & Push
-        uses: docker/build-push-action@v6.11.0
+        uses: docker/build-push-action@v6.13.0
         with:
           platforms: linux/amd64,linux/arm64
           tags: ${{ env.TAG }}
