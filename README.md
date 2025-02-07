@@ -6,8 +6,7 @@ Keeps your discord account online. You can also set a custom status or activity.
 
 Make sure the following are installed:
 
-- [node](https://nodejs.org/en/download)
-- [pnpm](https://pnpm.io/installation#using-a-standalone-script) (optional)
+- [bun](https://bun.sh/docs/installation)
 
 ## Instructions
 
@@ -21,7 +20,7 @@ Make sure the following are installed:
 
 2. **Install Dependencies**
 
-   `cd` into the cloned directory and run `(p)npm install`.
+   `cd` into the cloned directory and run `bun install`.
 
 3. **Configuration**
 
@@ -92,7 +91,7 @@ Make sure the following are installed:
 
 4. **Start**
 
-   Run `pnpm start / npm run start`.
+   Run `bun .`.
 
 ## Credits
 

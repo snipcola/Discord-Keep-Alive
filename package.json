@@ -6,7 +6,6 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node .",
     "format": "prettier --write \"src/**/*.js\"",
     "release": "git push origin main:release --force"
   },
