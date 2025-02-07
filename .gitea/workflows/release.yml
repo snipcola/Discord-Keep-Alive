@@ -10,9 +10,6 @@ jobs:
     name: Build & Push
     runs-on: ubuntu
 
-    container:
-      image: catthehacker/ubuntu:act-24.04
-
     env:
       SERVER_URL: https://git.snipcola.com
       USERNAME: snipcola
