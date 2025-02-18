@@ -1,8 +1,8 @@
-FROM oven/bun:1.2.2-alpine
-RUN mkdir -p /usr/src/app && chown -R bun:bun /usr/src/app
+FROM node:23.8.0-alpine
+RUN mkdir -p /usr/src/app && chown -R node:node /usr/src/app
 WORKDIR /usr/src/app
 COPY package.json src LICENSE ./
-RUN bun install
-USER bun
-COPY --chown=bun:bun . .
-CMD ["bun", "."]
+RUN npm install
+USER node
+COPY --chown=node:node . .
+CMD ["node", "."]
