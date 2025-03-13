@@ -1,6 +1,7 @@
+import "./env.js";
+
 import { Client } from "discord.js-selfbot-v13";
 import chalk from "chalk";
-import "dotenv/config.js";
 import { CustomStatus } from "discord.js-selfbot-v13";
 import { RichPresence } from "discord.js-selfbot-v13";
 
