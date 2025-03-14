@@ -1,8 +1,11 @@
+FROM node:23.9.0-alpine AS build
+WORKDIR /usr/src/build
+COPY package.json ./
+RUN npm install --production
+
 FROM node:23.9.0-alpine
-RUN mkdir -p /usr/src/app && chown -R node:node /usr/src/app
-WORKDIR /usr/src/app
-COPY package.json src LICENSE ./
-RUN npm install
 USER node
+WORKDIR /usr/src/app
+COPY --from=build --chown=node:node /usr/src/build/node_modules ./node_modules
 COPY --chown=node:node . .
 CMD ["node", "."]
