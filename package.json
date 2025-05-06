@@ -1,7 +1,7 @@
 {
   "name": "discord-keep-alive",
   "author": "snipcola",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "main": "src/index.js",
@@ -11,7 +11,7 @@
     "release": "git push origin main:release --force"
   },
   "dependencies": {
-    "@dotenvx/dotenvx": "1.41.0",
+    "@dotenvx/dotenvx": "1.43.0",
     "chalk": "5.4.1",
     "discord.js-selfbot-v13": "3.6.1"
   },
