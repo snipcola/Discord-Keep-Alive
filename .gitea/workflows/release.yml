@@ -11,15 +11,13 @@ jobs:
     runs-on: ubuntu
 
     env:
-      SERVER_URL: https://code.snipcola.com
       USERNAME: snipcola
-      TAG: code.snipcola.com/snipcola/discord-keep-alive:latest
+      NAME: discord-keep-alive
+      PLATFORMS: linux/amd64,linux/arm64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
-        with:
-          github-server-url: ${{ env.SERVER_URL }}
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v3.6.0
@@ -32,14 +30,17 @@ jobs:
       - name: Login to Registry
         uses: docker/login-action@v3.4.0
         with:
-          registry: ${{ env.SERVER_URL }}
           username: ${{ env.USERNAME }}
-          password: ${{ secrets.auth }}
+          password: ${{ secrets.dh_auth }}
+
+      - name: Get Version
+        id: version
+        uses: martinbeentjes/npm-get-version-action@v1.3.1
 
       - name: Build & Push
         uses: docker/build-push-action@v6.16.0
         with:
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ env.TAG }}
+          tags: ${{ env.USERNAME }}/${{ env.NAME }}:${{ steps.version.outputs.current-version }},${{ env.USERNAME }}/${{ env.NAME }}:latest
+          platforms: ${{ env.PLATFORMS }}
           push: true
           context: .
