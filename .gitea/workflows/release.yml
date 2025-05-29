@@ -38,7 +38,7 @@ jobs:
         uses: martinbeentjes/npm-get-version-action@v1.3.1
 
       - name: Build & Push
-        uses: docker/build-push-action@v6.16.0
+        uses: docker/build-push-action@v6.18.0
         with:
           tags: ${{ env.USERNAME }}/${{ env.NAME }}:${{ steps.version.outputs.current-version }},${{ env.USERNAME }}/${{ env.NAME }}:latest
           platforms: ${{ env.PLATFORMS }}
