@@ -1,4 +1,4 @@
-ARG NODE_VERSION=24.2.0-alpine
+ARG NODE_VERSION=24.4.0-alpine
 
 FROM node:$NODE_VERSION AS build
 WORKDIR /usr/src/build
