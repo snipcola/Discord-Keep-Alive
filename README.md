@@ -15,7 +15,7 @@ Make sure the following are installed:
    Run the following in a terminal:
 
    ```
-   git clone https://code.snipcola.com/snipcola/Discord-Keep-Alive.git
+   git clone https://code.snipcola.st/snipcola/Discord-Keep-Alive
    ```
 
 2. **Install Dependencies**
