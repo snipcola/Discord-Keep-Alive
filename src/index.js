@@ -1,9 +1,5 @@
-import "./env.js";
-
-import { Client } from "discord.js-selfbot-v13";
-import chalk from "chalk";
-import { CustomStatus } from "discord.js-selfbot-v13";
-import { RichPresence } from "discord.js-selfbot-v13";
+import { Client, CustomStatus, RichPresence } from "discord-sb.js";
+import { styleText } from "util";
 
 const validDevices = ["web", "desktop", "mobile"];
 const validStatuses = ["online", "idle", "invisible", "dnd"];
@@ -17,6 +13,7 @@ const validActivityTypes = [
   "competing",
   "hang",
 ];
+
 const validActivityPlatforms = [
   "desktop",
   "samsung",
@@ -77,7 +74,7 @@ const client = new Client({
 client.on("ready", function () {
   process.on("SIGINT", async function () {
     client.destroy();
-    console.log(chalk.green("Disconnected client."));
+    console.log(styleText("green", "Disconnected client."));
     process.exit(0);
   });
 
@@ -88,15 +85,15 @@ client.on("ready", function () {
     ? `${client.user.username}#${discriminator}`
     : client.user.username;
 
-  console.log(chalk.green(`Logged in as ${username}.`));
+  console.log(styleText("green", `Logged in as ${username}.`));
 
   if (device) {
-    console.log(chalk.green(`Set device to '${device}'.`));
+    console.log(styleText("green", `Set device to '${device}'.`));
   }
 
   if (status) {
     client.user.setStatus(status);
-    console.log(chalk.green(`Set status to '${status}'.`));
+    console.log(styleText("green", `Set status to '${status}'.`));
   }
 
   if (activityName) {
@@ -108,26 +105,32 @@ client.on("ready", function () {
         emoji: activityEmoji,
       });
 
-      console.log(chalk.green(`Set custom status to '${activityName}'.`));
+      console.log(
+        styleText("green", `Set custom status to '${activityName}'.`),
+      );
 
       if (activityEmoji) {
         console.log(
-          chalk.green(`Set custom status emoji to '${activityEmoji}'.`),
+          styleText("green", `Set custom status emoji to '${activityEmoji}'.`),
         );
       }
     } else {
       const richPresence = new RichPresence(client).setName(activityName);
-      console.log(chalk.green(`Set activity name to '${activityName}'.`));
+      console.log(
+        styleText("green", `Set activity name to '${activityName}'.`),
+      );
 
       if (activityType) {
         richPresence.setType(activityType);
-        console.log(chalk.green(`Set activity type to '${activityType}'.`));
+        console.log(
+          styleText("green", `Set activity type to '${activityType}'.`),
+        );
       }
 
       if (activityPlatform) {
         richPresence.setPlatform(activityPlatform);
         console.log(
-          chalk.green(`Set activity platform to '${activityPlatform}'.`),
+          styleText("green", `Set activity platform to '${activityPlatform}'.`),
         );
       }
 
@@ -135,11 +138,14 @@ client.on("ready", function () {
         try {
           richPresence.setStartTimestamp(parseInt(activityTimestamp));
           console.log(
-            chalk.green(`Set activity timestamp to '${activityTimestamp}'.`),
+            styleText(
+              "green",
+              `Set activity timestamp to '${activityTimestamp}'.`,
+            ),
           );
         } catch {
           console.error(
-            chalk.red("Failed to parse activity timestamp as number."),
+            styleText("red", "Failed to parse activity timestamp as number."),
           );
         }
       }
@@ -147,7 +153,8 @@ client.on("ready", function () {
       if (activityApplicationId) {
         richPresence.setApplicationId(activityApplicationId);
         console.log(
-          chalk.green(
+          styleText(
+            "green",
             `Set activity application id to '${activityApplicationId}'.`,
           ),
         );
@@ -156,26 +163,32 @@ client.on("ready", function () {
       if (activityDetails) {
         richPresence.setDetails(activityDetails);
         console.log(
-          chalk.green(`Set activity details to '${activityDetails}'.`),
+          styleText("green", `Set activity details to '${activityDetails}'.`),
         );
       }
 
       if (activityUrl) {
         richPresence.setURL(activityUrl);
-        console.log(chalk.green(`Set activity url to '${activityUrl}'.`));
+        console.log(
+          styleText("green", `Set activity url to '${activityUrl}'.`),
+        );
       }
 
       if (activityLargeImage) {
         richPresence.setAssetsLargeImage(activityLargeImage);
         console.log(
-          chalk.green(`Set activity large image to '${activityLargeImage}'.`),
+          styleText(
+            "green",
+            `Set activity large image to '${activityLargeImage}'.`,
+          ),
         );
       }
 
       if (activityLargeImageText) {
         richPresence.setAssetsLargeText(activityLargeImageText);
         console.log(
-          chalk.green(
+          styleText(
+            "green",
             `Set activity large image text to '${activityLargeImageText}'.`,
           ),
         );
@@ -184,14 +197,18 @@ client.on("ready", function () {
       if (activitySmallImage) {
         richPresence.setAssetsSmallImage(activitySmallImage);
         console.log(
-          chalk.green(`Set activity small image to '${activitySmallImage}'.`),
+          styleText(
+            "green",
+            `Set activity small image to '${activitySmallImage}'.`,
+          ),
         );
       }
 
       if (activitySmallImageText) {
         richPresence.setAssetsSmallText(activitySmallImageText);
         console.log(
-          chalk.green(
+          styleText(
+            "green",
             `Set activity small image text to '${activitySmallImageText}'.`,
           ),
         );
@@ -200,7 +217,8 @@ client.on("ready", function () {
       if (activityButton && activityButtonURL) {
         richPresence.addButton(activityButton, activityButtonURL);
         console.log(
-          chalk.green(
+          styleText(
+            "green",
             `Set activity button to '${activityButton}' (url: '${activityButtonURL}').`,
           ),
         );
@@ -209,7 +227,8 @@ client.on("ready", function () {
       if (activityButton2 && activityButton2URL) {
         richPresence.addButton(activityButton2, activityButton2URL);
         console.log(
-          chalk.green(
+          styleText(
+            "green",
             `Set activity button 2 to '${activityButton2}' (url: '${activityButton2URL}').`,
           ),
         );
@@ -224,13 +243,15 @@ client.on("ready", function () {
           });
 
           console.log(
-            chalk.green(
+            styleText(
+              "green",
               `Set activity party (id: '${activityPartyId}', current: '${activityPartyCurrent}', max: '${activityPartyMax}').`,
             ),
           );
         } catch {
           console.error(
-            chalk.red(
+            styleText(
+              "red",
               "Failed to parse activity party current or max as number.",
             ),
           );
@@ -247,5 +268,5 @@ client.on("ready", function () {
 if (token && token !== "") {
   client.login(token);
 } else {
-  console.error(chalk.red("Token was not provided."));
+  console.error(styleText("red", "Token was not provided."));
 }

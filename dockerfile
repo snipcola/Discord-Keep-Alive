@@ -1,13 +1,12 @@
-ARG NODE_VERSION=24.8.0-alpine
+ARG BUN_VERSION=1.3.5-alpine
 
-FROM node:$NODE_VERSION AS build
+FROM oven/bun:$BUN_VERSION AS build
 WORKDIR /usr/src/build
-COPY package.json ./
-RUN npm install --production
+COPY package.json bun.lock ./
+RUN bun ci --production
 
-FROM node:$NODE_VERSION
-USER node
+FROM oven/bun:$BUN_VERSION
 WORKDIR /usr/src/app
-COPY --from=build --chown=node:node /usr/src/build/node_modules ./node_modules
-COPY --chown=node:node . .
-CMD ["node", "."]
+COPY --from=build /usr/src/build/node_modules ./node_modules
+COPY . .
+CMD ["bun", "run", "."]
