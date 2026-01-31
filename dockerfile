@@ -1,4 +1,4 @@
-ARG BUN_VERSION=1.3.5-alpine
+ARG BUN_VERSION=1.3.8-alpine
 
 FROM oven/bun:$BUN_VERSION AS build
 WORKDIR /usr/src/build
