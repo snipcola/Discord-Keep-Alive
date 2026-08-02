@@ -10,6 +10,10 @@ pub fn apply_flat_env_overrides(file: &mut FileConfig) {
     file.log_level = v;
   }
 
+  if let Some(v) = env_opt("HEALTH_SOCKET") {
+    file.health_socket = Some(v);
+  }
+
   fill_client_properties_from_env(&mut file.defaults.bot, "DEFAULTS_BOT_");
   fill_client_properties_from_env(&mut file.defaults.web, "DEFAULTS_WEB_");
   fill_client_properties_from_env(&mut file.defaults.desktop, "DEFAULTS_DESKTOP_");

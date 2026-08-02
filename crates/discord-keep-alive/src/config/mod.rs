@@ -34,11 +34,33 @@ pub struct Cli {
   /// Override log level (`error`, `warn`, `info`, `debug`, or `trace`).
   #[arg(long, env = "LOG_LEVEL")]
   pub log_level: Option<String>,
+
+  /// Health IPC endpoint (Unix socket path, or Windows named pipe). Empty disables.
+  #[arg(long, env = "HEALTH_SOCKET")]
+  pub health_socket: Option<String>,
+
+  #[command(subcommand)]
+  pub command: Option<Command>,
+}
+
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum Command {
+  /// Probe the health endpoint and exit 0/1/2.
+  Health {
+    /// Override health endpoint for this probe only.
+    #[arg(long, env = "HEALTH_SOCKET")]
+    health_socket: Option<String>,
+
+    /// Path to the TOML config file (used if endpoint not given).
+    #[arg(long, short = 'c', env = "CONFIG_PATH", default_value = DEFAULT_CONFIG_PATH)]
+    config: PathBuf,
+  },
 }
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
   pub log_level: String,
+  pub health_socket: Option<String>,
   pub defaults: Defaults,
   pub accounts: Vec<AccountConfig>,
 }
@@ -106,6 +128,10 @@ pub fn load(cli: &Cli) -> Result<AppConfig, ConfigError> {
     file.log_level = level.clone();
   }
 
+  if let Some(socket) = &cli.health_socket {
+    file.health_socket = Some(socket.clone());
+  }
+
   // Simple level names only; full EnvFilter syntax is handled in `log::init`.
   if let Ok(rust_log) = std::env::var("RUST_LOG") {
     match rust_log.to_ascii_lowercase().as_str() {
@@ -116,10 +142,37 @@ pub fn load(cli: &Cli) -> Result<AppConfig, ConfigError> {
     }
   }
 
-  let (log_level, defaults, accounts) = resolve::resolve_config(file)?;
+  let (log_level, health_socket, defaults, accounts) = resolve::resolve_config(file)?;
   Ok(AppConfig {
     log_level,
+    health_socket,
     defaults,
     accounts,
   })
+}
+
+/// Health endpoint only; does not require accounts (for the `health` subcommand).
+pub fn load_health_endpoint(
+  config_path: &Path,
+  cli_override: Option<&str>,
+) -> Result<Option<String>, ConfigError> {
+  if let Some(v) = cli_override.map(str::trim).filter(|s| !s.is_empty()) {
+    return Ok(Some(v.to_string()));
+  }
+
+  let mut figment = Figment::from(Serialized::defaults(FileConfig::default()));
+  let is_default_path = config_path.as_os_str() == DEFAULT_CONFIG_PATH;
+  if config_path.exists() {
+    figment = figment.merge(Toml::file(config_path));
+  } else if !is_default_path {
+    return Err(ConfigError::ConfigNotFound(config_path.to_path_buf()));
+  }
+
+  let mut file: FileConfig = figment.extract()?;
+  env::apply_flat_env_overrides(&mut file);
+  Ok(normalize_health_socket(file.health_socket))
+}
+
+pub(crate) fn normalize_health_socket(raw: Option<String>) -> Option<String> {
+  raw.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }

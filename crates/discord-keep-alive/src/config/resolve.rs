@@ -40,11 +40,12 @@ fn custom_status_configured(cs: &FileCustomStatus) -> bool {
 
 pub fn resolve_config(
   file: FileConfig,
-) -> Result<(String, Defaults, Vec<AccountConfig>), ConfigError> {
+) -> Result<(String, Option<String>, Defaults, Vec<AccountConfig>), ConfigError> {
   let log_level = file.log_level.clone();
+  let health_socket = super::normalize_health_socket(file.health_socket);
   let defaults = resolve_defaults(file.defaults);
   let accounts = resolve_accounts(file.account, file.accounts)?;
-  Ok((log_level, defaults, accounts))
+  Ok((log_level, health_socket, defaults, accounts))
 }
 
 fn resolve_defaults(raw: FileDefaults) -> Defaults {
@@ -301,7 +302,7 @@ mod tests {
       ..Default::default()
     };
 
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     assert_eq!(accounts.len(), 2);
     assert_eq!(accounts[0].name, "from-env");
     assert_eq!(accounts[0].token, "flat-token");
@@ -322,7 +323,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     assert_eq!(accounts[0].kind, AccountKind::Bot);
     assert_eq!(accounts[0].device, None);
   }
@@ -351,7 +352,7 @@ mod tests {
       }],
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].name, "only");
   }
@@ -365,7 +366,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].token, "solo");
     assert_eq!(accounts[0].name, "account-0");
@@ -392,7 +393,7 @@ mod tests {
       }],
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].name, "only");
   }
@@ -451,7 +452,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     assert_eq!(accounts[0].activities.len(), 3);
     assert_eq!(accounts[0].activities[0].application_id, "1");
     assert_eq!(accounts[0].activities[0].party.id, "1");
@@ -487,7 +488,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     let names: Vec<_> = accounts[0]
       .activities
       .iter()
@@ -519,7 +520,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     assert_eq!(accounts[0].activities.len(), 1);
     assert_eq!(accounts[0].activities[0].name.as_deref(), Some("kept"));
   }
@@ -537,7 +538,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(user).unwrap();
+    let (_, _, _, accounts) = resolve_config(user).unwrap();
     let cs = accounts[0].custom_status.as_ref().unwrap();
     assert_eq!(cs.text.as_deref(), Some("brb"));
     assert_eq!(cs.emoji.as_deref(), Some("💤"));
@@ -554,7 +555,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(bot).unwrap();
+    let (_, _, _, accounts) = resolve_config(bot).unwrap();
     assert!(accounts[0].custom_status.is_none());
   }
 
@@ -571,7 +572,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(file).unwrap();
     assert!(accounts[0].custom_status.is_none());
   }
 
@@ -667,7 +668,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, defaults, _) = resolve_config(file).unwrap();
+    let (_, _, defaults, _) = resolve_config(file).unwrap();
     assert_eq!(defaults, Defaults::builtin());
   }
 
@@ -701,7 +702,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, defaults, _) = resolve_config(file).unwrap();
+    let (_, _, defaults, _) = resolve_config(file).unwrap();
     let builtin = Defaults::builtin();
 
     assert_eq!(defaults.bot.os, "FreeBSD");

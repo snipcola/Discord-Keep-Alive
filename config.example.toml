@@ -89,3 +89,5 @@ log_level = "info"
 # browser = "Discord iOS"
 # device = "iPhone"
 # user_agent = ""
+
+# health_socket = "/tmp/dka-health.sock"      # optional; unix: socket path, windows: named pipe; off when unset

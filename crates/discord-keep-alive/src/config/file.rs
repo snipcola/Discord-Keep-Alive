@@ -6,6 +6,9 @@ pub struct FileConfig {
   pub log_level: String,
 
   #[serde(default)]
+  pub health_socket: Option<String>,
+
+  #[serde(default)]
   pub defaults: FileDefaults,
 
   #[serde(default)]
@@ -24,6 +27,7 @@ impl Default for FileConfig {
   fn default() -> Self {
     Self {
       log_level: default_log_level(),
+      health_socket: None,
       defaults: FileDefaults::default(),
       accounts: Vec::new(),
       account: FileAccount::default(),

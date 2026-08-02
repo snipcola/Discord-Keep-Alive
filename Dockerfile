@@ -39,4 +39,9 @@ LABEL org.opencontainers.image.source="https://code.snipcola.st/snipcola/Discord
 COPY --from=builder --chown=65532:65532 /app/discord-keep-alive /discord-keep-alive
 
 USER 65532:65532
+
+ENV HEALTH_SOCKET=/dev/shm/dka-health.sock
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=2s --retries=3 \
+  CMD ["/discord-keep-alive", "health"]
+
 ENTRYPOINT ["/discord-keep-alive"]

@@ -2,6 +2,7 @@ mod connect;
 mod dispatch;
 mod identify;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -16,6 +17,7 @@ use crate::gateway::payload::GatewayPayload;
 use crate::gateway::properties::Defaults;
 use crate::gateway::reconnect::{backoff_with_jitter, resume_ws_url};
 use crate::gateway::{GATEWAY_HOST, gateway_url};
+use crate::health::HealthState;
 
 use self::connect::connect_and_run;
 
@@ -25,6 +27,8 @@ type WsWrite = SplitSink<WsStream, Message>;
 type WsRead = SplitStream<WsStream>;
 
 struct SessionState {
+  account_name: String,
+  health: Option<Arc<HealthState>>,
   seq: Option<i64>,
   session_id: Option<String>,
   resume_url: Option<String>,
@@ -33,8 +37,10 @@ struct SessionState {
 }
 
 impl SessionState {
-  fn new() -> Self {
+  fn new(account_name: String, health: Option<Arc<HealthState>>) -> Self {
     Self {
+      account_name,
+      health,
       seq: None,
       session_id: None,
       resume_url: None,
@@ -50,7 +56,14 @@ impl SessionState {
     self.session_id = None;
     self.resume_url = None;
     self.seq = None;
-    self.session_healthy = false;
+    self.set_healthy(false);
+  }
+
+  fn set_healthy(&mut self, healthy: bool) {
+    self.session_healthy = healthy;
+    if let Some(health) = &self.health {
+      health.set_live(&self.account_name, healthy);
+    }
   }
 }
 
@@ -70,13 +83,15 @@ enum SessionEnd {
 pub async fn run_session(
   account: AccountConfig,
   defaults: Defaults,
+  health: Option<Arc<HealthState>>,
   mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
-  let mut state = SessionState::new();
+  let mut state = SessionState::new(account.name.clone(), health);
   let mut attempt: u32 = 0;
 
   loop {
     if *shutdown.borrow() {
+      state.set_healthy(false);
       info!("disconnected");
       return Ok(());
     }
@@ -88,14 +103,16 @@ pub async fn run_session(
     };
 
     debug!("connecting to {}", display_ws_url(&connect_url));
-    state.session_healthy = false;
+    state.set_healthy(false);
 
     match connect_and_run(&account, &defaults, &mut state, &connect_url, &mut shutdown).await {
       Ok(SessionEnd::Shutdown) => {
+        state.set_healthy(false);
         info!("disconnected");
         return Ok(());
       }
       Ok(SessionEnd::Fatal { code, reason }) => {
+        state.set_healthy(false);
         error!(code, reason = %reason, "session stopped (fatal close)");
         return Ok(());
       }
@@ -137,6 +154,8 @@ async fn schedule_reconnect(
   let was_healthy = state.session_healthy;
   if clear_session {
     state.clear_session();
+  } else {
+    state.set_healthy(false);
   }
   if was_healthy {
     *attempt = 0;

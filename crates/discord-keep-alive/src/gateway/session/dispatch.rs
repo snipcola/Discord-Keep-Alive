@@ -74,17 +74,17 @@ pub(super) async fn handle_payload(
           if let Some(info) = ReadyInfo::from_ready_data(&payload.d) {
             state.session_id = Some(info.session_id.clone());
             state.resume_url = Some(info.resume_gateway_url.clone());
-            state.session_healthy = true;
+            state.set_healthy(true);
             info!("logged in as {}", info.display_name());
           } else {
-            state.session_healthy = true;
+            state.set_healthy(true);
             info!("logged in");
           }
           apply_presence(account, write, presence_applied).await?;
           Ok(PayloadAction::Continue)
         }
         "RESUMED" => {
-          state.session_healthy = true;
+          state.set_healthy(true);
           info!("session resumed");
           if !*presence_applied {
             apply_presence(account, write, presence_applied).await?;
