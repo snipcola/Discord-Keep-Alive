@@ -2,8 +2,11 @@ name: Release
 
 on:
   push:
-    branches:
-      - release
+    branches: [release]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -15,51 +18,73 @@ jobs:
       PLATFORMS: linux/amd64,linux/arm64
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6.0.1
+      - uses: actions/checkout@v7.0.1
 
-      - name: Setup QEMU
-        uses: docker/setup-qemu-action@v3.7.0
+      - uses: actions/cache@v6.1.0
         with:
-          cache-image: false
+          path: ~/.rustup
+          key: rustup-toolchain-${{ hashFiles('rust-toolchain.toml') }}
 
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3.12.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
 
-      - name: Get Version
-        uses: saionaro/extract-package-version@v1.3.0
-        id: version
+      - name: Resolve version & image names
+        id: meta
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "discord-keep-alive") | .version')"
+          test -n "${version}" && test "${version}" != "null"
+          {
+            echo "version=${version}"
+            echo "local=${EXTERNAL_SERVER_DOMAIN}/${{ vars.USERNAME }}/${NAME}"
+            echo "ghcr=ghcr.io/${{ vars.GH_USERNAME }}/${NAME}"
+            echo "docker=docker.io/${{ vars.DH_USERNAME }}/${NAME}"
+          } >> "${GITHUB_OUTPUT}"
 
-      - name: Login to Local Registry
-        uses: docker/login-action@v3.7.0
+      - uses: docker/setup-buildx-action@v4.2.0
+        with:
+          driver-opts: |
+            network=${{ env.DOCKER_NETWORK }}
+
+      - name: Login to local registry
+        uses: docker/login-action@v4.6.0
         with:
           registry: ${{ env.EXTERNAL_SERVER_DOMAIN }}
           username: ${{ vars.USERNAME }}
           password: ${{ secrets.AUTH }}
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3.7.0
+      - name: Login to GHCR
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ vars.GH_USERNAME }}
           password: ${{ secrets.GH_AUTH }}
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3.7.0
+        uses: docker/login-action@v4.6.0
         with:
           registry: docker.io
           username: ${{ vars.DH_USERNAME }}
           password: ${{ secrets.DH_AUTH }}
 
-      - name: Build & Push to Registries
-        uses: docker/build-push-action@v6.18.0
+      - name: Build & push
+        uses: docker/build-push-action@v7.3.0
         with:
-          tags: |
-            ${{ env.EXTERNAL_SERVER_DOMAIN }}/${{ vars.USERNAME }}/${{ env.NAME }}:latest
-            ghcr.io/${{ vars.GH_USERNAME }}/${{ env.NAME }}:${{ steps.version.outputs.version }}
-            ghcr.io/${{ vars.GH_USERNAME }}/${{ env.NAME }}:latest
-            docker.io/${{ vars.DH_USERNAME }}/${{ env.NAME }}:${{ steps.version.outputs.version }}
-            docker.io/${{ vars.DH_USERNAME }}/${{ env.NAME }}:latest
+          context: .
+          file: ./Dockerfile
           platforms: ${{ env.PLATFORMS }}
           push: true
-          context: .
+          provenance: false
+          sbom: false
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            REVISION=${{ github.sha }}
+          tags: |
+            ${{ steps.meta.outputs.local }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.local }}:latest
+            ${{ steps.meta.outputs.ghcr }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.ghcr }}:latest
+            ${{ steps.meta.outputs.docker }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.docker }}:latest
+          cache-from: type=gha,scope=${{ env.NAME }}
+          cache-to: type=gha,mode=max,scope=${{ env.NAME }}

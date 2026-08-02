@@ -1,11 +1,6 @@
-node_modules
-
-.dockerignore
-dockerfile
-
-.git
-.gitignore
-.gitea
-
-.env*
-README.md
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates
+!crates/**

@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/discord-keep-alive"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+license = "ISC"
+authors = ["snipcola"]
+repository = "https://code.snipcola.st/snipcola/Discord-Keep-Alive"
+
+[workspace.dependencies]
+dka-presence = { path = "crates/dka-presence" }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+
+thiserror = "2.0.19"
+anyhow = "1.0.104"
+
+tokio = { version = "1.53.1", default-features = false, features = [ "rt-multi-thread", "macros", "signal", "time", "sync", "net" ] }
+tokio-tungstenite = { version = "0.30.0", features = [ "connect", "rustls-tls-webpki-roots" ] }
+rustls = { version = "0.23.43", default-features = false, features = [ "std", "tls12", "ring" ] }
+futures-util = { version = "0.3.33", default-features = false, features = [ "sink", "std" ] }
+
+figment = { version = "0.10.19", features = [ "toml", "env" ] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = [ "env-filter", "fmt", "ansi" ] }
+clap = { version = "4.6.5", default-features = false, features = [ "std", "derive", "env", "help", "usage", "error-context" ] }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = true
+panic = "abort"

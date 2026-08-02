@@ -1,91 +1,44 @@
-# Discord-Keep-Alive
+# Discord Keep-Alive
 
-Keeps your discord account online. You can also set a custom status or activity.
+Keeps Discord accounts online, with optional status and presence.
 
-## Prerequisites
+## Run
 
-Make sure the following are installed:
+Deployment using environment variables for configuration:
 
-- [bun](https://bun.sh)
+```bash
+docker run --rm \
+  -e TOKEN=your-token \
+  -e DEVICE=desktop \
+  -e STATUS=online \
+  code.snipcola.st/snipcola/discord-keep-alive:latest
+```
 
-## Instructions
+Alternatively, using a config file (see [`config.example.toml`](./config.example.toml) for reference):
 
-1. **Clone Project**
+```bash
+docker run --rm \
+  -v "$PWD/config.toml:/config.toml:ro" \
+  -e CONFIG_PATH=/config.toml \
+  code.snipcola.st/snipcola/discord-keep-alive:latest
+```
 
-   Run the following in a terminal:
+Compose example: [`docker-compose.example.yaml`](./docker-compose.example.yaml).
 
-   ```
-   git clone https://code.snipcola.st/snipcola/Discord-Keep-Alive
-   ```
+### From source
 
-2. **Install Dependencies**
+```bash
+git clone https://code.snipcola.st/snipcola/Discord-Keep-Alive
+cd Discord-Keep-Alive
+cp config.example.toml config.toml
+# Configure at least a token before continuing.
+cargo run --release
+```
 
-   `cd` into the cloned directory and run `bun install`.
+## Configure
 
-3. **Configuration**
+For in-depth configuration, see [`config.example.toml`](./config.example.toml).
 
-   Create an `.env` file in the root of the directory with the following variables:
-   - `TOKEN` Discord account token. Required.
-   - `DEVICE` One of the following:
-     - `web` (default)
-     - `desktop`
-     - `mobile`
-
-   To change the status:
-   - `STATUS` One of the following:
-     - `online`
-     - `idle`
-     - `invisible`
-     - `dnd`
-
-   To set an activity:
-   - `ACTIVITY` Activity name or custom status.
-   - `ACTIVITY_TYPE` One of the following:
-     - `custom` (custom status)
-     - `playing`
-     - `streaming`
-     - `listening`
-     - `watching`
-     - `competing`
-     - `hang`
-
-   The following variables will only apply if `ACTIVITY_TYPE` is `custom`.
-   - `ACTIVITY_EMOJI` Emoji or emoji id.
-
-   The following variables will only apply if `ACTIVITY_TYPE` is **not** `custom`.
-   - `ACTIVITY_PLATFORM` One of the following:
-     - `desktop`
-     - `samsung`
-     - `xbox`
-     - `ios`
-     - `android`
-     - `embedded`
-     - `ps4`
-     - `ps5`
-   - `ACTIVITY_TIMESTAMP` Timestamp of when the activity started.
-   - `ACTIVITY_APPLICATION_ID` Activity application id, `1` by default.
-   - `ACTIVITY_DETAILS` Activity description.
-   - `ACTIVITY_URL` Media URL, if streaming.
-   - `ACTIVITY_LARGE_IMAGE` Large image, can be a discord cdn url.
-   - `ACTIVITY_LARGE_IMAGE_TEXT` Pop-up text when large image is hovered.
-   - `ACTIVITY_SMALL_IMAGE` Small image, can be a discord cdn url.
-   - `ACTIVITY_SMALL_IMAGE_TEXT` Pop-up text when small image is hovered.
-
-   To add a button to the activity:
-   - `ACTIVITY_BUTTON` Button text.
-   - `ACTIVITY_BUTTON_URL` Button URL.
-
-   **Tip:** For a second button, use `ACTIVITY_BUTTON_2` and `ACTIVITY_BUTTON_2_URL`.
-
-   To set a "party" for the activity:
-   - `ACTIVITY_PARTY_ID` Activity party id, `1` by default.
-   - `ACTIVITY_PARTY_CURRENT` Amount of current users.
-   - `ACTIVITY_PARTY_MAX` Amount of max users.
-
-4. **Start**
-
-   Run `bun run .`
-
-## Credits
-
-- [discord-sb.js](https://github.com/sqlu/discord-sb.js), fork of discord.js for self bots.
+- Configuration values take priority in this order: environment variables -> config file values -> hardcoded defaults.
+- The config file path is, by default, `./config.toml` (override with `--config` or `CONFIG_PATH`).
+- For bots, user-only options (device, custom status, images, buttons, and so on) are ignored, and only one activity is sent, due to gateway limitations.

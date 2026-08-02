@@ -1,0 +1,43 @@
+# Copy to docker-compose.yaml (or: docker compose -f docker-compose.example.yaml up -d).
+
+services:
+  discord-keep-alive:
+    image: code.snipcola.st/snipcola/discord-keep-alive:latest
+    restart: unless-stopped
+    environment:
+      TOKEN: ${TOKEN:?set TOKEN}
+      # NAME: primary                # default: account-<index>
+      # KIND: user                   # user (default) | bot
+      # DEVICE: desktop              # user only: web (default) | desktop | mobile
+      # STATUS: online               # online (default) | dnd | idle | invisible
+      # CUSTOM_STATUS_TEXT: afk      # user only
+      # CUSTOM_STATUS_EMOJI: 💤      # user only
+      # ACTIVITY: Keep Alive         # first activity name
+      # ACTIVITY_TYPE: playing       # playing | streaming | listening | watching | competing | hang
+      # ACTIVITY_0: Spotify          # extra activities (like ACCOUNT_N_*)
+      # ACTIVITY_0_TYPE: listening
+      LOG_LEVEL: info                # error | warn | info | debug | trace
+
+      # extra accounts
+      # ACCOUNT_0_TOKEN: ${ACCOUNT_0_TOKEN:?set ACCOUNT_0_TOKEN}
+      # ACCOUNT_0_NAME: primary
+      # ACCOUNT_0_KIND: user
+      # ACCOUNT_0_DEVICE: desktop
+      # ACCOUNT_0_STATUS: online
+      # ACCOUNT_0_CUSTOM_STATUS_TEXT: afk
+      # ACCOUNT_0_ACTIVITY: Rust
+      # ACCOUNT_0_ACTIVITY_TYPE: playing
+      # ACCOUNT_0_ACTIVITY_0: Music
+      # ACCOUNT_0_ACTIVITY_0_TYPE: listening
+      # ACCOUNT_1_TOKEN: ${ACCOUNT_1_TOKEN:?set ACCOUNT_1_TOKEN}
+      # ACCOUNT_1_NAME: bot
+      # ACCOUNT_1_KIND: bot
+      # ACCOUNT_1_STATUS: online
+
+    # config file (optional; env is simpler for docker)
+    # for file-only config, remove TOKEN above (compose requires it if left set)
+    # volumes:
+    #   - ./config.toml:/config.toml:ro
+    # environment:
+    #   CONFIG_PATH: /config.toml
+    #   LOG_LEVEL: info

@@ -1,0 +1,91 @@
+# Copy to config.toml (or set CONFIG_PATH / --config).
+
+log_level = "info"
+
+# token = "your-token"
+# name = "primary"                            # default: account-<index>
+# kind = "user"                               # user (default) | bot
+# device = "desktop"                          # user only: web (default) | desktop | mobile
+# status = "online"                           # online (default) | dnd | idle | invisible
+
+# [custom_status]                             # user only; can be used with activities
+# text = "Keep Alive"                         # required to show a custom status
+# emoji = "✨"                                # optional
+
+# [activity]                                  # first activity (also used by env vars)
+# name = "Keep Alive"                         # required for this entry
+# type = "playing"                            # playing | streaming | listening | watching | competing | hang
+# platform = "desktop"                        # user only: desktop | samsung | xbox | ios | android | embedded | ps4 | ps5
+# timestamp = "1700000000"                    # user only; activity start time (unix seconds)
+# application_id = "1"                        # user only; default: 1, 2, 3… per activity
+# details = "details text"                    # user: details line; bot: status text under the name
+# url = "https://twitch.tv/example"           # streaming only (Twitch or YouTube)
+# large_image = "https://…"                   # user only
+# large_image_text = "Large"                  # user only
+# small_image = "mp:external/…"               # user only
+# small_image_text = "Small"                  # user only
+# button = "Website"                          # user only; needs button_url as well
+# button_url = "https://example.com"
+# button2 = "Docs"
+# button2_url = "https://example.com/docs"
+# party_id = "1"                              # user only; default: 1, 2, 3… per activity
+# party_current = "1"                         # user only; needs party_max as well
+# party_max = "4"
+
+# [[activities]]                              # more activities (users; bots use the first only)
+# name = "Spotify"
+# type = "listening"
+# details = "Track name"
+
+# [[accounts]]                                # more accounts
+# name = "primary"
+# token = "your-token"
+# kind = "user"
+# device = "desktop"
+# status = "online"
+
+# [accounts.custom_status]
+# text = "afk"
+# emoji = "💤"
+
+# [accounts.activity]
+# name = "Rust"
+# type = "playing"
+
+# [[accounts.activities]]
+# name = "Music"
+# type = "listening"
+
+# [[accounts]]
+# name = "bot"
+# token = "your-bot-token"
+# kind = "bot"
+# status = "online"
+
+# [accounts.activity]
+# name = "Keep Alive"
+# type = "playing"
+
+# [defaults.bot]                              # identify + gateway user-agent (optional overrides)
+# os = "linux"
+# browser = "discord-keep-alive"
+# device = "discord-keep-alive"
+# user_agent = ""
+
+# [defaults.web]
+# os = "Windows"
+# browser = "Firefox"
+# device = ""
+# user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:153.0) Gecko/20100101 Firefox/153.0"
+
+# [defaults.desktop]
+# os = "Windows"
+# browser = "Discord Client"
+# device = "Discord Client"
+# user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9250 Chrome/148.0.7778.280 Electron/42.7.1 Safari/537.36"
+
+# [defaults.mobile]
+# os = "iOS"
+# browser = "Discord iOS"
+# device = "iPhone"
+# user_agent = ""
