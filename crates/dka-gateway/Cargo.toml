@@ -1,6 +1,6 @@
 [package]
-name = "discord-keep-alive"
-description = "Keep Discord accounts online with optional presence"
+name = "dka-gateway"
+description = "Discord gateway session client for Discord-Keep-Alive"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,19 +10,14 @@ publish = false
 
 [dependencies]
 dka-presence.workspace = true
-dka-gateway.workspace = true
-dka-runtime.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true
 
-thiserror.workspace = true
 anyhow.workspace = true
 
 tokio.workspace = true
-rustls.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
-figment.workspace = true
-clap.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true

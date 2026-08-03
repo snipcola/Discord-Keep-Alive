@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "aho-corasick"
-version = "1.1.4"
+version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
+checksum = "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
 dependencies = [
  "memchr",
 ]
@@ -165,17 +165,31 @@ version = "0.3.2"
 dependencies = [
  "anyhow",
  "clap",
+ "dka-gateway",
  "dka-presence",
+ "dka-runtime",
  "figment",
- "futures-util",
  "rustls",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "dka-gateway"
+version = "0.3.2"
+dependencies = [
+ "anyhow",
+ "dka-presence",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
 ]
 
 [[package]]
@@ -183,6 +197,16 @@ name = "dka-presence"
 version = "0.3.2"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "dka-runtime"
+version = "0.3.2"
+dependencies = [
+ "anyhow",
+ "dka-gateway",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

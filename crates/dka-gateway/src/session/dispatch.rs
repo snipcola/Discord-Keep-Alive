@@ -8,14 +8,12 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 use tracing::{debug, info, trace, warn};
 
-use crate::config::AccountConfig;
-use crate::gateway::payload::{
+use crate::payload::{
   GatewayPayload, OP_DISPATCH, OP_HEARTBEAT, OP_HEARTBEAT_ACK, OP_HELLO, OP_INVALID_SESSION,
   OP_PRESENCE_UPDATE, OP_RECONNECT, ReadyInfo,
 };
-use crate::gateway::presence::build_and_log_presence;
 
-use super::{SessionState, WsWrite, send_json};
+use super::{SessionParams, SessionState, WsWrite, send_json};
 
 pub(super) enum PayloadAction {
   Continue,
@@ -26,7 +24,7 @@ pub(super) enum PayloadAction {
 }
 
 pub(super) async fn handle_payload(
-  account: &AccountConfig,
+  params: &SessionParams,
   state: &mut SessionState,
   payload: &GatewayPayload,
   seq_cell: &Arc<AtomicI64>,
@@ -80,14 +78,14 @@ pub(super) async fn handle_payload(
             state.set_healthy(true);
             info!("logged in");
           }
-          apply_presence(account, write, presence_applied).await?;
+          apply_presence(params, write, presence_applied).await?;
           Ok(PayloadAction::Continue)
         }
         "RESUMED" => {
           state.set_healthy(true);
           info!("session resumed");
           if !*presence_applied {
-            apply_presence(account, write, presence_applied).await?;
+            apply_presence(params, write, presence_applied).await?;
           }
           Ok(PayloadAction::Continue)
         }
@@ -105,12 +103,15 @@ pub(super) async fn handle_payload(
 }
 
 async fn apply_presence(
-  account: &AccountConfig,
+  params: &SessionParams,
   write: &mut WsWrite,
   presence_applied: &mut bool,
 ) -> Result<()> {
-  let data = build_and_log_presence(account);
-  send_json(write, &GatewayPayload::new(OP_PRESENCE_UPDATE, data)).await?;
+  send_json(
+    write,
+    &GatewayPayload::new(OP_PRESENCE_UPDATE, params.presence.clone()),
+  )
+  .await?;
   *presence_applied = true;
   Ok(())
 }

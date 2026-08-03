@@ -7,7 +7,9 @@ use super::file::{
   FileAccount, FileActivity, FileClientProperties, FileConfig, FileCustomStatus, FileDefaults,
 };
 use super::{AccountConfig, ConfigError};
-use crate::gateway::properties::{ClientProperties, Defaults};
+use dka_gateway::properties::{ClientProperties, Defaults};
+
+use crate::defaults::product_defaults;
 
 fn nonempty(s: Option<&str>) -> Option<&str> {
   s.map(str::trim).filter(|s| !s.is_empty())
@@ -49,7 +51,7 @@ pub fn resolve_config(
 }
 
 fn resolve_defaults(raw: FileDefaults) -> Defaults {
-  let mut defaults = Defaults::builtin();
+  let mut defaults = product_defaults();
   apply_client_property_overrides(&mut defaults.bot, raw.bot);
   apply_client_property_overrides(&mut defaults.web, raw.web);
   apply_client_property_overrides(&mut defaults.desktop, raw.desktop);
@@ -669,7 +671,7 @@ mod tests {
       ..Default::default()
     };
     let (_, _, defaults, _) = resolve_config(file).unwrap();
-    assert_eq!(defaults, Defaults::builtin());
+    assert_eq!(defaults, product_defaults());
   }
 
   #[test]
@@ -703,7 +705,7 @@ mod tests {
       ..Default::default()
     };
     let (_, _, defaults, _) = resolve_config(file).unwrap();
-    let builtin = Defaults::builtin();
+    let builtin = product_defaults();
 
     assert_eq!(defaults.bot.os, "FreeBSD");
     assert_eq!(defaults.bot.browser, builtin.bot.browser);
@@ -718,7 +720,7 @@ mod tests {
     assert_eq!(defaults.desktop, builtin.desktop);
     assert_eq!(
       defaults.desktop.user_agent.as_deref(),
-      Some(crate::gateway::properties::DEFAULT_DESKTOP_UA)
+      Some(crate::defaults::DEFAULT_DESKTOP_UA)
     );
 
     assert_eq!(defaults.mobile.os, builtin.mobile.os);

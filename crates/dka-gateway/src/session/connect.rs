@@ -16,14 +16,12 @@ use tokio_tungstenite::{
 };
 use tracing::{Instrument, Span, debug, error, warn};
 
-use crate::config::AccountConfig;
-use crate::gateway::heartbeat::{HeartbeatCmd, heartbeat_loop};
-use crate::gateway::payload::{GatewayPayload, OP_HEARTBEAT, OP_RESUME};
-use crate::gateway::properties::Defaults;
+use crate::heartbeat::{HeartbeatCmd, heartbeat_loop};
+use crate::payload::{GatewayPayload, OP_HEARTBEAT, OP_RESUME};
 
 use super::dispatch::{PayloadAction, handle_payload};
 use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_for_hello};
-use super::{SessionEnd, SessionState, WsStream, send_json};
+use super::{SessionEnd, SessionParams, SessionState, WsStream, send_json};
 
 // 4004 auth failed; 4010-4014 shard/intent/API fatals.
 fn is_fatal_close_code(code: u16) -> bool {
@@ -36,8 +34,7 @@ fn resume_after_close(code: u16) -> bool {
 }
 
 pub(super) async fn connect_and_run(
-  account: &AccountConfig,
-  defaults: &Defaults,
+  params: &SessionParams,
   state: &mut SessionState,
   url: &str,
   shutdown: &mut watch::Receiver<bool>,
@@ -46,22 +43,31 @@ pub(super) async fn connect_and_run(
     return Ok(SessionEnd::Shutdown);
   }
 
-  let user_agent = defaults
-    .client_properties(account.kind, account.device)
-    .user_agent
-    .as_deref();
-  let (ws, _) = connect_gateway(url, user_agent).await?;
+  let user_agent = params.properties.user_agent.as_deref();
+  let connect = connect_gateway(url, user_agent);
+  tokio::pin!(connect);
+  let (ws, _) = loop {
+    tokio::select! {
+      biased;
+      changed = shutdown.changed() => {
+        if changed.is_err() || *shutdown.borrow() {
+          return Ok(SessionEnd::Shutdown);
+        }
+      }
+      result = &mut connect => break result?,
+    }
+  };
   let (mut write, mut read) = ws.split();
 
   if *shutdown.borrow() {
-    graceful_disconnect(&mut write, &mut read, false, account.kind).await;
+    graceful_disconnect(&mut write, &mut read, false, params.kind).await;
     return Ok(SessionEnd::Shutdown);
   }
 
   let hello = match wait_for_hello(&mut read, shutdown).await {
     Ok(hello) => hello,
     Err(HelloWaitError::Shutdown) => {
-      graceful_disconnect(&mut write, &mut read, false, account.kind).await;
+      graceful_disconnect(&mut write, &mut read, false, params.kind).await;
       return Ok(SessionEnd::Shutdown);
     }
     Err(HelloWaitError::Other(err)) => return Err(err),
@@ -91,7 +97,7 @@ pub(super) async fn connect_and_run(
       &GatewayPayload::new(
         OP_RESUME,
         json!({
-          "token": account.token,
+          "token": params.token,
           "session_id": session_id,
           "seq": seq,
         }),
@@ -100,7 +106,7 @@ pub(super) async fn connect_and_run(
     .await?;
     debug!("resume sent");
   } else {
-    send_identify(&mut write, account, defaults).await?;
+    send_identify(&mut write, params).await?;
     debug!("identify sent");
   }
 
@@ -116,8 +122,8 @@ pub(super) async fn connect_and_run(
     tokio::select! {
       biased;
 
-      _ = shutdown.changed() => {
-        if *shutdown.borrow() {
+      changed = shutdown.changed() => {
+        if changed.is_err() || *shutdown.borrow() {
           end = SessionEnd::Shutdown;
           break;
         }
@@ -157,7 +163,7 @@ pub(super) async fn connect_and_run(
               let payload = GatewayPayload::from_json(&text)
                 .context("decode gateway payload")?;
               match handle_payload(
-                account,
+                params,
                 state,
                 &payload,
                 &seq_cell,
@@ -227,7 +233,7 @@ pub(super) async fn connect_and_run(
 
   match &end {
     SessionEnd::Shutdown => {
-      graceful_disconnect(&mut write, &mut read, presence_applied, account.kind).await;
+      graceful_disconnect(&mut write, &mut read, presence_applied, params.kind).await;
     }
     SessionEnd::Reconnect { .. } | SessionEnd::Fatal { .. } => {
       let _ = write.close().await;

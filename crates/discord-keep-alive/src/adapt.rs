@@ -1,22 +1,45 @@
-use dka_presence::build_presence_data;
-use serde_json::Value;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use dka_gateway::SessionParams;
+use dka_gateway::properties::Defaults;
+use dka_presence::{build_presence_data, pin_default_activity_timestamps};
 use tracing::{debug, info};
 
 use crate::config::AccountConfig;
 
-pub fn build_and_log_presence(account: &AccountConfig) -> Value {
-  log_presence_summary(account);
-  build_presence_data(
+pub fn session_params(mut account: AccountConfig, defaults: &Defaults) -> SessionParams {
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|d| d.as_secs() as i64)
+    .unwrap_or(0);
+  pin_default_activity_timestamps(&mut account.activities, now);
+
+  log_presence_summary(&account);
+
+  let presence = build_presence_data(
     account.status,
     account.custom_status.as_ref(),
     &account.activities,
     false,
     None,
     account.kind,
-  )
+  );
+
+  let properties = defaults
+    .client_properties(account.kind, account.device)
+    .clone();
+
+  SessionParams {
+    name: account.name,
+    token: account.token,
+    kind: account.kind,
+    presence,
+    properties,
+  }
 }
 
 fn log_presence_summary(account: &AccountConfig) {
+  let account_name = account.name.as_str();
   let status = account
     .status
     .map(|s| s.to_string())
@@ -48,22 +71,30 @@ fn log_presence_summary(account: &AccountConfig) {
 
   match (custom_text, rich_summary.is_empty()) {
     (Some(text), true) => {
-      info!("presence {status} ({kind}/{device}), custom {text}");
+      info!(
+        account = %account_name,
+        "presence config: {status} ({kind}/{device}), custom {text}"
+      );
     }
     (Some(text), false) => {
       info!(
-        "presence {status} ({kind}/{device}), custom {text}, {}",
+        account = %account_name,
+        "presence config: {status} ({kind}/{device}), custom {text}, {}",
         rich_summary.join(", ")
       );
     }
     (None, false) => {
       info!(
-        "presence {status} ({kind}/{device}), {}",
+        account = %account_name,
+        "presence config: {status} ({kind}/{device}), {}",
         rich_summary.join(", ")
       );
     }
     (None, true) => {
-      info!("presence {status} ({kind}/{device})");
+      info!(
+        account = %account_name,
+        "presence config: {status} ({kind}/{device})"
+      );
     }
   }
 
@@ -73,6 +104,7 @@ fn log_presence_summary(account: &AccountConfig) {
 
   if let Some(cs) = &account.custom_status {
     debug!(
+      account = %account_name,
       text = cs.text.as_deref().unwrap_or("-"),
       emoji = cs.emoji.as_deref().unwrap_or("-"),
       "custom status"
@@ -81,6 +113,7 @@ fn log_presence_summary(account: &AccountConfig) {
 
   for (i, act) in account.activities.iter().enumerate() {
     debug!(
+      account = %account_name,
       index = i,
       name = act.name.as_deref().unwrap_or("-"),
       r#type = act

@@ -1,29 +1,26 @@
 use std::sync::Arc;
 
+use dka_gateway::{LiveSink, SessionParams, run_session};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tracing::{Instrument, error, info, info_span};
 
-use crate::config::AccountConfig;
-use crate::gateway::properties::Defaults;
-use crate::gateway::run_session;
 use crate::health::HealthState;
 
-pub async fn run(
-  accounts: Vec<AccountConfig>,
-  defaults: Defaults,
+/// Run one gateway session task per account until all exit.
+pub async fn run_accounts(
+  accounts: Vec<SessionParams>,
   health: Option<Arc<HealthState>>,
   shutdown: watch::Receiver<bool>,
 ) {
   let mut set = JoinSet::new();
 
-  for account in accounts {
+  for params in accounts {
     let rx = shutdown.clone();
-    let defaults = defaults.clone();
     let health = health.clone();
-    info!(account = %account.name, "starting session");
+    info!(account = %params.name, "starting session");
     set.spawn(async move {
-      run_account(account, defaults, health, rx).await;
+      run_account(params, health, rx).await;
     });
   }
 
@@ -35,16 +32,20 @@ pub async fn run(
 }
 
 async fn run_account(
-  account: AccountConfig,
-  defaults: Defaults,
+  params: SessionParams,
   health: Option<Arc<HealthState>>,
   shutdown: watch::Receiver<bool>,
 ) {
-  let name = account.name.clone();
+  let name = params.name.clone();
   let span = info_span!("session", account = %name);
 
   async move {
-    if let Err(err) = run_session(account, defaults, health, shutdown).await {
+    let account_name = params.name.clone();
+    let on_live: LiveSink = match health {
+      Some(state) => Box::new(move |live| state.set_live(&account_name, live)),
+      None => Box::new(|_| {}),
+    };
+    if let Err(err) = run_session(params, on_live, shutdown).await {
       error!(error = %err, "session failed");
     }
   }

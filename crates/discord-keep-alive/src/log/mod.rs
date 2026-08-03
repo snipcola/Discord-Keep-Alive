@@ -10,7 +10,7 @@ use self::format::HumanFormat;
 
 /// Init tracing.
 ///
-/// Prefer `RUST_LOG` (full EnvFilter syntax) when set; else this crate at the configured
+/// Prefer `RUST_LOG` (full EnvFilter syntax) when set; else workspace crates at the configured
 /// level (`LOG_LEVEL` / `--log-level` / config), with noisy deps muted. Color only on a TTY.
 pub fn init(log_level: &str) {
   let filter =
@@ -28,7 +28,7 @@ pub fn init(log_level: &str) {
 fn default_filter(level: &str) -> String {
   let level = normalize_level(level);
   format!(
-    "discord_keep_alive={level},tokio=warn,tokio_tungstenite=warn,tungstenite=warn,rustls=warn"
+    "discord_keep_alive={level},dka_gateway={level},dka_runtime={level},tokio=warn,tokio_tungstenite=warn,tungstenite=warn,rustls=warn"
   )
 }
 

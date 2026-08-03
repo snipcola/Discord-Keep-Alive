@@ -2,3 +2,8 @@
 t = "test --workspace"
 c = "clippy --workspace --all-targets -- -D warnings"
 f = "fmt --all"
+ck = "check --workspace"
+b = "build -p discord-keep-alive"
+br = "build -p discord-keep-alive --release"
+r = "run -p discord-keep-alive"
+rr = "run -p discord-keep-alive --release"

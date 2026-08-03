@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, MissedTickBehavior, interval, sleep};
 use tracing::trace;
 
-use super::reconnect::unit_f64;
+use crate::reconnect::unit_f64;
 
 pub enum HeartbeatCmd {
   Send { seq: Value },
@@ -28,8 +28,8 @@ pub async fn heartbeat_loop(
   let jitter_ms = (interval_ms as f64 * unit_f64()) as u64;
   tokio::select! {
     _ = sleep(Duration::from_millis(jitter_ms)) => {}
-    _ = shutdown.changed() => {
-      if *shutdown.borrow() {
+    changed = shutdown.changed() => {
+      if changed.is_err() || *shutdown.borrow() {
         return;
       }
     }
@@ -43,8 +43,8 @@ pub async fn heartbeat_loop(
 
   loop {
     tokio::select! {
-      _ = shutdown.changed() => {
-        if *shutdown.borrow() {
+      changed = shutdown.changed() => {
+        if changed.is_err() || *shutdown.borrow() {
           return;
         }
       }

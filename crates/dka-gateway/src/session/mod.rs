@@ -2,23 +2,21 @@ mod connect;
 mod dispatch;
 mod identify;
 
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::Result;
-use dka_presence::pin_default_activity_timestamps;
+use dka_presence::AccountKind;
 use futures_util::stream::{SplitSink, SplitStream};
+use serde_json::Value;
 use tokio::sync::watch;
 use tokio::time::sleep;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info};
 
-use crate::config::AccountConfig;
-use crate::gateway::payload::GatewayPayload;
-use crate::gateway::properties::Defaults;
-use crate::gateway::reconnect::{backoff_with_jitter, resume_ws_url};
-use crate::gateway::{GATEWAY_HOST, gateway_url};
-use crate::health::HealthState;
+use crate::payload::GatewayPayload;
+use crate::properties::ClientProperties;
+use crate::reconnect::{backoff_with_jitter, resume_ws_url};
+use crate::{GATEWAY_HOST, gateway_url};
 
 use self::connect::connect_and_run;
 
@@ -27,9 +25,20 @@ type WsStream =
 type WsWrite = SplitSink<WsStream, Message>;
 type WsRead = SplitStream<WsStream>;
 
+/// One gateway session's inputs. Presence is a finished JSON value.
+#[derive(Debug, Clone)]
+pub struct SessionParams {
+  pub name: String,
+  pub token: String,
+  pub kind: AccountKind,
+  pub presence: Value,
+  pub properties: ClientProperties,
+}
+
+pub type LiveSink = Box<dyn FnMut(bool) + Send>;
+
 struct SessionState {
-  account_name: String,
-  health: Option<Arc<HealthState>>,
+  on_live: LiveSink,
   seq: Option<i64>,
   session_id: Option<String>,
   resume_url: Option<String>,
@@ -38,10 +47,9 @@ struct SessionState {
 }
 
 impl SessionState {
-  fn new(account_name: String, health: Option<Arc<HealthState>>) -> Self {
+  fn new(on_live: LiveSink) -> Self {
     Self {
-      account_name,
-      health,
+      on_live,
       seq: None,
       session_id: None,
       resume_url: None,
@@ -62,9 +70,7 @@ impl SessionState {
 
   fn set_healthy(&mut self, healthy: bool) {
     self.session_healthy = healthy;
-    if let Some(health) = &self.health {
-      health.set_live(&self.account_name, healthy);
-    }
+    (self.on_live)(healthy);
   }
 }
 
@@ -82,18 +88,11 @@ enum SessionEnd {
 }
 
 pub async fn run_session(
-  mut account: AccountConfig,
-  defaults: Defaults,
-  health: Option<Arc<HealthState>>,
+  params: SessionParams,
+  on_live: LiveSink,
   mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
-  let now = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map(|d| d.as_secs() as i64)
-    .unwrap_or(0);
-  pin_default_activity_timestamps(&mut account.activities, now);
-
-  let mut state = SessionState::new(account.name.clone(), health);
+  let mut state = SessionState::new(on_live);
   let mut attempt: u32 = 0;
 
   loop {
@@ -112,7 +111,7 @@ pub async fn run_session(
     debug!("connecting to {}", display_ws_url(&connect_url));
     state.set_healthy(false);
 
-    match connect_and_run(&account, &defaults, &mut state, &connect_url, &mut shutdown).await {
+    match connect_and_run(&params, &mut state, &connect_url, &mut shutdown).await {
       Ok(SessionEnd::Shutdown) => {
         state.set_healthy(false);
         info!("disconnected");
@@ -205,7 +204,7 @@ async fn wait_or_shutdown(delay: Duration, shutdown: &mut watch::Receiver<bool>)
   }
   tokio::select! {
     _ = sleep(delay) => false,
-    _ = shutdown.changed() => *shutdown.borrow(),
+    changed = shutdown.changed() => changed.is_err() || *shutdown.borrow(),
   }
 }
 

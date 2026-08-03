@@ -13,13 +13,10 @@ use tracing::{debug, trace};
 
 use dka_presence::AccountKind;
 
-use crate::config::AccountConfig;
-use crate::gateway::payload::{
-  GatewayPayload, HelloData, OP_HELLO, OP_IDENTIFY, OP_PRESENCE_UPDATE,
-};
-use crate::gateway::properties::{Defaults, identify_properties};
+use crate::payload::{GatewayPayload, HelloData, OP_HELLO, OP_IDENTIFY, OP_PRESENCE_UPDATE};
+use crate::properties::identify_properties;
 
-use super::{WsRead, WsWrite, send_json};
+use super::{SessionParams, WsRead, WsWrite, send_json};
 
 /// Best-effort shutdown: optional offline presence, then close handshake.
 pub(super) async fn graceful_disconnect(
@@ -80,28 +77,16 @@ pub(super) async fn graceful_disconnect(
   let _ = write.close().await;
 }
 
-pub(super) async fn send_identify(
-  write: &mut WsWrite,
-  account: &AccountConfig,
-  defaults: &Defaults,
-) -> Result<()> {
-  // Presence is re-sent on READY so status logging still runs.
-  let presence = dka_presence::build_presence_data(
-    account.status,
-    account.custom_status.as_ref(),
-    &account.activities,
-    false,
-    None,
-    account.kind,
-  );
+pub(super) async fn send_identify(write: &mut WsWrite, params: &SessionParams) -> Result<()> {
+  // Presence is re-sent on READY so the same finished payload is applied again.
   let mut d = json!({
-    "token": account.token,
-    "properties": identify_properties(account.kind, account.device, defaults),
+    "token": params.token,
+    "properties": identify_properties(&params.properties),
     "compress": false,
     "large_threshold": 50,
-    "presence": presence,
+    "presence": params.presence.clone(),
   });
-  if account.kind == AccountKind::Bot {
+  if params.kind == AccountKind::Bot {
     d["intents"] = json!(0);
   }
   send_json(write, &GatewayPayload::new(OP_IDENTIFY, d)).await
@@ -144,8 +129,8 @@ pub(super) async fn wait_for_hello(
 
     tokio::select! {
       _ = &mut deadline => return Err(HelloWaitError::Other(anyhow::anyhow!("timed out waiting for Hello"))),
-      _ = shutdown.changed() => {
-        if *shutdown.borrow() {
+      changed = shutdown.changed() => {
+        if changed.is_err() || *shutdown.borrow() {
           return Err(HelloWaitError::Shutdown);
         }
       }

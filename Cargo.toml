@@ -12,6 +12,8 @@ repository = "https://code.snipcola.st/snipcola/Discord-Keep-Alive"
 
 [workspace.dependencies]
 dka-presence = { path = "crates/dka-presence" }
+dka-gateway = { path = "crates/dka-gateway" }
+dka-runtime = { path = "crates/dka-runtime" }
 
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

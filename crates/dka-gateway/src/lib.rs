@@ -1,11 +1,11 @@
 pub mod heartbeat;
 pub mod payload;
-pub mod presence;
 pub mod properties;
 pub mod reconnect;
 pub mod session;
 
-pub use session::run_session;
+pub use properties::{ClientProperties, Defaults, identify_properties};
+pub use session::{LiveSink, SessionParams, run_session};
 
 pub const GATEWAY_VERSION: u8 = 10;
 pub const GATEWAY_HOST: &str = "wss://gateway.discord.gg";

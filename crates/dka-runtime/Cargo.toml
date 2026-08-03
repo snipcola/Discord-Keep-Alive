@@ -1,0 +1,16 @@
+[package]
+name = "dka-runtime"
+description = "Multi-account gateway supervisor and health IPC for Discord-Keep-Alive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+dka-gateway.workspace = true
+
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true

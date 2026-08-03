@@ -1,17 +1,16 @@
+mod adapt;
 mod config;
-mod gateway;
-mod health;
+mod defaults;
 mod log;
-mod runtime;
 
 use std::time::Duration;
 
 use clap::Parser;
+use dka_runtime::HealthState;
 use tokio::sync::watch;
 use tracing::{error, info};
 
 use crate::config::{Cli, Command, load, load_health_endpoint};
-use crate::health::HealthState;
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -28,6 +27,9 @@ async fn main() {
     std::process::exit(code);
   }
 
+  let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+  spawn_shutdown_listener(shutdown_tx);
+
   rustls::crypto::ring::default_provider()
     .install_default()
     .expect("install rustls CryptoProvider");
@@ -42,9 +44,12 @@ async fn main() {
 
   log::init(&app.log_level);
 
-  info!(accounts = app.accounts.len(), "starting");
+  if *shutdown_rx.borrow() {
+    info!("shutting down");
+    return;
+  }
 
-  let (shutdown_tx, shutdown_rx) = watch::channel(false);
+  info!(accounts = app.accounts.len(), "starting");
 
   let health = app
     .health_socket
@@ -55,40 +60,53 @@ async fn main() {
   if let (Some(endpoint), Some(state)) = (app.health_socket.clone(), health.clone()) {
     let rx = shutdown_rx.clone();
     health_task = Some(tokio::spawn(async move {
-      if let Err(err) = health::serve(&endpoint, state, rx).await {
+      if let Err(err) = dka_runtime::serve(&endpoint, state, rx).await {
         error!(error = %err, "health server failed");
       }
     }));
   }
 
-  let supervisor = tokio::spawn(runtime::run(
-    app.accounts,
-    app.defaults,
+  let accounts = app
+    .accounts
+    .into_iter()
+    .map(|account| adapt::session_params(account, &app.defaults))
+    .collect();
+
+  let supervisor = tokio::spawn(dka_runtime::run_accounts(
+    accounts,
     health,
-    shutdown_rx,
+    shutdown_rx.clone(),
   ));
 
-  wait_for_shutdown_signal().await;
-  info!("shutting down");
-  let _ = shutdown_tx.send(true);
-
-  if let Some(task) = health_task {
-    let _ = task.await;
+  while !*shutdown_rx.borrow_and_update() {
+    if shutdown_rx.changed().await.is_err() {
+      break;
+    }
   }
+  info!("shutting down");
 
-  match tokio::time::timeout(SHUTDOWN_TIMEOUT, supervisor).await {
-    Ok(Ok(())) => {}
-    Ok(Err(err)) => {
-      error!(error = %err, "supervisor failed");
-      std::process::exit(1);
+  let shutdown = async {
+    if let Some(task) = health_task {
+      let _ = task.await;
     }
-    Err(_) => {
-      error!(
-        timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
-        "shutdown timed out"
-      );
-      std::process::exit(1);
+    match supervisor.await {
+      Ok(()) => {}
+      Err(err) => {
+        error!(error = %err, "supervisor failed");
+        std::process::exit(1);
+      }
     }
+  };
+
+  if tokio::time::timeout(SHUTDOWN_TIMEOUT, shutdown)
+    .await
+    .is_err()
+  {
+    error!(
+      timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
+      "shutdown timed out"
+    );
+    std::process::exit(1);
   }
 }
 
@@ -107,22 +125,47 @@ async fn run_health_probe(cli_override: Option<&str>, config_path: &std::path::P
     }
   };
 
-  health::probe(&endpoint).await
+  dka_runtime::probe(&endpoint).await
 }
 
-async fn wait_for_shutdown_signal() {
+fn spawn_shutdown_listener(shutdown_tx: watch::Sender<bool>) {
   #[cfg(unix)]
   {
     use tokio::signal::unix::{SignalKind, signal};
     let mut sigterm = signal(SignalKind::terminate()).expect("register SIGTERM");
-    tokio::select! {
-      _ = tokio::signal::ctrl_c() => {}
-      _ = sigterm.recv() => {}
-    }
+    let mut sigint = signal(SignalKind::interrupt()).expect("register SIGINT");
+    tokio::spawn(async move {
+      tokio::select! {
+        _ = sigint.recv() => {}
+        _ = sigterm.recv() => {}
+      }
+      let _ = shutdown_tx.send(true);
+    });
   }
 
-  #[cfg(not(unix))]
+  #[cfg(windows)]
   {
-    let _ = tokio::signal::ctrl_c().await;
+    use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close};
+
+    // Construct streams before spawn so console handlers are registered immediately.
+    let mut ctrl_c = ctrl_c().expect("register CTRL+C handler");
+    let mut ctrl_break = ctrl_break().expect("register CTRL+BREAK handler");
+    let mut ctrl_close = ctrl_close().expect("register CTRL+CLOSE handler");
+    tokio::spawn(async move {
+      tokio::select! {
+        _ = ctrl_c.recv() => {}
+        _ = ctrl_break.recv() => {}
+        _ = ctrl_close.recv() => {}
+      }
+      let _ = shutdown_tx.send(true);
+    });
+  }
+
+  #[cfg(not(any(unix, windows)))]
+  {
+    tokio::spawn(async move {
+      let _ = tokio::signal::ctrl_c().await;
+      let _ = shutdown_tx.send(true);
+    });
   }
 }

@@ -73,7 +73,7 @@ impl ReadyInfo {
     let resume_gateway_url = d
       .get("resume_gateway_url")
       .and_then(|v| v.as_str())
-      .unwrap_or(crate::gateway::GATEWAY_HOST)
+      .unwrap_or(crate::GATEWAY_HOST)
       .to_string();
 
     Some(Self {

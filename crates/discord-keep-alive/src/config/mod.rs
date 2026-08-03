@@ -17,7 +17,7 @@ use thiserror::Error;
 
 pub use file::FileConfig;
 
-use crate::gateway::properties::Defaults;
+use dka_gateway::properties::Defaults;
 
 const DEFAULT_CONFIG_PATH: &str = "config.toml";
 

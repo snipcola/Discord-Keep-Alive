@@ -58,8 +58,8 @@ mod platform {
       }
 
       tokio::select! {
-        _ = shutdown.changed() => {
-          if *shutdown.borrow() {
+        changed = shutdown.changed() => {
+          if changed.is_err() || *shutdown.borrow() {
             break;
           }
         }
@@ -131,8 +131,8 @@ mod platform {
         .with_context(|| format!("create health pipe {name}"))?;
 
       tokio::select! {
-        _ = shutdown.changed() => {
-          if *shutdown.borrow() {
+        changed = shutdown.changed() => {
+          if changed.is_err() || *shutdown.borrow() {
             break;
           }
         }

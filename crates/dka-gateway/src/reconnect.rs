@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use super::gateway_query;
+use crate::gateway_query;
 
 const MAX_BACKOFF_SECS: u64 = 90;
 
@@ -88,7 +88,7 @@ mod tests {
 
   #[test]
   fn resume_url_appends_query() {
-    let query = crate::gateway::gateway_query();
+    let query = crate::gateway_query();
     assert_eq!(
       resume_ws_url("wss://gateway-us-east1-b.discord.gg"),
       format!("wss://gateway-us-east1-b.discord.gg/?{query}")
