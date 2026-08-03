@@ -1,0 +1,122 @@
+name: Cargo publish meta
+description: Package version, publish decision, and image base refs
+
+inputs:
+  package_name:
+    required: true
+  image_name:
+    required: true
+  event_name:
+    description: Original event from the orchestrator (not workflow_call)
+    required: true
+  release_marker:
+    description: Subject substring that forces a same-version publish
+    required: false
+    default: "#release"
+  local_registry:
+    required: true
+  local_user:
+    required: true
+  gh_user:
+    required: true
+  dh_user:
+    required: true
+
+outputs:
+  version:
+    value: ${{ steps.meta.outputs.version }}
+  changed:
+    value: ${{ steps.meta.outputs.changed }}
+  reason:
+    value: ${{ steps.meta.outputs.reason }}
+  local:
+    value: ${{ steps.meta.outputs.local }}
+  ghcr:
+    value: ${{ steps.meta.outputs.ghcr }}
+  docker:
+    value: ${{ steps.meta.outputs.docker }}
+
+runs:
+  using: composite
+  steps:
+    - id: meta
+      shell: bash
+      env:
+        EVENT_NAME: ${{ inputs.event_name }}
+        PACKAGE_NAME: ${{ inputs.package_name }}
+        IMAGE_NAME: ${{ inputs.image_name }}
+        RELEASE_MARKER: ${{ inputs.release_marker }}
+        LOCAL_REGISTRY: ${{ inputs.local_registry }}
+        LOCAL_USER: ${{ inputs.local_user }}
+        GH_USER: ${{ inputs.gh_user }}
+        DH_USER: ${{ inputs.dh_user }}
+      run: |
+        set -euo pipefail
+
+        workspace_version() {
+          awk '
+            /^\[workspace\.package\]/ { in_pkg = 1; next }
+            /^\[/ { in_pkg = 0 }
+            in_pkg && /^version[[:space:]]*=/ {
+              if (match($0, /"[^"]+"/)) {
+                print substr($0, RSTART + 1, RLENGTH - 2)
+                exit
+              }
+            }
+          '
+        }
+
+        version="$(cargo metadata --format-version 1 --no-deps \
+          | jq -r --arg name "${PACKAGE_NAME}" '.packages[] | select(.name == $name) | .version')"
+        test -n "${version}" && test "${version}" != "null"
+
+        reason=""
+        prev=""
+        parent=""
+        if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+          reason="workflow_dispatch"
+        elif ! git rev-parse --verify -q HEAD^ >/dev/null; then
+          reason="no-previous-version"
+        else
+          parent="$(git rev-parse HEAD^)"
+          if ! git cat-file -e "${parent}:Cargo.toml" 2>/dev/null; then
+            echo "Parent commit ${parent} has no Cargo.toml; refusing to publish." >&2
+            exit 1
+          fi
+          prev="$(git show "${parent}:Cargo.toml" | workspace_version || true)"
+          if [ -z "${prev}" ]; then
+            echo "Could not read workspace version from ${parent}:Cargo.toml; refusing to publish." >&2
+            exit 1
+          fi
+
+          if [ "${prev}" != "${version}" ]; then
+            reason="version:${prev}->${version}"
+          elif git log -1 --format=%s HEAD | grep -qF "${RELEASE_MARKER}"; then
+            reason="commit-marker"
+          fi
+        fi
+
+        if [ -n "${reason}" ]; then
+          changed=true
+        else
+          changed=false
+        fi
+
+        {
+          echo "version=${version}"
+          echo "changed=${changed}"
+          echo "reason=${reason}"
+          echo "local=${LOCAL_REGISTRY}/${LOCAL_USER}/${IMAGE_NAME}"
+          echo "ghcr=ghcr.io/${GH_USER}/${IMAGE_NAME}"
+          echo "docker=docker.io/${DH_USER}/${IMAGE_NAME}"
+        } >> "${GITHUB_OUTPUT}"
+
+        if [ "${changed}" = true ]; then
+          if [ -n "${parent}" ]; then
+            echo "Publishing ${version} (${reason}; parent=${parent})."
+          else
+            echo "Publishing ${version} (${reason})."
+          fi
+        else
+          echo "No version change and no ${RELEASE_MARKER} marker (${prev}@${parent} == ${version}); skipping image publish."
+        fi

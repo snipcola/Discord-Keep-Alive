@@ -1,0 +1,12 @@
+name: Setup Rust
+description: Cache rustup and install the repo toolchain
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v6.1.0
+      with:
+        path: ~/.rustup
+        key: rustup-toolchain-${{ hashFiles('rust-toolchain.toml') }}
+
+    - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0

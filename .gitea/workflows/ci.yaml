@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # PRs only: never cancel a main/manual publish mid-run.
+
+jobs:
+  check:
+    uses: ./.gitea/workflows/check.yaml
+
+  release:
+    needs: check
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    uses: ./.gitea/workflows/release.yaml
+    with:
+      package_name: discord-keep-alive
+      image_name: discord-keep-alive
+      platforms: linux/amd64,linux/arm64
+      local_user: ${{ vars.USERNAME }}
+      gh_user: ${{ vars.GH_USERNAME }}
+      dh_user: ${{ vars.DH_USERNAME }}
+      event_name: ${{ github.event_name }} # Callees see event_name=workflow_call; pass the real trigger.
+    secrets:
+      local_password: ${{ secrets.AUTH }}
+      ghcr_password: ${{ secrets.GH_AUTH }}
+      dockerhub_password: ${{ secrets.DH_AUTH }}

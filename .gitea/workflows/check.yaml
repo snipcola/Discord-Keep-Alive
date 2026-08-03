@@ -1,28 +1,22 @@
 name: Check
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-
-concurrency:
-  group: check-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      runs_on:
+        type: string
+        required: false
+        default: ubuntu
 
 jobs:
   check:
     name: Check
-    runs-on: ubuntu
+    runs-on: ${{ inputs.runs_on }}
 
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - uses: actions/cache@v6.1.0
-        with:
-          path: ~/.rustup
-          key: rustup-toolchain-${{ hashFiles('rust-toolchain.toml') }}
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+      - uses: ./.gitea/actions/setup-rust
 
       - name: Format
         run: cargo fmt --all -- --check

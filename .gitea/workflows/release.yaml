@@ -1,90 +1,194 @@
 name: Release
 
 on:
-  push:
-    branches: [release]
-
-concurrency:
-  group: release
-  cancel-in-progress: false
+  workflow_call:
+    inputs:
+      package_name:
+        type: string
+        required: true
+      image_name:
+        type: string
+        required: true
+      platforms:
+        type: string
+        required: true
+      local_registry:
+        type: string
+        required: false
+        default: ""
+      local_user:
+        type: string
+        required: true
+      gh_user:
+        type: string
+        required: true
+      dh_user:
+        type: string
+        required: true
+      event_name:
+        type: string
+        required: true
+      release_marker:
+        type: string
+        required: false
+        default: "#release"
+      dockerfile:
+        type: string
+        required: false
+        default: "./Dockerfile"
+      context:
+        type: string
+        required: false
+        default: "."
+      runs_on:
+        type: string
+        required: false
+        default: ubuntu
+      docker_network:
+        type: string
+        required: false
+        default: ""
+      publish_local:
+        type: boolean
+        required: false
+        default: true
+      publish_ghcr:
+        type: boolean
+        required: false
+        default: true
+      publish_dockerhub:
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      local_password:
+        required: false
+      ghcr_password:
+        required: false
+      dockerhub_password:
+        required: false
 
 jobs:
   release:
     name: Build & Push
-    runs-on: ubuntu
-
-    env:
-      NAME: discord-keep-alive
-      PLATFORMS: linux/amd64,linux/arm64
+    runs-on: ${{ inputs.runs_on }}
 
     steps:
       - uses: actions/checkout@v7.0.1
-
-      - uses: actions/cache@v6.1.0
         with:
-          path: ~/.rustup
-          key: rustup-toolchain-${{ hashFiles('rust-toolchain.toml') }}
+          fetch-depth: 2 # HEAD + first parent for version compare.
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+      - uses: ./.gitea/actions/setup-rust
 
-      - name: Resolve version & image names
-        id: meta
+      - name: Resolve registry env
+        id: reg
+        env:
+          INPUT_LOCAL_REGISTRY: ${{ inputs.local_registry }}
+          INPUT_DOCKER_NETWORK: ${{ inputs.docker_network }}
         run: |
           set -euo pipefail
-          version="$(cargo metadata --format-version 1 --no-deps \
-            | jq -r '.packages[] | select(.name == "discord-keep-alive") | .version')"
-          test -n "${version}" && test "${version}" != "null"
+          local_registry="${INPUT_LOCAL_REGISTRY:-${EXTERNAL_SERVER_DOMAIN:-}}"
+          docker_network="${INPUT_DOCKER_NETWORK:-${DOCKER_NETWORK:-}}"
           {
-            echo "version=${version}"
-            echo "local=${EXTERNAL_SERVER_DOMAIN}/${{ vars.USERNAME }}/${NAME}"
-            echo "ghcr=ghcr.io/${{ vars.GH_USERNAME }}/${NAME}"
-            echo "docker=docker.io/${{ vars.DH_USERNAME }}/${NAME}"
+            echo "local_registry=${local_registry}"
+            echo "docker_network=${docker_network}"
           } >> "${GITHUB_OUTPUT}"
 
-      - uses: docker/setup-buildx-action@v4.2.0
+      - name: Version & publish decision
+        id: meta
+        uses: ./.gitea/actions/cargo-publish-meta
         with:
-          driver-opts: |
-            network=${{ env.DOCKER_NETWORK }}
+          package_name: ${{ inputs.package_name }}
+          image_name: ${{ inputs.image_name }}
+          event_name: ${{ inputs.event_name }}
+          release_marker: ${{ inputs.release_marker }}
+          local_registry: ${{ steps.reg.outputs.local_registry }}
+          local_user: ${{ inputs.local_user }}
+          gh_user: ${{ inputs.gh_user }}
+          dh_user: ${{ inputs.dh_user }}
 
-      - name: Login to local registry
-        uses: docker/login-action@v4.6.0
+      - name: Publish plan
+        id: plan
+        if: steps.meta.outputs.changed == 'true'
+        env:
+          PUBLISH_LOCAL: ${{ inputs.publish_local }}
+          PUBLISH_GHCR: ${{ inputs.publish_ghcr }}
+          PUBLISH_DOCKERHUB: ${{ inputs.publish_dockerhub }}
+          LOCAL_REF: ${{ steps.meta.outputs.local }}
+          GHCR_REF: ${{ steps.meta.outputs.ghcr }}
+          DOCKER_REF: ${{ steps.meta.outputs.docker }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          DOCKER_NETWORK: ${{ steps.reg.outputs.docker_network }}
+        run: |
+          set -euo pipefail
+          any=false
+          tags=()
+          if [ "${PUBLISH_LOCAL}" = "true" ]; then
+            any=true
+            tags+=("${LOCAL_REF}:${VERSION}" "${LOCAL_REF}:latest")
+          fi
+          if [ "${PUBLISH_GHCR}" = "true" ]; then
+            any=true
+            tags+=("${GHCR_REF}:${VERSION}" "${GHCR_REF}:latest")
+          fi
+          if [ "${PUBLISH_DOCKERHUB}" = "true" ]; then
+            any=true
+            tags+=("${DOCKER_REF}:${VERSION}" "${DOCKER_REF}:latest")
+          fi
+          driver_opts=""
+          if [ -n "${DOCKER_NETWORK}" ]; then
+            driver_opts="network=${DOCKER_NETWORK}"
+          fi
+          IFS=,
+          {
+            echo "any=${any}"
+            echo "tags=${tags[*]}"
+            echo "driver_opts=${driver_opts}"
+          } >> "${GITHUB_OUTPUT}"
+          unset IFS
+
+      - uses: ./.gitea/actions/docker-buildx
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
         with:
-          registry: ${{ env.EXTERNAL_SERVER_DOMAIN }}
-          username: ${{ vars.USERNAME }}
-          password: ${{ secrets.AUTH }}
+          driver-opts: ${{ steps.plan.outputs.driver_opts }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v4.6.0
+      - name: Login (local)
+        if: steps.meta.outputs.changed == 'true' && inputs.publish_local
+        uses: ./.gitea/actions/docker-login
+        with:
+          registry: ${{ steps.reg.outputs.local_registry }}
+          username: ${{ inputs.local_user }}
+          password: ${{ secrets.local_password }}
+
+      - name: Login (GHCR)
+        if: steps.meta.outputs.changed == 'true' && inputs.publish_ghcr
+        uses: ./.gitea/actions/docker-login
         with:
           registry: ghcr.io
-          username: ${{ vars.GH_USERNAME }}
-          password: ${{ secrets.GH_AUTH }}
+          username: ${{ inputs.gh_user }}
+          password: ${{ secrets.ghcr_password }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4.6.0
+      - name: Login (Docker Hub)
+        if: steps.meta.outputs.changed == 'true' && inputs.publish_dockerhub
+        uses: ./.gitea/actions/docker-login
         with:
           registry: docker.io
-          username: ${{ vars.DH_USERNAME }}
-          password: ${{ secrets.DH_AUTH }}
+          username: ${{ inputs.dh_user }}
+          password: ${{ secrets.dockerhub_password }}
 
       - name: Build & push
-        uses: docker/build-push-action@v7.3.0
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
+        uses: ./.gitea/actions/docker-build-push
         with:
-          context: .
-          file: ./Dockerfile
-          platforms: ${{ env.PLATFORMS }}
-          push: true
-          provenance: false
-          sbom: false
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: "true"
+          provenance: "false"
+          sbom: "false"
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             REVISION=${{ github.sha }}
-          tags: |
-            ${{ steps.meta.outputs.local }}:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.local }}:latest
-            ${{ steps.meta.outputs.ghcr }}:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.ghcr }}:latest
-            ${{ steps.meta.outputs.docker }}:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.docker }}:latest
-          cache-from: type=gha,scope=${{ env.NAME }}
-          cache-to: type=gha,mode=max,scope=${{ env.NAME }}
+          tags: ${{ steps.plan.outputs.tags }}
+          cache-from: type=gha,scope=${{ inputs.image_name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}
