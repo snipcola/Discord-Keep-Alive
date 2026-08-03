@@ -29,9 +29,10 @@ on:
       dh_user:
         type: string
         required: true
-      event_name:
-        type: string
-        required: true
+      force_release:
+        type: boolean
+        required: false
+        default: false
       release_marker:
         type: string
         required: false
@@ -104,7 +105,7 @@ jobs:
         with:
           package_name: ${{ inputs.package_name }}
           image_name: ${{ inputs.image_name }}
-          event_name: ${{ inputs.event_name }}
+          force_release: ${{ inputs.force_release }}
           release_marker: ${{ inputs.release_marker }}
           local_registry: ${{ steps.reg.outputs.local_registry }}
           local_user: ${{ inputs.local_user }}

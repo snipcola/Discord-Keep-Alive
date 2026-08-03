@@ -6,9 +6,10 @@ inputs:
     required: true
   image_name:
     required: true
-  event_name:
-    description: Original event from the orchestrator (not workflow_call)
-    required: true
+  force_release:
+    description: Publish even without version bump or release marker
+    required: false
+    default: "false"
   release_marker:
     description: Subject substring that forces a same-version publish
     required: false
@@ -42,7 +43,7 @@ runs:
     - id: meta
       shell: bash
       env:
-        EVENT_NAME: ${{ inputs.event_name }}
+        FORCE_RELEASE: ${{ inputs.force_release }}
         PACKAGE_NAME: ${{ inputs.package_name }}
         IMAGE_NAME: ${{ inputs.image_name }}
         RELEASE_MARKER: ${{ inputs.release_marker }}
@@ -73,8 +74,8 @@ runs:
         reason=""
         prev=""
         parent=""
-        if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
-          reason="workflow_dispatch"
+        if [ "${FORCE_RELEASE}" = "true" ]; then
+          reason="force-release"
         elif ! git rev-parse --verify -q HEAD^ >/dev/null; then
           reason="no-previous-version"
         else

@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: Force image publish even without version bump or release marker
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -16,7 +22,9 @@ jobs:
 
   release:
     needs: check
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || github.event_name == 'workflow_dispatch'
     uses: ./.gitea/workflows/release.yaml
     with:
       package_name: discord-keep-alive
@@ -25,7 +33,7 @@ jobs:
       local_user: ${{ vars.USERNAME }}
       gh_user: ${{ vars.GH_USERNAME }}
       dh_user: ${{ vars.DH_USERNAME }}
-      event_name: ${{ github.event_name }} # Callees see event_name=workflow_call; pass the real trigger.
+      force_release: ${{ (github.event_name == 'workflow_dispatch' && inputs.release) || false }}
     secrets:
       local_password: ${{ secrets.AUTH }}
       ghcr_password: ${{ secrets.GH_AUTH }}
