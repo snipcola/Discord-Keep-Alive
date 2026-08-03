@@ -54,22 +54,36 @@ runs:
       run: |
         set -euo pipefail
 
-        workspace_version() {
-          awk '
-            /^\[workspace\.package\]/ { in_pkg = 1; next }
-            /^\[/ { in_pkg = 0 }
-            in_pkg && /^version[[:space:]]*=/ {
-              if (match($0, /"[^"]+"/)) {
-                print substr($0, RSTART + 1, RLENGTH - 2)
-                exit
-              }
-            }
-          '
+        package_version() {
+          cargo metadata --format-version 1 --no-deps --manifest-path "${1}/Cargo.toml" \
+            | jq -er --arg name "${PACKAGE_NAME}" '.packages[] | select(.name == $name) | .version'
         }
 
-        version="$(cargo metadata --format-version 1 --no-deps \
-          | jq -r --arg name "${PACKAGE_NAME}" '.packages[] | select(.name == $name) | .version')"
-        test -n "${version}" && test "${version}" != "null"
+        package_version_at() {
+          local commit="$1" tree version rc=0
+
+          tree="$(mktemp -d)"
+          rmdir "${tree}"
+
+          if ! git worktree add --detach "${tree}" "${commit}" >/dev/null 2>&1; then
+            echo "Could not create worktree for ${commit}; refusing to publish." >&2
+            return 1
+          fi
+
+          version="$(package_version "${tree}")" || rc=$?
+          git worktree remove --force "${tree}" 2>/dev/null || true
+          rm -rf "${tree}"
+
+          if [ "${rc}" -ne 0 ]; then
+            return "${rc}"
+          fi
+          printf '%s\n' "${version}"
+        }
+
+        version="$(package_version .)" || {
+          echo "Could not resolve ${PACKAGE_NAME} version from HEAD; refusing to publish." >&2
+          exit 1
+        }
 
         reason=""
         prev=""
@@ -80,15 +94,10 @@ runs:
           reason="no-previous-version"
         else
           parent="$(git rev-parse HEAD^)"
-          if ! git cat-file -e "${parent}:Cargo.toml" 2>/dev/null; then
-            echo "Parent commit ${parent} has no Cargo.toml; refusing to publish." >&2
+          prev="$(package_version_at "${parent}")" || {
+            echo "Could not resolve ${PACKAGE_NAME} version from ${parent}; refusing to publish." >&2
             exit 1
-          fi
-          prev="$(git show "${parent}:Cargo.toml" | workspace_version || true)"
-          if [ -z "${prev}" ]; then
-            echo "Could not read workspace version from ${parent}:Cargo.toml; refusing to publish." >&2
-            exit 1
-          fi
+          }
 
           if [ "${prev}" != "${version}" ]; then
             reason="version:${prev}->${version}"
