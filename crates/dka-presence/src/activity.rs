@@ -137,6 +137,15 @@ impl ActivityConfig {
   }
 }
 
+pub fn pin_default_activity_timestamps(activities: &mut [ActivityConfig], now: i64) {
+  let now = now.to_string();
+  for activity in activities {
+    if activity.timestamp.as_deref().is_none_or(|ts| ts.is_empty()) {
+      activity.timestamp = Some(now.clone());
+    }
+  }
+}
+
 // Discord only accepts name, type, state, and url for bot activities.
 fn build_bot_activity(name: &str, cfg: &ActivityConfig) -> Value {
   let ty = match cfg.activity_type {
@@ -221,9 +230,9 @@ pub fn build_rich_presence(name: &str, cfg: &ActivityConfig) -> Value {
   }
 
   if let Some(ts) = cfg.timestamp.as_deref().filter(|s| !s.is_empty())
-    && let Ok(start) = ts.parse::<i64>()
+    && let Ok(start_secs) = ts.parse::<i64>()
   {
-    activity["timestamps"] = json!({ "start": start });
+    activity["timestamps"] = json!({ "start": start_secs.saturating_mul(1000) });
   }
 
   if let Some(details) = cfg.details.as_deref().filter(|s| !s.is_empty()) {
@@ -457,9 +466,50 @@ mod tests {
     };
     let v = cfg.to_activity(AccountKind::User).unwrap();
     assert_eq!(v["platform"], "xbox");
-    assert_eq!(v["timestamps"]["start"], 1700000000);
+    assert_eq!(v["timestamps"]["start"], 1_700_000_000_000i64);
     assert_eq!(v["details"], "Artist");
     assert_eq!(v["application_id"], "99");
+  }
+
+  #[test]
+  fn pin_default_activity_timestamps_fills_missing_and_empty() {
+    let mut activities = [
+      ActivityConfig {
+        name: Some("A".into()),
+        ..ActivityConfig::new()
+      },
+      ActivityConfig {
+        name: Some("B".into()),
+        timestamp: Some(String::new()),
+        ..ActivityConfig::new()
+      },
+      ActivityConfig {
+        name: Some("C".into()),
+        timestamp: Some("1700000000".into()),
+        ..ActivityConfig::new()
+      },
+    ];
+
+    pin_default_activity_timestamps(&mut activities, 1_800_000_000);
+
+    assert_eq!(activities[0].timestamp.as_deref(), Some("1800000000"));
+    assert_eq!(activities[1].timestamp.as_deref(), Some("1800000000"));
+    assert_eq!(activities[2].timestamp.as_deref(), Some("1700000000"));
+  }
+
+  #[test]
+  fn pin_default_activity_timestamps_is_stable() {
+    let mut activities = [ActivityConfig {
+      name: Some("A".into()),
+      ..ActivityConfig::new()
+    }];
+
+    pin_default_activity_timestamps(&mut activities, 1_800_000_000);
+    pin_default_activity_timestamps(&mut activities, 1_900_000_000);
+
+    assert_eq!(activities[0].timestamp.as_deref(), Some("1800000000"));
+    let v = activities[0].to_activity(AccountKind::User).unwrap();
+    assert_eq!(v["timestamps"]["start"], 1_800_000_000_000i64);
   }
 
   #[test]

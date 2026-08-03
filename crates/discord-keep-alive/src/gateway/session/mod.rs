@@ -3,9 +3,10 @@ mod dispatch;
 mod identify;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use dka_presence::pin_default_activity_timestamps;
 use futures_util::stream::{SplitSink, SplitStream};
 use tokio::sync::watch;
 use tokio::time::sleep;
@@ -81,11 +82,17 @@ enum SessionEnd {
 }
 
 pub async fn run_session(
-  account: AccountConfig,
+  mut account: AccountConfig,
   defaults: Defaults,
   health: Option<Arc<HealthState>>,
   mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|d| d.as_secs() as i64)
+    .unwrap_or(0);
+  pin_default_activity_timestamps(&mut account.activities, now);
+
   let mut state = SessionState::new(account.name.clone(), health);
   let mut attempt: u32 = 0;
 
