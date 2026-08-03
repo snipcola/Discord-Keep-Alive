@@ -10,6 +10,10 @@ on:
       package_name:
         type: string
         required: true
+      manifest_path:
+        type: string
+        required: false
+        default: Cargo.toml
       image_name:
         type: string
         required: true
@@ -104,6 +108,7 @@ jobs:
         uses: ./.gitea/actions/cargo-publish-meta
         with:
           package_name: ${{ inputs.package_name }}
+          manifest_path: ${{ inputs.manifest_path }}
           image_name: ${{ inputs.image_name }}
           force_release: ${{ inputs.force_release }}
           release_marker: ${{ inputs.release_marker }}
