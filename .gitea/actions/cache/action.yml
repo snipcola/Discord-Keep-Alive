@@ -1,0 +1,31 @@
+name: Cache
+description: Restore and save a cache
+
+inputs:
+  image:
+    required: false
+    default: actions/cache@v6.1.0
+  path:
+    required: true
+  key:
+    required: true
+  platform:
+    required: false
+    default: "true"
+  restore-keys:
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: ${{ inputs.image }}
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.platform == 'true' && format('{0}-{1}-{2}', runner.os, runner.arch, inputs.key) || inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}

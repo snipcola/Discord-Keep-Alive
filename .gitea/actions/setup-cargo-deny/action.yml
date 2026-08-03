@@ -1,0 +1,13 @@
+name: Setup cargo-deny
+description: Install a pinned cargo-deny
+
+inputs:
+  version:
+    required: false
+    default: "0.20.2"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: cargo install cargo-deny --locked --version "${{ inputs.version }}"

@@ -3,6 +3,10 @@ name: Check
 on:
   workflow_call:
     inputs:
+      checkout:
+        type: string
+        required: false
+        default: actions/checkout@v7.0.1
       runs_on:
         type: string
         required: false
@@ -14,9 +18,14 @@ jobs:
     runs-on: ${{ inputs.runs_on }}
 
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: ${{ inputs.checkout }}
 
       - uses: ./.gitea/actions/setup-rust
+
+      - uses: ./.gitea/actions/setup-cargo-deny
+
+      - name: Deny
+        run: cargo deny check
 
       - name: Format
         run: cargo fmt --all -- --check

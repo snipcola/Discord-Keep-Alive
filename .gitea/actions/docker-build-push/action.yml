@@ -2,6 +2,9 @@ name: Docker Build Push
 description: Build and push a multi-platform image
 
 inputs:
+  image:
+    required: false
+    default: docker/build-push-action@v7.3.0
   context:
     required: false
     default: "."
@@ -36,7 +39,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: docker/build-push-action@v7.3.0
+    - uses: ${{ inputs.image }}
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.file }}

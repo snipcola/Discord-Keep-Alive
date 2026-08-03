@@ -3,6 +3,10 @@ name: Release
 on:
   workflow_call:
     inputs:
+      checkout:
+        type: string
+        required: false
+        default: actions/checkout@v7.0.1
       package_name:
         type: string
         required: true
@@ -74,7 +78,7 @@ jobs:
     runs-on: ${{ inputs.runs_on }}
 
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: ${{ inputs.checkout }}
         with:
           fetch-depth: 2 # HEAD + first parent for version compare.
 

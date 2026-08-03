@@ -2,6 +2,9 @@ name: Docker Login
 description: Log in to a container registry
 
 inputs:
+  image:
+    required: false
+    default: docker/login-action@v4.6.0
   registry:
     required: true
   username:
@@ -12,7 +15,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: docker/login-action@v4.6.0
+    - uses: ${{ inputs.image }}
       with:
         registry: ${{ inputs.registry }}
         username: ${{ inputs.username }}

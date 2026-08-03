@@ -1,12 +1,19 @@
 name: Setup Rust
 description: Cache rustup and install the repo toolchain
 
+inputs:
+  image:
+    required: false
+    default: actions-rust-lang/setup-rust-toolchain@v1.17.0
+
 runs:
   using: composite
   steps:
-    - uses: actions/cache@v6.1.0
+    - uses: ./.gitea/actions/cache
       with:
         path: ~/.rustup
         key: rustup-toolchain-${{ hashFiles('rust-toolchain.toml') }}
 
-    - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+    - uses: ${{ inputs.image }}
+      with:
+        cache-directories: ~/.cargo/advisory-dbs

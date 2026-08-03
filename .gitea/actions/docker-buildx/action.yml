@@ -2,6 +2,9 @@ name: Docker Buildx
 description: Set up Docker Buildx
 
 inputs:
+  image:
+    required: false
+    default: docker/setup-buildx-action@v4.2.0
   driver-opts:
     required: false
     default: ""
@@ -9,6 +12,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: docker/setup-buildx-action@v4.2.0
+    - uses: ${{ inputs.image }}
       with:
         driver-opts: ${{ inputs.driver-opts }}
