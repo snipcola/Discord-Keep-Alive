@@ -21,7 +21,7 @@ pub async fn heartbeat_loop(
   seq_cell: Arc<AtomicI64>,
   shutdown: &mut watch::Receiver<bool>,
 ) {
-  // First heartbeat after interval * random(0..1); then every interval.
+  // Discord: first heartbeat after interval * random(0..1); then every interval.
   if *shutdown.borrow() {
     return;
   }
@@ -35,7 +35,7 @@ pub async fn heartbeat_loop(
     }
   }
 
-  // First tick is immediate; intentional after the jitter wait above.
+  // interval()'s first tick is immediate; intentional after the jitter sleep above.
   let mut ticker = interval(Duration::from_millis(interval_ms));
   ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 

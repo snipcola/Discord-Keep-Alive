@@ -8,36 +8,36 @@ log_level = "info"
 # device = "desktop"                          # user only: web (default) | desktop | mobile
 # status = "online"                           # online (default) | dnd | idle | invisible
 
-# [custom_status]                             # user only; can be used with activities
-# text = "Keep Alive"                         # required to show a custom status
+# [custom_status]                             # user only; can combine with activities
+# text = "Keep Alive"                         # required for custom status to show
 # emoji = "✨"                                # optional
 
-# [activity]                                  # first activity (also used by env vars)
+# [activity]                                  # first activity
 # name = "Keep Alive"                         # required for this entry
 # type = "playing"                            # playing | streaming | listening | watching | competing | hang
 # platform = "desktop"                        # user only: desktop | samsung | xbox | ios | android | embedded | ps4 | ps5
 # timestamp = "1700000000"                    # user only; unix seconds (default: process start)
 # application_id = "1"                        # user only; default: 1, 2, 3… per activity
-# details = "details text"                    # user: details line; bot: status text under the name
-# url = "https://twitch.tv/example"           # streaming only (Twitch or YouTube)
+# details = "details text"                    # user: details line; bot: text under the name
+# url = "https://twitch.tv/example"           # required for streaming (Twitch or YouTube)
 # large_image = "https://…"                   # user only
 # large_image_text = "Large"                  # user only
 # small_image = "mp:external/…"               # user only
 # small_image_text = "Small"                  # user only
-# button = "Website"                          # user only; needs button_url as well
+# button = "Website"                          # user only; also set button_url
 # button_url = "https://example.com"
 # button2 = "Docs"
 # button2_url = "https://example.com/docs"
 # party_id = "1"                              # user only; default: 1, 2, 3… per activity
-# party_current = "1"                         # user only; needs party_max as well
+# party_current = "1"                         # user only; also set party_max
 # party_max = "4"
 
-# [[activities]]                              # more activities (users; bots use the first only)
+# [[activities]]                              # extra activities (users; bots use the first only)
 # name = "Spotify"
 # type = "listening"
 # details = "Track name"
 
-# [[accounts]]                                # more accounts
+# [[accounts]]                                # extra accounts
 # name = "primary"
 # token = "your-token"
 # kind = "user"
@@ -66,7 +66,7 @@ log_level = "info"
 # name = "Keep Alive"
 # type = "playing"
 
-# [defaults.bot]                              # identify + gateway user-agent (optional overrides)
+# [defaults.bot]                              # identify properties + gateway user-agent (optional)
 # os = "linux"
 # browser = "discord-keep-alive"
 # device = "discord-keep-alive"
@@ -90,4 +90,4 @@ log_level = "info"
 # device = "iPhone"
 # user_agent = ""
 
-# health_socket = "/tmp/dka-health.sock"      # optional; unix: socket path, windows: named pipe; off when unset
+# health_socket = "/tmp/dka-health.sock"      # optional; unix socket path or windows pipe name; off when unset

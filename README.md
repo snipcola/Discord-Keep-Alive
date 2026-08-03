@@ -4,7 +4,7 @@ Keeps Discord accounts online, with optional status and presence.
 
 ## Run
 
-Deployment using environment variables for configuration:
+With environment variables:
 
 ```bash
 docker run --rm \
@@ -14,7 +14,7 @@ docker run --rm \
   code.snipcola.st/snipcola/discord-keep-alive:latest
 ```
 
-Alternatively, using a config file (see [`config.example.toml`](./config.example.toml) for reference):
+Or with a config file (see [`config.example.toml`](./config.example.toml)):
 
 ```bash
 docker run --rm \
@@ -31,14 +31,14 @@ Compose example: [`docker-compose.example.yaml`](./docker-compose.example.yaml).
 git clone https://code.snipcola.st/snipcola/Discord-Keep-Alive
 cd Discord-Keep-Alive
 cp config.example.toml config.toml
-# Configure at least a token before continuing.
+# Set at least a token before running.
 cargo run --release
 ```
 
 ## Configure
 
-For in-depth configuration, see [`config.example.toml`](./config.example.toml).
+Full field reference: [`config.example.toml`](./config.example.toml).
 
-- Configuration values take priority in this order: environment variables -> config file values -> hardcoded defaults.
-- The config file path is, by default, `./config.toml` (override with `--config` or `CONFIG_PATH`).
-- For bots, user-only options (device, custom status, images, buttons, and so on) are ignored, and only one activity is sent, due to gateway limitations.
+- Precedence: **CLI > environment variables > config file > defaults**.
+- Config path defaults to `./config.toml` (override with `--config` or `CONFIG_PATH`).
+- Bots ignore user-only options (device, custom status, images, buttons, and similar) and send only one activity, due to gateway limits.

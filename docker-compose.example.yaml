@@ -14,9 +14,10 @@ services:
       # CUSTOM_STATUS_EMOJI: 💤      # user only
       # ACTIVITY: Keep Alive         # first activity name
       # ACTIVITY_TYPE: playing       # playing | streaming | listening | watching | competing | hang
-      # ACTIVITY_0: Spotify          # extra activities (like ACCOUNT_N_*)
+      # ACTIVITY_0: Spotify          # extra activities
       # ACTIVITY_0_TYPE: listening
-      LOG_LEVEL: info                # error | warn | info | debug | trace
+      LOG_LEVEL: info # error | warn | info | debug | trace
+
 
       # extra accounts
       # ACCOUNT_0_TOKEN: ${ACCOUNT_0_TOKEN:?set ACCOUNT_0_TOKEN}
@@ -34,8 +35,8 @@ services:
       # ACCOUNT_1_KIND: bot
       # ACCOUNT_1_STATUS: online
 
-    # config file (optional; env is simpler for docker)
-    # for file-only config, remove TOKEN above (compose requires it if left set)
+    # optional config file (env is usually simpler in docker)
+    # for file-only config, remove TOKEN above; compose still expands ${TOKEN:?…} if left set
     # volumes:
     #   - ./config.toml:/config.toml:ro
     # environment:

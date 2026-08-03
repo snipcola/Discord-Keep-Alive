@@ -18,7 +18,6 @@ use crate::properties::identify_properties;
 
 use super::{SessionParams, WsRead, WsWrite, send_json};
 
-/// Best-effort shutdown: optional offline presence, then close handshake.
 pub(super) async fn graceful_disconnect(
   write: &mut WsWrite,
   read: &mut WsRead,
@@ -78,7 +77,7 @@ pub(super) async fn graceful_disconnect(
 }
 
 pub(super) async fn send_identify(write: &mut WsWrite, params: &SessionParams) -> Result<()> {
-  // Presence is re-sent on READY so the same finished payload is applied again.
+  // Presence is applied again after READY/RESUMED; still send it here for the identify window.
   let mut d = json!({
     "token": params.token,
     "properties": identify_properties(&params.properties),

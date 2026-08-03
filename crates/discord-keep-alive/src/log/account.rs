@@ -6,7 +6,6 @@ use tracing_subscriber::registry::LookupSpan;
 
 use super::util::AccountField;
 
-/// Captures `account` on spans so log lines can be prefixed with the account name.
 pub(super) struct AccountLayer;
 
 #[derive(Clone)]

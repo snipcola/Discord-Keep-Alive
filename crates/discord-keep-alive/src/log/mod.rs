@@ -8,10 +8,7 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 use self::account::AccountLayer;
 use self::format::HumanFormat;
 
-/// Init tracing.
-///
-/// Prefer `RUST_LOG` (full EnvFilter syntax) when set; else workspace crates at the configured
-/// level (`LOG_LEVEL` / `--log-level` / config), with noisy deps muted. Color only on a TTY.
+/// Init tracing: `RUST_LOG` wins when set; otherwise workspace crates at `log_level` with noisy deps muted. ANSI only on a TTY.
 pub fn init(log_level: &str) {
   let filter =
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter(log_level)));

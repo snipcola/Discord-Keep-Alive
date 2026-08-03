@@ -25,7 +25,7 @@ type WsStream =
 type WsWrite = SplitSink<WsStream, Message>;
 type WsRead = SplitStream<WsStream>;
 
-/// One gateway session's inputs. Presence is a finished JSON value.
+/// Presence is finished JSON; the gateway does not rebuild it.
 #[derive(Debug, Clone)]
 pub struct SessionParams {
   pub name: String,
@@ -42,7 +42,7 @@ struct SessionState {
   seq: Option<i64>,
   session_id: Option<String>,
   resume_url: Option<String>,
-  /// True after READY/RESUMED; used to reset reconnect backoff.
+  /// After READY/RESUMED; healthy drop resets reconnect attempt counters.
   session_healthy: bool,
 }
 
@@ -78,7 +78,7 @@ enum SessionEnd {
   Shutdown,
   Reconnect {
     resume: bool,
-    /// Extra wait before backoff (e.g. after INVALID_SESSION).
+    /// Extra backoff (e.g. 2s after INVALID_SESSION).
     extra_delay: Option<Duration>,
   },
   Fatal {

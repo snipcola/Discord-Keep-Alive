@@ -3,8 +3,9 @@ use dka_presence::{
   CustomStatusConfig, Device, ImageAsset, Status,
 };
 
-use super::file::{
-  FileAccount, FileActivity, FileClientProperties, FileConfig, FileCustomStatus, FileDefaults,
+use super::partial::{
+  PartialAccount, PartialActivity, PartialClientProperties, PartialConfig, PartialCustomStatus,
+  PartialDefaults,
 };
 use super::{AccountConfig, ConfigError};
 use dka_gateway::properties::{ClientProperties, Defaults};
@@ -15,12 +16,12 @@ fn nonempty(s: Option<&str>) -> Option<&str> {
   s.map(str::trim).filter(|s| !s.is_empty())
 }
 
-// Token required so bare DEVICE/STATUS env alone does not invent an account.
-fn flat_account_configured(account: &FileAccount) -> bool {
+// Flat account requires a token; device/status alone must not invent one.
+fn flat_account_configured(account: &PartialAccount) -> bool {
   nonempty(account.token.as_deref()).is_some()
 }
 
-fn account_slot_configured(a: &FileAccount) -> bool {
+fn account_slot_configured(a: &PartialAccount) -> bool {
   nonempty(a.token.as_deref()).is_some()
     || nonempty(a.name.as_deref()).is_some()
     || nonempty(a.kind.as_deref()).is_some()
@@ -31,26 +32,30 @@ fn account_slot_configured(a: &FileAccount) -> bool {
     || a.activities.iter().any(activity_configured)
 }
 
-// Name required to emit an activity (same role token plays for accounts).
-fn activity_configured(a: &FileActivity) -> bool {
+// Name gates activities the way token gates accounts.
+fn activity_configured(a: &PartialActivity) -> bool {
   nonempty(a.name.as_deref()).is_some()
 }
 
-fn custom_status_configured(cs: &FileCustomStatus) -> bool {
+fn custom_status_configured(cs: &PartialCustomStatus) -> bool {
   nonempty(cs.text.as_deref()).is_some()
 }
 
 pub fn resolve_config(
-  file: FileConfig,
+  partial: PartialConfig,
 ) -> Result<(String, Option<String>, Defaults, Vec<AccountConfig>), ConfigError> {
-  let log_level = file.log_level.clone();
-  let health_socket = super::normalize_health_socket(file.health_socket);
-  let defaults = resolve_defaults(file.defaults);
-  let accounts = resolve_accounts(file.account, file.accounts)?;
+  let log_level = partial
+    .log_level
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
+    .unwrap_or_else(|| "info".into());
+  let health_socket = super::normalize_health_socket(partial.health_socket);
+  let defaults = resolve_defaults(partial.defaults);
+  let accounts = resolve_accounts(partial.account, partial.accounts)?;
   Ok((log_level, health_socket, defaults, accounts))
 }
 
-fn resolve_defaults(raw: FileDefaults) -> Defaults {
+fn resolve_defaults(raw: PartialDefaults) -> Defaults {
   let mut defaults = product_defaults();
   apply_client_property_overrides(&mut defaults.bot, raw.bot);
   apply_client_property_overrides(&mut defaults.web, raw.web);
@@ -59,7 +64,7 @@ fn resolve_defaults(raw: FileDefaults) -> Defaults {
   defaults
 }
 
-fn apply_client_property_overrides(dst: &mut ClientProperties, src: FileClientProperties) {
+fn apply_client_property_overrides(dst: &mut ClientProperties, src: PartialClientProperties) {
   if let Some(os) = src.os.filter(|s| !s.is_empty()) {
     dst.os = os;
   }
@@ -83,8 +88,8 @@ fn apply_client_property_overrides(dst: &mut ClientProperties, src: FileClientPr
 }
 
 fn resolve_accounts(
-  flat: FileAccount,
-  array: Vec<FileAccount>,
+  flat: PartialAccount,
+  array: Vec<PartialAccount>,
 ) -> Result<Vec<AccountConfig>, ConfigError> {
   let mut raw_accounts = Vec::new();
 
@@ -104,7 +109,7 @@ fn resolve_accounts(
       .map(str::to_string)
       .unwrap_or_else(|| format!("account-{i}"));
     let token = nonempty(raw.token.as_deref())
-      .map(str::to_string)
+      .map(super::token::SecretString::new)
       .ok_or_else(|| ConfigError::MissingToken(name.clone()))?;
 
     let kind = match nonempty(raw.kind.as_deref()) {
@@ -160,8 +165,8 @@ fn resolve_accounts(
 
 fn resolve_activities(
   account: &str,
-  singular: Option<FileActivity>,
-  array: Vec<FileActivity>,
+  singular: Option<PartialActivity>,
+  array: Vec<PartialActivity>,
 ) -> Result<Vec<ActivityConfig>, ConfigError> {
   let mut raw = Vec::new();
 
@@ -175,14 +180,14 @@ fn resolve_activities(
 
   let mut out = Vec::with_capacity(raw.len());
   for (i, act) in raw.into_iter().enumerate() {
-    // Unset application_id / party_id default to 1, 2, 3... by activity index.
+    // Unset application_id/party_id default to 1, 2, 3… by resolved order.
     let default_id = (i as u64 + 1).to_string();
     out.push(parse_activity(account, act, &default_id)?);
   }
   Ok(out)
 }
 
-fn parse_custom_status(raw: FileCustomStatus) -> CustomStatusConfig {
+fn parse_custom_status(raw: PartialCustomStatus) -> CustomStatusConfig {
   CustomStatusConfig {
     text: nonempty(raw.text.as_deref()).map(str::to_string),
     emoji: nonempty(raw.emoji.as_deref()).map(str::to_string),
@@ -206,7 +211,7 @@ fn parse_i64_field(
 
 fn parse_activity(
   account: &str,
-  raw: FileActivity,
+  raw: PartialActivity,
   default_id: &str,
 ) -> Result<ActivityConfig, ConfigError> {
   let mut activity = ActivityConfig::new();
@@ -283,9 +288,8 @@ mod tests {
 
   #[test]
   fn flat_account_prepended_before_toml_accounts() {
-    let file = FileConfig {
-      log_level: "info".into(),
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("flat-token".into()),
         name: Some("from-env".into()),
         device: Some("mobile".into()),
@@ -293,7 +297,7 @@ mod tests {
         activity: None,
         ..Default::default()
       },
-      accounts: vec![FileAccount {
+      accounts: vec![PartialAccount {
         name: Some("from-toml".into()),
         token: Some("toml-token".into()),
         device: Some("desktop".into()),
@@ -304,7 +308,7 @@ mod tests {
       ..Default::default()
     };
 
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     assert_eq!(accounts.len(), 2);
     assert_eq!(accounts[0].name, "from-env");
     assert_eq!(accounts[0].token, "flat-token");
@@ -316,8 +320,8 @@ mod tests {
 
   #[test]
   fn bot_kind_ignores_device() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("bot-token".into()),
         kind: Some("bot".into()),
         device: Some("desktop".into()),
@@ -325,50 +329,50 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     assert_eq!(accounts[0].kind, AccountKind::Bot);
     assert_eq!(accounts[0].device, None);
   }
 
   #[test]
   fn invalid_kind_errors() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
         kind: Some("alien".into()),
         ..Default::default()
       },
       ..Default::default()
     };
-    let err = resolve_config(file).unwrap_err();
+    let err = resolve_config(partial).unwrap_err();
     assert!(matches!(err, ConfigError::Invalid(_, _)));
   }
 
   #[test]
   fn toml_accounts_alone_work() {
-    let file = FileConfig {
-      accounts: vec![FileAccount {
+    let partial = PartialConfig {
+      accounts: vec![PartialAccount {
         name: Some("only".into()),
         token: Some("t".into()),
         ..Default::default()
       }],
       ..Default::default()
     };
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].name, "only");
   }
 
   #[test]
   fn flat_only_works() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("solo".into()),
         ..Default::default()
       },
       ..Default::default()
     };
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].token, "solo");
     assert_eq!(accounts[0].name, "account-0");
@@ -376,48 +380,48 @@ mod tests {
 
   #[test]
   fn empty_errors() {
-    let err = resolve_config(FileConfig::default()).unwrap_err();
+    let err = resolve_config(PartialConfig::default()).unwrap_err();
     assert!(matches!(err, ConfigError::NoAccounts));
   }
 
   #[test]
   fn flat_without_token_ignored_when_toml_accounts_exist() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         device: Some("desktop".into()),
         status: Some("online".into()),
         ..Default::default()
       },
-      accounts: vec![FileAccount {
+      accounts: vec![PartialAccount {
         name: Some("only".into()),
         token: Some("t".into()),
         ..Default::default()
       }],
       ..Default::default()
     };
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].name, "only");
   }
 
   #[test]
   fn invalid_device_errors() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
         device: Some("toaster".into()),
         ..Default::default()
       },
       ..Default::default()
     };
-    let err = resolve_config(file).unwrap_err();
+    let err = resolve_config(partial).unwrap_err();
     assert!(matches!(err, ConfigError::Invalid(_, _)));
   }
 
   #[test]
   fn missing_token_on_named_account() {
-    let file = FileConfig {
-      accounts: vec![FileAccount {
+    let partial = PartialConfig {
+      accounts: vec![PartialAccount {
         name: Some("broken".into()),
         token: None,
         device: Some("web".into()),
@@ -425,25 +429,25 @@ mod tests {
       }],
       ..Default::default()
     };
-    let err = resolve_config(file).unwrap_err();
+    let err = resolve_config(partial).unwrap_err();
     assert!(matches!(err, ConfigError::MissingToken(ref n) if n == "broken"));
   }
 
   #[test]
   fn activity_defaults_ids_sequential() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
-        activity: Some(FileActivity {
+        activity: Some(PartialActivity {
           name: Some("first".into()),
           ..Default::default()
         }),
         activities: vec![
-          FileActivity {
+          PartialActivity {
             name: Some("second".into()),
             ..Default::default()
           },
-          FileActivity {
+          PartialActivity {
             name: Some("third".into()),
             application_id: Some("99".into()),
             party_id: Some("party-x".into()),
@@ -454,7 +458,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     assert_eq!(accounts[0].activities.len(), 3);
     assert_eq!(accounts[0].activities[0].application_id, "1");
     assert_eq!(accounts[0].activities[0].party.id, "1");
@@ -466,21 +470,21 @@ mod tests {
 
   #[test]
   fn singular_activity_prepended_before_array() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
-        activity: Some(FileActivity {
+        activity: Some(PartialActivity {
           name: Some("first".into()),
           activity_type: Some("playing".into()),
           ..Default::default()
         }),
         activities: vec![
-          FileActivity {
+          PartialActivity {
             name: Some("second".into()),
             activity_type: Some("listening".into()),
             ..Default::default()
           },
-          FileActivity {
+          PartialActivity {
             name: Some("third".into()),
             activity_type: Some("watching".into()),
             ..Default::default()
@@ -490,7 +494,7 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     let names: Vec<_> = accounts[0]
       .activities
       .iter()
@@ -501,19 +505,19 @@ mod tests {
 
   #[test]
   fn activity_without_name_skipped() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
-        activity: Some(FileActivity {
+        activity: Some(PartialActivity {
           details: Some("no name".into()),
           ..Default::default()
         }),
         activities: vec![
-          FileActivity {
+          PartialActivity {
             details: Some("also no name".into()),
             ..Default::default()
           },
-          FileActivity {
+          PartialActivity {
             name: Some("kept".into()),
             ..Default::default()
           },
@@ -522,17 +526,17 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     assert_eq!(accounts[0].activities.len(), 1);
     assert_eq!(accounts[0].activities[0].name.as_deref(), Some("kept"));
   }
 
   #[test]
   fn custom_status_user_only() {
-    let user = FileConfig {
-      account: FileAccount {
+    let user = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
-        custom_status: Some(FileCustomStatus {
+        custom_status: Some(PartialCustomStatus {
           text: Some("brb".into()),
           emoji: Some("💤".into()),
         }),
@@ -545,11 +549,11 @@ mod tests {
     assert_eq!(cs.text.as_deref(), Some("brb"));
     assert_eq!(cs.emoji.as_deref(), Some("💤"));
 
-    let bot = FileConfig {
-      account: FileAccount {
+    let bot = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
         kind: Some("bot".into()),
-        custom_status: Some(FileCustomStatus {
+        custom_status: Some(PartialCustomStatus {
           text: Some("ignored".into()),
           emoji: Some("x".into()),
         }),
@@ -563,10 +567,10 @@ mod tests {
 
   #[test]
   fn custom_status_without_text_ignored() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
-        custom_status: Some(FileCustomStatus {
+        custom_status: Some(PartialCustomStatus {
           text: None,
           emoji: Some("🔥".into()),
         }),
@@ -574,16 +578,16 @@ mod tests {
       },
       ..Default::default()
     };
-    let (_, _, _, accounts) = resolve_config(file).unwrap();
+    let (_, _, _, accounts) = resolve_config(partial).unwrap();
     assert!(accounts[0].custom_status.is_none());
   }
 
   #[test]
   fn activity_type_custom_errors() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
-        activity: Some(FileActivity {
+        activity: Some(PartialActivity {
           name: Some("x".into()),
           activity_type: Some("custom".into()),
           ..Default::default()
@@ -592,16 +596,16 @@ mod tests {
       },
       ..Default::default()
     };
-    let err = resolve_config(file).unwrap_err();
+    let err = resolve_config(partial).unwrap_err();
     assert!(matches!(err, ConfigError::Invalid(_, ref m) if m.contains("custom_status")));
   }
 
   #[test]
   fn invalid_timestamp_errors() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
-        activity: Some(FileActivity {
+        activity: Some(PartialActivity {
           name: Some("x".into()),
           timestamp: Some("not-a-number".into()),
           ..Default::default()
@@ -610,16 +614,16 @@ mod tests {
       },
       ..Default::default()
     };
-    let err = resolve_config(file).unwrap_err();
+    let err = resolve_config(partial).unwrap_err();
     assert!(matches!(err, ConfigError::Invalid(_, ref m) if m.contains("timestamp")));
   }
 
   #[test]
   fn streaming_requires_url() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
-        activity: Some(FileActivity {
+        activity: Some(PartialActivity {
           name: Some("live".into()),
           activity_type: Some("streaming".into()),
           ..Default::default()
@@ -628,20 +632,20 @@ mod tests {
       },
       ..Default::default()
     };
-    let err = resolve_config(file).unwrap_err();
+    let err = resolve_config(partial).unwrap_err();
     assert!(matches!(err, ConfigError::Invalid(_, ref m) if m.contains("url")));
   }
 
   #[test]
   fn whitespace_token_is_missing() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("   ".into()),
         ..Default::default()
       },
       ..Default::default()
     };
-    let err = resolve_config(file).unwrap_err();
+    let err = resolve_config(partial).unwrap_err();
     assert!(matches!(err, ConfigError::NoAccounts));
   }
 
@@ -657,40 +661,40 @@ mod tests {
       activities: vec![],
     };
     let rendered = format!("{cfg:?}");
-    assert!(rendered.contains("[redacted]"));
+    assert!(rendered.contains("<redacted>"));
     assert!(!rendered.contains("super-secret"));
   }
 
   #[test]
   fn defaults_builtin_when_unset() {
-    let file = FileConfig {
-      account: FileAccount {
+    let partial = PartialConfig {
+      account: PartialAccount {
         token: Some("t".into()),
         ..Default::default()
       },
       ..Default::default()
     };
-    let (_, _, defaults, _) = resolve_config(file).unwrap();
+    let (_, _, defaults, _) = resolve_config(partial).unwrap();
     assert_eq!(defaults, product_defaults());
   }
 
   #[test]
   fn defaults_partial_override() {
-    let file = FileConfig {
-      defaults: FileDefaults {
-        bot: FileClientProperties {
+    let partial = PartialConfig {
+      defaults: PartialDefaults {
+        bot: PartialClientProperties {
           os: Some("FreeBSD".into()),
           browser: None,
           device: None,
           user_agent: Some("bot-ua".into()),
         },
-        web: FileClientProperties {
+        web: PartialClientProperties {
           os: None,
           browser: Some("Chrome".into()),
           device: Some("".into()),
           user_agent: Some("".into()),
         },
-        mobile: FileClientProperties {
+        mobile: PartialClientProperties {
           os: None,
           browser: Some("".into()),
           device: Some("Pixel".into()),
@@ -698,13 +702,13 @@ mod tests {
         },
         ..Default::default()
       },
-      account: FileAccount {
+      account: PartialAccount {
         token: Some("t".into()),
         ..Default::default()
       },
       ..Default::default()
     };
-    let (_, _, defaults, _) = resolve_config(file).unwrap();
+    let (_, _, defaults, _) = resolve_config(partial).unwrap();
     let builtin = product_defaults();
 
     assert_eq!(defaults.bot.os, "FreeBSD");

@@ -7,7 +7,6 @@ use tracing::{Instrument, error, info, info_span};
 
 use crate::health::HealthState;
 
-/// Run one gateway session task per account until all exit.
 pub async fn run_accounts(
   accounts: Vec<SessionParams>,
   health: Option<Arc<HealthState>>,

@@ -151,7 +151,7 @@ fn spawn_shutdown_listener(
   {
     use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close};
 
-    // Construct streams before spawn so console handlers are registered immediately.
+    // Register console handlers before spawn so CTRL signals are not missed during startup.
     let mut ctrl_c = ctrl_c().expect("register CTRL+C handler");
     let mut ctrl_break = ctrl_break().expect("register CTRL+BREAK handler");
     let mut ctrl_close = ctrl_close().expect("register CTRL+CLOSE handler");

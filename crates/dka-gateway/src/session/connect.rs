@@ -23,12 +23,12 @@ use super::dispatch::{PayloadAction, handle_payload};
 use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_for_hello};
 use super::{SessionEnd, SessionParams, SessionState, WsStream, send_json};
 
-// 4004 auth failed; 4010-4014 shard/intent/API fatals.
+// Discord: 4004 auth failed; 4010-4014 shard/intent/API fatals: do not reconnect.
 fn is_fatal_close_code(code: u16) -> bool {
   matches!(code, 4004 | 4010..=4014)
 }
 
-// 4007 invalid seq: identify fresh, do not resume.
+// Discord 4007 (invalid seq): start a fresh identify, never resume.
 fn resume_after_close(code: u16) -> bool {
   code != 4007
 }

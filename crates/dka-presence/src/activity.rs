@@ -4,8 +4,6 @@ use crate::constants::{
   AccountKind, ActivityPlatform, ActivityType, DEFAULT_APPLICATION_ID, DEFAULT_PARTY_ID,
 };
 
-/// Normalize an activity image for Discord.
-///
 /// CDN/media URLs become `mp:...`. Known prefixes (`mp:`, `youtube:`, `spotify:`,
 /// `twitch:`, `external/`) and bare numeric asset ids are left unchanged.
 pub fn normalize_activity_image(image: &str) -> String {
