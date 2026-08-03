@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::watch;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use super::HealthState;
 
@@ -22,6 +22,17 @@ pub async fn probe_once(endpoint: &str) -> Result<bool> {
 fn parse_status(buf: &[u8]) -> bool {
   let text = std::str::from_utf8(buf).unwrap_or("").trim();
   text.eq_ignore_ascii_case("ok")
+}
+
+async fn respond_status<W>(writer: &mut W, state: &HealthState)
+where
+  W: AsyncWriteExt + Unpin,
+{
+  let body = state.status_line();
+  trace!(status = %body.trim(), "health probe response");
+  if let Err(err) = writer.write_all(body.as_bytes()).await {
+    debug!(error = %err, "health write failed");
+  }
 }
 
 #[cfg(unix)]
@@ -66,10 +77,7 @@ mod platform {
         accepted = listener.accept() => {
           match accepted {
             Ok((mut stream, _)) => {
-              let body = state.status_line();
-              if let Err(err) = stream.write_all(body.as_bytes()).await {
-                debug!(error = %err, "health write failed");
-              }
+              respond_status(&mut stream, &state).await;
             }
             Err(err) => {
               debug!(error = %err, "health accept failed");
@@ -141,10 +149,7 @@ mod platform {
             debug!(error = %err, "health pipe connect failed");
             continue;
           }
-          let body = state.status_line();
-          if let Err(err) = server.write_all(body.as_bytes()).await {
-            debug!(error = %err, "health write failed");
-          }
+          respond_status(&mut server, &state).await;
         }
       }
     }

@@ -28,7 +28,8 @@ async fn main() {
   }
 
   let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
-  spawn_shutdown_listener(shutdown_tx);
+  let (reason_tx, reason_rx) = watch::channel(None::<&'static str>);
+  spawn_shutdown_listener(shutdown_tx, reason_tx);
 
   rustls::crypto::ring::default_provider()
     .install_default()
@@ -45,7 +46,7 @@ async fn main() {
   log::init(&app.log_level);
 
   if *shutdown_rx.borrow() {
-    info!("shutting down");
+    log_shutting_down(&reason_rx);
     return;
   }
 
@@ -83,7 +84,7 @@ async fn main() {
       break;
     }
   }
-  info!("shutting down");
+  log_shutting_down(&reason_rx);
 
   let shutdown = async {
     if let Some(task) = health_task {
@@ -128,18 +129,21 @@ async fn run_health_probe(cli_override: Option<&str>, config_path: &std::path::P
   dka_runtime::probe(&endpoint).await
 }
 
-fn spawn_shutdown_listener(shutdown_tx: watch::Sender<bool>) {
+fn spawn_shutdown_listener(
+  shutdown_tx: watch::Sender<bool>,
+  reason_tx: watch::Sender<Option<&'static str>>,
+) {
   #[cfg(unix)]
   {
     use tokio::signal::unix::{SignalKind, signal};
     let mut sigterm = signal(SignalKind::terminate()).expect("register SIGTERM");
     let mut sigint = signal(SignalKind::interrupt()).expect("register SIGINT");
     tokio::spawn(async move {
-      tokio::select! {
-        _ = sigint.recv() => {}
-        _ = sigterm.recv() => {}
-      }
-      let _ = shutdown_tx.send(true);
+      let reason = tokio::select! {
+        _ = sigint.recv() => "SIGINT",
+        _ = sigterm.recv() => "SIGTERM",
+      };
+      request_shutdown(&shutdown_tx, &reason_tx, reason);
     });
   }
 
@@ -152,12 +156,12 @@ fn spawn_shutdown_listener(shutdown_tx: watch::Sender<bool>) {
     let mut ctrl_break = ctrl_break().expect("register CTRL+BREAK handler");
     let mut ctrl_close = ctrl_close().expect("register CTRL+CLOSE handler");
     tokio::spawn(async move {
-      tokio::select! {
-        _ = ctrl_c.recv() => {}
-        _ = ctrl_break.recv() => {}
-        _ = ctrl_close.recv() => {}
-      }
-      let _ = shutdown_tx.send(true);
+      let reason = tokio::select! {
+        _ = ctrl_c.recv() => "CTRL+C",
+        _ = ctrl_break.recv() => "CTRL+BREAK",
+        _ = ctrl_close.recv() => "CTRL+CLOSE",
+      };
+      request_shutdown(&shutdown_tx, &reason_tx, reason);
     });
   }
 
@@ -165,7 +169,21 @@ fn spawn_shutdown_listener(shutdown_tx: watch::Sender<bool>) {
   {
     tokio::spawn(async move {
       let _ = tokio::signal::ctrl_c().await;
-      let _ = shutdown_tx.send(true);
+      request_shutdown(&shutdown_tx, &reason_tx, "SIGINT");
     });
   }
+}
+
+fn request_shutdown(
+  shutdown_tx: &watch::Sender<bool>,
+  reason_tx: &watch::Sender<Option<&'static str>>,
+  reason: &'static str,
+) {
+  let _ = reason_tx.send(Some(reason));
+  let _ = shutdown_tx.send(true);
+}
+
+fn log_shutting_down(reason_rx: &watch::Receiver<Option<&'static str>>) {
+  let reason = reason_rx.borrow().unwrap_or("unknown");
+  info!(reason, "shutting down");
 }

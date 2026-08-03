@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tracing::debug;
+
 pub use serve::serve;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
@@ -26,8 +28,11 @@ impl HealthState {
 
   pub fn set_live(&self, account: &str, live: bool) {
     let mut map = self.live.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(slot) = map.get_mut(account) {
+    if let Some(slot) = map.get_mut(account)
+      && *slot != live
+    {
       *slot = live;
+      debug!(account = %account, live, "health live state updated");
     }
   }
 
