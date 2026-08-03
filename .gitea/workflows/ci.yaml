@@ -19,6 +19,8 @@ concurrency:
 jobs:
   check:
     uses: ./.gitea/workflows/check.yaml
+    with:
+      checkout: &checkout actions/checkout@v7.0.1
 
   release:
     needs: check
@@ -27,6 +29,7 @@ jobs:
       || github.event_name == 'workflow_dispatch'
     uses: ./.gitea/workflows/release.yaml
     with:
+      checkout: *checkout
       package_name: discord-keep-alive
       image_name: discord-keep-alive
       platforms: linux/amd64,linux/arm64
@@ -38,3 +41,4 @@ jobs:
       local_password: ${{ secrets.AUTH }}
       ghcr_password: ${{ secrets.GH_AUTH }}
       dockerhub_password: ${{ secrets.DH_AUTH }}
+      gitea_token: ${{ secrets.AUTH }}

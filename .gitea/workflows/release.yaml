@@ -5,8 +5,7 @@ on:
     inputs:
       checkout:
         type: string
-        required: false
-        default: actions/checkout@v7.0.1
+        required: true
       package_name:
         type: string
         required: true
@@ -69,12 +68,34 @@ on:
         type: boolean
         required: false
         default: true
+      create_tag:
+        type: boolean
+        required: false
+        default: true
+      tag_prefix:
+        type: string
+        required: false
+        default: "v"
+      tag_message:
+        type: string
+        required: false
+        default: ""
+      tag_conflict:
+        type: string
+        required: false
+        default: override
+      server_url:
+        type: string
+        required: false
+        default: ""
     secrets:
       local_password:
         required: false
       ghcr_password:
         required: false
       dockerhub_password:
+        required: false
+      gitea_token:
         required: false
 
 jobs:
@@ -83,11 +104,13 @@ jobs:
     runs-on: ${{ inputs.runs_on }}
 
     steps:
-      - uses: ${{ inputs.checkout }}
+      - name: Checkout
+        uses: ${{ inputs.checkout }}
         with:
           fetch-depth: 2 # HEAD + first parent for version compare.
 
-      - uses: ./.gitea/actions/setup-rust
+      - name: Setup Rust
+        uses: ./.gitea/actions/setup-rust
 
       - name: Resolve registry env
         id: reg
@@ -157,8 +180,9 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
           unset IFS
 
-      - uses: ./.gitea/actions/docker-buildx
+      - name: Setup Buildx
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
+        uses: ./.gitea/actions/docker-buildx
         with:
           driver-opts: ${{ steps.plan.outputs.driver_opts }}
 
@@ -193,12 +217,23 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
           platforms: ${{ inputs.platforms }}
-          push: "true"
-          provenance: "false"
-          sbom: "false"
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             REVISION=${{ github.sha }}
           tags: ${{ steps.plan.outputs.tags }}
           cache-from: type=gha,scope=${{ inputs.image_name }}
           cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}
+
+      - name: Tag
+        if: >-
+          inputs.create_tag
+          && steps.meta.outputs.changed == 'true'
+          && steps.plan.outputs.any == 'true'
+        uses: ./.gitea/actions/gitea-tag
+        with:
+          version: ${{ steps.meta.outputs.version }}
+          prefix: ${{ inputs.tag_prefix }}
+          message: ${{ inputs.tag_message }}
+          conflict: ${{ inputs.tag_conflict }}
+          token: ${{ secrets.gitea_token }}
+          server_url: ${{ inputs.server_url || env.INTERNAL_SERVER_URL }}

@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARG
     case "${TARGETPLATFORM}" in \
       linux/amd64) RUST_TARGET=x86_64-unknown-linux-musl ;; \
       linux/arm64) RUST_TARGET=aarch64-unknown-linux-musl ;; \
-      *) echo "unsupported platform: ${TARGETPLATFORM}" >&2; exit 1 ;; \
+      *) echo "Unsupported platform: ${TARGETPLATFORM}" >&2; exit 1 ;; \
     esac \
     && rustup show active-toolchain \
     && rustup target add "${RUST_TARGET}" \

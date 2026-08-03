@@ -5,8 +5,7 @@ on:
     inputs:
       checkout:
         type: string
-        required: false
-        default: actions/checkout@v7.0.1
+        required: true
       runs_on:
         type: string
         required: false
@@ -18,11 +17,14 @@ jobs:
     runs-on: ${{ inputs.runs_on }}
 
     steps:
-      - uses: ${{ inputs.checkout }}
+      - name: Checkout
+        uses: ${{ inputs.checkout }}
 
-      - uses: ./.gitea/actions/setup-rust
+      - name: Setup Rust
+        uses: ./.gitea/actions/setup-rust
 
-      - uses: ./.gitea/actions/setup-cargo-deny
+      - name: Setup cargo-deny
+        uses: ./.gitea/actions/setup-cargo-deny
 
       - name: Deny
         run: cargo deny check
