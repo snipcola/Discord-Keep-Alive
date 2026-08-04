@@ -14,6 +14,7 @@ repository = "https://code.snipcola.st/snipcola/Discord-Keep-Alive"
 dka-presence = { path = "crates/dka-presence" }
 dka-gateway = { path = "crates/dka-gateway" }
 dka-runtime = { path = "crates/dka-runtime" }
+dka-config = { path = "crates/dka-config" }
 
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["raw_value"] }
@@ -28,7 +29,7 @@ futures-util = { version = "0.3.33", default-features = false, features = [ "sin
 zstd = { version = "0.13.3", default-features = false }
 
 clap = { version = "4.6.5", default-features = false, features = [ "std", "derive", "env", "help", "usage", "error-context" ] }
-figment = { version = "0.10.19", features = [ "toml", "env" ] }
+figment = { version = "0.10.19", features = [ "toml" ] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = [ "env-filter", "fmt", "ansi" ] }
 

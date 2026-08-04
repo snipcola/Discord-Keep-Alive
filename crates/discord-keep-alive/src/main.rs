@@ -1,16 +1,13 @@
 mod adapt;
-mod config;
-mod defaults;
 mod log;
 
 use std::time::Duration;
 
 use clap::Parser;
+use dka_config::{Cli, Command, load, load_health_endpoint};
 use dka_runtime::HealthState;
 use tokio::sync::watch;
 use tracing::{error, info};
-
-use crate::config::{Cli, Command, load, load_health_endpoint};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(15);
 

@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 
-use super::token::SecretString;
+use crate::token::SecretString;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PartialConfig {
@@ -14,11 +16,10 @@ pub struct PartialConfig {
   pub defaults: PartialDefaults,
 
   #[serde(default)]
-  pub accounts: Vec<PartialAccount>,
+  pub accounts: BTreeMap<String, PartialAccount>,
 
-  // Flat fields with a token become account 0 before [[accounts]].
-  #[serde(flatten)]
-  pub account: PartialAccount,
+  #[serde(default)]
+  pub account_order: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -59,11 +60,10 @@ pub struct PartialAccount {
   pub status: Option<String>,
   #[serde(default)]
   pub custom_status: Option<PartialCustomStatus>,
-  // A singular named activity is prepended before activities[].
   #[serde(default)]
-  pub activity: Option<PartialActivity>,
+  pub activities: BTreeMap<String, PartialActivity>,
   #[serde(default)]
-  pub activities: Vec<PartialActivity>,
+  pub activity_order: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -114,25 +114,20 @@ pub struct PartialActivity {
   pub party_max: Option<String>,
 }
 
-pub fn any_activity_field_set(act: &PartialActivity) -> bool {
+pub(crate) fn any_activity_field_set(act: &PartialActivity) -> bool {
   *act != PartialActivity::default()
 }
 
-pub fn any_custom_status_field_set(cs: &PartialCustomStatus) -> bool {
-  *cs != PartialCustomStatus::default()
-}
-
-pub fn any_client_prop_set(props: &PartialClientProperties) -> bool {
+pub(crate) fn any_client_prop_set(props: &PartialClientProperties) -> bool {
   *props != PartialClientProperties::default()
 }
 
-pub fn any_account_field_set(a: &PartialAccount) -> bool {
+pub(crate) fn any_account_field_set(a: &PartialAccount) -> bool {
   a.name.is_some()
     || a.token.is_some()
     || a.kind.is_some()
     || a.device.is_some()
     || a.status.is_some()
     || a.custom_status.is_some()
-    || a.activity.is_some()
-    || a.activities.iter().any(any_activity_field_set)
+    || a.activities.values().any(any_activity_field_set)
 }

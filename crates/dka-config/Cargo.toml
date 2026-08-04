@@ -1,0 +1,19 @@
+[package]
+name = "dka-config"
+description = "Configuration loading and schema for Discord-Keep-Alive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+dka-presence.workspace = true
+dka-gateway.workspace = true
+
+serde.workspace = true
+thiserror.workspace = true
+
+clap.workspace = true
+figment.workspace = true

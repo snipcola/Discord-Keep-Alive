@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use serde::Deserialize;
 
-// Debug prints <redacted> so tokens never show up in logs.
+// Debug always shows <redacted>, never the raw token.
 #[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct SecretString(String);

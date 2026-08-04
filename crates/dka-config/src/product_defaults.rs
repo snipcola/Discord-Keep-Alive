@@ -6,31 +6,31 @@ macro_rules! join_space {
   };
 }
 
-pub const DEFAULT_BOT_OS: &str = "linux";
-pub const DEFAULT_BOT_BROWSER: &str = "discord-keep-alive";
-pub const DEFAULT_BOT_DEVICE: &str = "discord-keep-alive";
+const DEFAULT_BOT_OS: &str = "linux";
+const DEFAULT_BOT_BROWSER: &str = "discord-keep-alive";
+const DEFAULT_BOT_DEVICE: &str = "discord-keep-alive";
 
-pub const DEFAULT_WEB_OS: &str = "Windows";
-pub const DEFAULT_WEB_BROWSER: &str = "Firefox";
-pub const DEFAULT_WEB_DEVICE: &str = "";
-pub const DEFAULT_WEB_UA: &str = join_space!(
+const DEFAULT_WEB_OS: &str = "Windows";
+const DEFAULT_WEB_BROWSER: &str = "Firefox";
+const DEFAULT_WEB_DEVICE: &str = "";
+const DEFAULT_WEB_UA: &str = join_space!(
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:153.0)",
   "Gecko/20100101 Firefox/153.0",
 );
 
-pub const DEFAULT_DESKTOP_OS: &str = "Windows";
-pub const DEFAULT_DESKTOP_BROWSER: &str = "Discord Client";
-pub const DEFAULT_DESKTOP_DEVICE: &str = "Discord Client";
-pub const DEFAULT_DESKTOP_UA: &str = join_space!(
+const DEFAULT_DESKTOP_OS: &str = "Windows";
+const DEFAULT_DESKTOP_BROWSER: &str = "Discord Client";
+const DEFAULT_DESKTOP_DEVICE: &str = "Discord Client";
+const DEFAULT_DESKTOP_UA: &str = join_space!(
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
   "AppleWebKit/537.36 (KHTML, like Gecko)",
   "discord/1.0.9250 Chrome/148.0.7778.280",
   "Electron/42.7.1 Safari/537.36",
 );
 
-pub const DEFAULT_MOBILE_OS: &str = "iOS";
-pub const DEFAULT_MOBILE_BROWSER: &str = "Discord iOS";
-pub const DEFAULT_MOBILE_DEVICE: &str = "iPhone";
+const DEFAULT_MOBILE_OS: &str = "iOS";
+const DEFAULT_MOBILE_BROWSER: &str = "Discord iOS";
+const DEFAULT_MOBILE_DEVICE: &str = "iPhone";
 
 fn props(
   os: &str,
@@ -46,7 +46,7 @@ fn props(
   }
 }
 
-pub fn product_defaults() -> Defaults {
+pub(crate) fn product_defaults() -> Defaults {
   Defaults {
     bot: props(
       DEFAULT_BOT_OS,

@@ -18,7 +18,7 @@ services:
       # ACTIVITY_0_TYPE: listening
       LOG_LEVEL: info # error | warn | info | debug | trace
 
-      # extra accounts
+      # extra accounts (ids can also be strings, i.e. ACCOUNT_TEST_TOKEN)
       # ACCOUNT_0_TOKEN: ${ACCOUNT_0_TOKEN:?set ACCOUNT_0_TOKEN}
       # ACCOUNT_0: primary
       # ACCOUNT_0_KIND: user

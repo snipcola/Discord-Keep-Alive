@@ -9,17 +9,14 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+dka-config.workspace = true
 dka-presence.workspace = true
 dka-gateway.workspace = true
 dka-runtime.workspace = true
-
-serde.workspace = true
-thiserror.workspace = true
 
 tokio.workspace = true
 rustls.workspace = true
 
 clap.workspace = true
-figment.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

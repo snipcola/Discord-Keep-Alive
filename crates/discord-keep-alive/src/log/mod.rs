@@ -34,7 +34,7 @@ fn normalize_level(level: &str) -> String {
   let lower = level.to_ascii_lowercase();
   match lower.as_str() {
     "error" | "warn" | "info" | "debug" | "trace" => lower,
-    _ => crate::config::DEFAULT_LOG_LEVEL.into(),
+    _ => dka_config::DEFAULT_LOG_LEVEL.into(),
   }
 }
 

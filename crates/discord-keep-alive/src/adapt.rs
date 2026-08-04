@@ -5,7 +5,7 @@ use dka_gateway::properties::Defaults;
 use dka_presence::{build_presence_data, pin_default_activity_timestamps};
 use tracing::{debug, info};
 
-use crate::config::AccountConfig;
+use dka_config::AccountConfig;
 
 pub fn session_params(mut account: AccountConfig, defaults: &Defaults) -> SessionParams {
   let now = SystemTime::now()
