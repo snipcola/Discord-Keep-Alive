@@ -53,7 +53,7 @@ pub struct Cli {
   #[arg(long = "token")]
   pub token: Option<token::SecretString>,
 
-  #[arg(long = "name")]
+  #[arg(long = "account")]
   pub name: Option<String>,
 
   /// `user` or `bot`.
@@ -219,7 +219,7 @@ const _: () = {
   }
 
   assert!(eq(AccountScalarField::Token.cli_long(), "token"));
-  assert!(eq(AccountScalarField::Name.cli_long(), "name"));
+  assert!(eq(AccountScalarField::Name.cli_long(), "account"));
   assert!(eq(AccountScalarField::Kind.cli_long(), "kind"));
   assert!(eq(AccountScalarField::Device.cli_long(), "device"));
   assert!(eq(AccountScalarField::Status.cli_long(), "status"));
@@ -926,7 +926,7 @@ status = "online"
   fn account_env_beyond_len_appends_without_pad() {
     let env_layer = env::from_env_map(&env_map(&[
       ("ACCOUNT_5_TOKEN", "tok-five"),
-      ("ACCOUNT_5_NAME", "five"),
+      ("ACCOUNT_5", "five"),
       ("ACCOUNT_5_STATUS", "idle"),
     ]));
     let file = TempToml::write("");
@@ -993,9 +993,9 @@ token = "file-1"
   fn account_env_discovery_sorted_by_token_anchor() {
     let env_layer = env::from_env_map(&env_map(&[
       ("ACCOUNT_2_TOKEN", "tok-2"),
-      ("ACCOUNT_2_NAME", "two"),
+      ("ACCOUNT_2", "two"),
       ("ACCOUNT_0_TOKEN", "tok-0"),
-      ("ACCOUNT_0_NAME", "zero"),
+      ("ACCOUNT_0", "zero"),
     ]));
     let file = TempToml::write("");
     let app = load_with(file.path(), env_layer, PartialConfig::default()).unwrap();
@@ -1015,7 +1015,7 @@ name = "from-file"
 token = "file-tok"
 "#,
     );
-    let env_layer = env::from_env_map(&env_map(&[("TOKEN", "flat-tok"), ("NAME", "from-env")]));
+    let env_layer = env::from_env_map(&env_map(&[("TOKEN", "flat-tok"), ("ACCOUNT", "from-env")]));
     let app = load_with(file.path(), env_layer, PartialConfig::default()).unwrap();
     assert_eq!(app.accounts.len(), 2);
     assert_eq!(app.accounts[0].name, "from-env");

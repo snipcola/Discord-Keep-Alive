@@ -9,7 +9,8 @@ use super::schema::collect_indices_from;
 use super::schema::{
   ACCOUNT_INDEX_PREFIX, ACCOUNT_INDEX_TOKEN_SUFFIX, ACTIVITY_INDEX_PREFIX, AccountScalarField,
   ActivityField, ClientPropField, CustomStatusField, DefaultsProfile, ENV_HEALTH_SOCKET,
-  ENV_LOG_LEVEL, collect_indices, indexed_activity_env_key, singular_activity_env_key,
+  ENV_LOG_LEVEL, collect_indices, indexed_account_env_key, indexed_activity_env_key,
+  singular_account_env_key, singular_activity_env_key,
 };
 
 pub fn from_env() -> PartialConfig {
@@ -82,8 +83,8 @@ fn flat_account_from_env(
   discover: &impl Fn(&str, &str) -> Vec<usize>,
 ) -> PartialAccount {
   let mut acc = PartialAccount::default();
-  for field in AccountScalarField::ALL {
-    let key = format!("{prefix}{}", field.env_suffix());
+  for &field in AccountScalarField::ALL {
+    let key = singular_account_env_key(field);
     if let Some(v) = env_opt(lookup, &key) {
       field.set(&mut acc, v);
     }
@@ -101,7 +102,7 @@ fn indexed_accounts_from_env(
   let mut accounts = Vec::new();
   for index in discover(ACCOUNT_INDEX_PREFIX, ACCOUNT_INDEX_TOKEN_SUFFIX) {
     let prefix = format!("{ACCOUNT_INDEX_PREFIX}{index}_");
-    let token_key = format!("{prefix}{}", AccountScalarField::Token.env_suffix());
+    let token_key = indexed_account_env_key(index, AccountScalarField::Token);
     let Some(token) = env_opt(lookup, &token_key).filter(|t| !t.is_empty()) else {
       continue;
     };
@@ -109,11 +110,11 @@ fn indexed_accounts_from_env(
     let mut acc = PartialAccount::default();
     AccountScalarField::Token.set(&mut acc, token);
 
-    for field in AccountScalarField::ALL {
+    for &field in AccountScalarField::ALL {
       if matches!(field, AccountScalarField::Token) {
         continue;
       }
-      let key = format!("{prefix}{}", field.env_suffix());
+      let key = indexed_account_env_key(index, field);
       if let Some(v) = env_opt(lookup, &key) {
         field.set(&mut acc, v);
       }

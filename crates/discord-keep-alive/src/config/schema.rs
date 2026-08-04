@@ -80,21 +80,22 @@ impl AccountScalarField {
     Self::Status,
   ];
 
-  pub fn env_suffix(self) -> &'static str {
+  /// Env suffix after `ACCOUNT_{i}_` or bare flat key; `Name` has none.
+  pub fn env_suffix(self) -> Option<&'static str> {
     match self {
-      Self::Token => "TOKEN",
-      Self::Name => "NAME",
-      Self::Kind => "KIND",
-      Self::Device => "DEVICE",
-      Self::Status => "STATUS",
+      Self::Name => None,
+      Self::Token => Some("TOKEN"),
+      Self::Kind => Some("KIND"),
+      Self::Device => Some("DEVICE"),
+      Self::Status => Some("STATUS"),
     }
   }
 
-  /// Clap long flag without `--`; must match `#[arg(long = ...)]`.
+  /// Clap long flag without `--`; `Name` is bare `--account`.
   pub const fn cli_long(self) -> &'static str {
     match self {
       Self::Token => "token",
-      Self::Name => "name",
+      Self::Name => "account",
       Self::Kind => "kind",
       Self::Device => "device",
       Self::Status => "status",
@@ -289,6 +290,7 @@ pub const ENV_HEALTH_SOCKET: &str = "HEALTH_SOCKET";
 /// Account discovery anchors on non-empty `ACCOUNT_{i}_TOKEN`.
 pub const ACCOUNT_INDEX_PREFIX: &str = "ACCOUNT_";
 pub const ACCOUNT_INDEX_TOKEN_SUFFIX: &str = "_TOKEN";
+pub const ACCOUNT_SINGULAR: &str = "ACCOUNT";
 
 /// Activity discovery anchors on bare `ACTIVITY_{j}` (not `_TYPE` alone).
 pub const ACTIVITY_INDEX_PREFIX: &str = "ACTIVITY_";
@@ -336,6 +338,22 @@ pub fn collect_indices(prefix: &str, suffix: &str) -> Vec<usize> {
     prefix,
     suffix,
   )
+}
+
+/// Name: bare `ACCOUNT`; other fields: flat `TOKEN`, `KIND`, …
+pub fn singular_account_env_key(field: AccountScalarField) -> String {
+  match field.env_suffix() {
+    None => ACCOUNT_SINGULAR.into(),
+    Some(suffix) => suffix.into(),
+  }
+}
+
+/// Name: bare `ACCOUNT_{i}`; other fields: `ACCOUNT_{i}_{SUFFIX}`.
+pub fn indexed_account_env_key(account_index: usize, field: AccountScalarField) -> String {
+  match field.env_suffix() {
+    None => format!("{ACCOUNT_INDEX_PREFIX}{account_index}"),
+    Some(suffix) => format!("{ACCOUNT_INDEX_PREFIX}{account_index}_{suffix}"),
+  }
 }
 
 /// `account_prefix` is `""` or e.g. `ACCOUNT_3_`.
@@ -417,13 +435,35 @@ mod tests {
       parse_indexed_key("ACCOUNT_x_TOKEN", "ACCOUNT_", "_TOKEN"),
       None
     );
-    assert_eq!(
-      parse_indexed_key("ACCOUNT_0_NAME", "ACCOUNT_", "_TOKEN"),
-      None
-    );
+    assert_eq!(parse_indexed_key("ACCOUNT_0", "ACCOUNT_", "_TOKEN"), None);
     assert_eq!(parse_indexed_key("TOKEN", "ACCOUNT_", "_TOKEN"), None);
     assert_eq!(parse_indexed_key("ACTIVITY_", "ACTIVITY_", ""), None);
     assert_eq!(parse_indexed_key("ACTIVITY_01", "ACTIVITY_", ""), None);
+  }
+
+  #[test]
+  fn account_env_keys_follow_catalog() {
+    assert_eq!(
+      singular_account_env_key(AccountScalarField::Name),
+      "ACCOUNT"
+    );
+    assert_eq!(singular_account_env_key(AccountScalarField::Token), "TOKEN");
+    assert_eq!(
+      singular_account_env_key(AccountScalarField::Status),
+      "STATUS"
+    );
+    assert_eq!(
+      indexed_account_env_key(0, AccountScalarField::Name),
+      "ACCOUNT_0"
+    );
+    assert_eq!(
+      indexed_account_env_key(2, AccountScalarField::Token),
+      "ACCOUNT_2_TOKEN"
+    );
+    assert_eq!(
+      indexed_account_env_key(1, AccountScalarField::Kind),
+      "ACCOUNT_1_KIND"
+    );
   }
 
   #[test]
@@ -453,6 +493,7 @@ mod tests {
   #[test]
   fn cli_long_names_match_env_identity() {
     assert_eq!(AccountScalarField::Token.cli_long(), "token");
+    assert_eq!(AccountScalarField::Name.cli_long(), "account");
     assert_eq!(CustomStatusField::Text.cli_long(), "custom-status-text");
     assert_eq!(ActivityField::Name.cli_long(), "activity");
     assert_eq!(ActivityField::Type.cli_long(), "activity-type");
