@@ -19,5 +19,6 @@ anyhow.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+zstd.workspace = true
 
 tracing.workspace = true

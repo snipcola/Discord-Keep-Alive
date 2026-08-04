@@ -16,11 +16,13 @@ use tokio_tungstenite::{
 };
 use tracing::{Instrument, Span, debug, error, warn};
 
+use crate::compress::TransportDecompress;
 use crate::heartbeat::{HeartbeatCmd, heartbeat_loop};
 use crate::payload::{GatewayPayload, OP_HEARTBEAT, OP_RESUME};
 
 use super::dispatch::{PayloadAction, handle_payload};
 use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_for_hello};
+use super::inbound::decode_inbound;
 use super::{SessionEnd, SessionParams, SessionState, WsStream, send_json};
 
 // Discord: 4004 auth failed; 4010-4014 shard/intent/API fatals: do not reconnect.
@@ -58,13 +60,14 @@ pub(super) async fn connect_and_run(
     }
   };
   let (mut write, mut read) = ws.split();
+  let mut decomp = TransportDecompress::new()?;
 
   if *shutdown.borrow() {
     graceful_disconnect(&mut write, &mut read, false, params.kind).await;
     return Ok(SessionEnd::Shutdown);
   }
 
-  let hello = match wait_for_hello(&mut read, shutdown).await {
+  let hello = match wait_for_hello(&mut read, &mut decomp, shutdown).await {
     Ok(hello) => hello,
     Err(HelloWaitError::Shutdown) => {
       graceful_disconnect(&mut write, &mut read, false, params.kind).await;
@@ -159,31 +162,6 @@ pub(super) async fn connect_and_run(
 
       msg = read.next() => {
         match msg {
-          Some(Ok(Message::Text(text))) => {
-              let payload = GatewayPayload::from_json(&text)
-                .context("decode gateway payload")?;
-              match handle_payload(
-                params,
-                state,
-                &payload,
-                &seq_cell,
-                &ack_tx,
-                &mut write,
-                &mut presence_applied,
-              ).await? {
-                PayloadAction::Continue => {}
-                PayloadAction::Reconnect {
-                  resume,
-                  extra_delay,
-                } => {
-                  end = SessionEnd::Reconnect {
-                    resume,
-                    extra_delay,
-                  };
-                  break;
-                }
-              }
-          }
           Some(Ok(Message::Ping(data))) => {
             write.send(Message::Pong(data)).await?;
           }
@@ -209,10 +187,31 @@ pub(super) async fn connect_and_run(
             }
             break;
           }
-          Some(Ok(Message::Binary(_))) => {
-            debug!("ignored binary frame");
+          Some(Ok(msg)) => {
+            if let Some(payload) = decode_inbound(msg, &mut decomp)? {
+              match handle_payload(
+                params,
+                state,
+                &payload,
+                &seq_cell,
+                &ack_tx,
+                &mut write,
+                &mut presence_applied,
+              ).await? {
+                PayloadAction::Continue => {}
+                PayloadAction::Reconnect {
+                  resume,
+                  extra_delay,
+                } => {
+                  end = SessionEnd::Reconnect {
+                    resume,
+                    extra_delay,
+                  };
+                  break;
+                }
+              }
+            }
           }
-          Some(Ok(_)) => {}
           Some(Err(err)) => {
             heartbeat_handle.abort();
             return Err(err.into());

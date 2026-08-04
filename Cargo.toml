@@ -25,6 +25,7 @@ tokio = { version = "1.53.1", default-features = false, features = [ "rt-multi-t
 tokio-tungstenite = { version = "0.30.0", features = [ "connect", "rustls-tls-webpki-roots" ] }
 rustls = { version = "0.23.43", default-features = false, features = [ "std", "tls12", "ring" ] }
 futures-util = { version = "0.3.33", default-features = false, features = [ "sink", "std" ] }
+zstd = { version = "0.13.3", default-features = false }
 
 figment = { version = "0.10.19", features = [ "toml", "env" ] }
 tracing = "0.1.44"

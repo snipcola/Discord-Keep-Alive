@@ -1,6 +1,7 @@
 mod connect;
 mod dispatch;
 mod identify;
+mod inbound;
 
 use std::time::Duration;
 

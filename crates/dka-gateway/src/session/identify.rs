@@ -13,9 +13,11 @@ use tracing::{debug, trace};
 
 use dka_presence::AccountKind;
 
+use crate::compress::TransportDecompress;
 use crate::payload::{GatewayPayload, HelloData, OP_HELLO, OP_IDENTIFY, OP_PRESENCE_UPDATE};
 use crate::properties::identify_properties;
 
+use super::inbound::decode_inbound;
 use super::{SessionParams, WsRead, WsWrite, send_json};
 
 pub(super) async fn graceful_disconnect(
@@ -81,6 +83,7 @@ pub(super) async fn send_identify(write: &mut WsWrite, params: &SessionParams) -
   let mut d = json!({
     "token": params.token,
     "properties": identify_properties(&params.properties),
+    // Payload zlib, not transport `compress=zstd-stream`.
     "compress": false,
     "large_threshold": 50,
     "presence": params.presence.clone(),
@@ -116,6 +119,7 @@ impl From<serde_json::Error> for HelloWaitError {
 
 pub(super) async fn wait_for_hello(
   read: &mut WsRead,
+  decomp: &mut TransportDecompress,
   shutdown: &mut watch::Receiver<bool>,
 ) -> Result<HelloData, HelloWaitError> {
   let deadline = sleep(Duration::from_secs(30));
@@ -135,19 +139,20 @@ pub(super) async fn wait_for_hello(
       }
       msg = read.next() => {
         match msg {
-          Some(Ok(Message::Text(text))) => {
-            let payload = GatewayPayload::from_json(&text)?;
-            if payload.op == OP_HELLO {
-              let hello: HelloData = serde_json::from_value(payload.d)
-                .context("decode Hello data")?;
-              return Ok(hello);
-            }
-          }
           Some(Ok(Message::Ping(_))) => {}
           Some(Ok(Message::Close(_))) => {
             return Err(HelloWaitError::Other(anyhow::anyhow!(
               "connection closed before Hello"
             )));
+          }
+          Some(Ok(msg)) => {
+            if let Some(payload) = decode_inbound(msg, decomp)?
+              && payload.op == OP_HELLO
+            {
+              let hello: HelloData = serde_json::from_value(payload.d)
+                .context("decode Hello data")?;
+              return Ok(hello);
+            }
           }
           Some(Err(err)) => return Err(err.into()),
           None => {
@@ -155,7 +160,6 @@ pub(super) async fn wait_for_hello(
               "connection closed before Hello"
             )));
           }
-          _ => {}
         }
       }
     }
