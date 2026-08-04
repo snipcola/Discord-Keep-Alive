@@ -9,9 +9,14 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  name:
+    value: ${{ steps.setup.outputs.name }}
+
 runs:
   using: composite
   steps:
-    - uses: ${{ inputs.image }}
+    - id: setup
+      uses: ${{ inputs.image }}
       with:
         driver-opts: ${{ inputs.driver-opts }}

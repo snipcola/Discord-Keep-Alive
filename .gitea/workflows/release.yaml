@@ -68,6 +68,14 @@ on:
         type: boolean
         required: false
         default: true
+      registry_cache:
+        type: boolean
+        required: false
+        default: false
+      registry_cache_tag:
+        type: string
+        required: false
+        default: cache
       create_tag:
         type: boolean
         required: false
@@ -119,11 +127,10 @@ jobs:
           INPUT_DOCKER_NETWORK: ${{ inputs.docker_network }}
         run: |
           set -euo pipefail
-          local_registry="${INPUT_LOCAL_REGISTRY:-${EXTERNAL_SERVER_DOMAIN:-}}"
-          docker_network="${INPUT_DOCKER_NETWORK:-${DOCKER_NETWORK:-}}"
+
           {
-            echo "local_registry=${local_registry}"
-            echo "docker_network=${docker_network}"
+            echo "local_registry=${INPUT_LOCAL_REGISTRY:-${EXTERNAL_SERVER_DOMAIN:-}}"
+            echo "docker_network=${INPUT_DOCKER_NETWORK:-${DOCKER_NETWORK:-}}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Version & publish decision
@@ -147,44 +154,72 @@ jobs:
           PUBLISH_LOCAL: ${{ inputs.publish_local }}
           PUBLISH_GHCR: ${{ inputs.publish_ghcr }}
           PUBLISH_DOCKERHUB: ${{ inputs.publish_dockerhub }}
+          REGISTRY_CACHE: ${{ inputs.registry_cache }}
+          REGISTRY_CACHE_TAG: ${{ inputs.registry_cache_tag }}
           LOCAL_REF: ${{ steps.meta.outputs.local }}
           GHCR_REF: ${{ steps.meta.outputs.ghcr }}
           DOCKER_REF: ${{ steps.meta.outputs.docker }}
           VERSION: ${{ steps.meta.outputs.version }}
           DOCKER_NETWORK: ${{ steps.reg.outputs.docker_network }}
+          IMAGE_NAME: ${{ inputs.image_name }}
         run: |
           set -euo pipefail
+
           any=false
           tags=()
-          if [ "${PUBLISH_LOCAL}" = "true" ]; then
+
+          add_tags() {
             any=true
-            tags+=("${LOCAL_REF}:${VERSION}" "${LOCAL_REF}:latest")
+            tags+=("${1}:${VERSION}" "${1}:latest")
+          }
+
+          if [ "${PUBLISH_LOCAL}" = "true" ]; then
+            add_tags "${LOCAL_REF}"
           fi
           if [ "${PUBLISH_GHCR}" = "true" ]; then
-            any=true
-            tags+=("${GHCR_REF}:${VERSION}" "${GHCR_REF}:latest")
+            add_tags "${GHCR_REF}"
           fi
           if [ "${PUBLISH_DOCKERHUB}" = "true" ]; then
-            any=true
-            tags+=("${DOCKER_REF}:${VERSION}" "${DOCKER_REF}:latest")
+            add_tags "${DOCKER_REF}"
           fi
-          driver_opts=""
-          if [ -n "${DOCKER_NETWORK}" ]; then
-            driver_opts="network=${DOCKER_NETWORK}"
+
+          driver_opts="${DOCKER_NETWORK:+network=${DOCKER_NETWORK}}"
+
+          cache_from=("type=gha,scope=${IMAGE_NAME}")
+          cache_to=("type=gha,mode=max,scope=${IMAGE_NAME}")
+          if [ "${REGISTRY_CACHE}" = "true" ] && [ "${PUBLISH_LOCAL}" = "true" ] && [ -n "${LOCAL_REF}" ]; then
+            cache_tag="${REGISTRY_CACHE_TAG:-cache}"
+            cache_from+=("type=registry,ref=${LOCAL_REF}:${cache_tag},ignore-error=true")
+            cache_to+=("type=registry,ref=${LOCAL_REF}:${cache_tag},mode=max,ignore-error=true")
           fi
-          IFS=,
+
           {
             echo "any=${any}"
-            echo "tags=${tags[*]}"
             echo "driver_opts=${driver_opts}"
+            echo "tags<<EOF"
+            ((${#tags[@]})) && printf '%s\n' "${tags[@]}"
+            echo "EOF"
+            echo "cache_from<<EOF"
+            printf '%s\n' "${cache_from[@]}"
+            echo "EOF"
+            echo "cache_to<<EOF"
+            printf '%s\n' "${cache_to[@]}"
+            echo "EOF"
           } >> "${GITHUB_OUTPUT}"
-          unset IFS
 
       - name: Setup Buildx
+        id: buildx
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
         uses: ./.gitea/actions/docker-buildx
         with:
           driver-opts: ${{ steps.plan.outputs.driver_opts }}
+
+      - name: Cache mounts
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
+        uses: ./.gitea/actions/buildkit-cache-mounts
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          dockerfile: ${{ inputs.dockerfile }}
 
       - name: Login (local)
         if: steps.meta.outputs.changed == 'true' && inputs.publish_local
@@ -220,9 +255,10 @@ jobs:
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             REVISION=${{ github.sha }}
+            PACKAGE=${{ inputs.package_name }}
           tags: ${{ steps.plan.outputs.tags }}
-          cache-from: type=gha,scope=${{ inputs.image_name }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.image_name }}
+          cache-from: ${{ steps.plan.outputs.cache_from }}
+          cache-to: ${{ steps.plan.outputs.cache_to }}
 
       - name: Tag
         if: >-

@@ -23,9 +23,35 @@ outputs:
 runs:
   using: composite
   steps:
+    - id: resolved
+      shell: bash
+      env:
+        INPUT_KEY: ${{ inputs.key }}
+        INPUT_RESTORE_KEYS: ${{ inputs.restore-keys }}
+        INPUT_PLATFORM: ${{ inputs.platform }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+
+        prefix=
+        if [ "${INPUT_PLATFORM}" = "true" ]; then
+          prefix="${RUNNER_OS}-${RUNNER_ARCH}-"
+        fi
+
+        {
+          echo "key=${prefix}${INPUT_KEY}"
+          echo "restore-keys<<EOF"
+          while IFS= read -r line || [ -n "${line}" ]; do
+            [ -n "${line}" ] || continue
+            printf '%s\n' "${prefix}${line}"
+          done <<< "${INPUT_RESTORE_KEYS}"
+          echo "EOF"
+        } >> "${GITHUB_OUTPUT}"
+
     - id: cache
       uses: ${{ inputs.image }}
       with:
         path: ${{ inputs.path }}
-        key: ${{ inputs.platform == 'true' && format('{0}-{1}-{2}', runner.os, runner.arch, inputs.key) || inputs.key }}
-        restore-keys: ${{ inputs.restore-keys }}
+        key: ${{ steps.resolved.outputs.key }}
+        restore-keys: ${{ steps.resolved.outputs.restore-keys }}

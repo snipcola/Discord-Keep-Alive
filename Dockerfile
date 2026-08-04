@@ -1,47 +1,78 @@
 # syntax=docker/dockerfile:1.26.0
 
 ARG ZIGBUILD_IMAGE=ghcr.io/rust-cross/cargo-zigbuild:0.23.0
+ARG CARGO_CHEF_VERSION=0.1.77
+ARG PACKAGE=discord-keep-alive
 
-FROM --platform=$BUILDPLATFORM ${ZIGBUILD_IMAGE} AS builder
-
-ARG TARGETPLATFORM
-ARG TARGETARCH
-WORKDIR /app
-
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
-COPY crates ./crates
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARGETARCH} \
-    --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git-${TARGETARCH} \
-    --mount=type=cache,target=/usr/local/rustup,id=rustup-${TARGETARCH} \
-    --mount=type=cache,target=/app/target,id=cargo-target-${TARGETARCH} \
-    case "${TARGETPLATFORM}" in \
-      linux/amd64) RUST_TARGET=x86_64-unknown-linux-musl ;; \
-      linux/arm64) RUST_TARGET=aarch64-unknown-linux-musl ;; \
-      *) echo "Unsupported platform: ${TARGETPLATFORM}" >&2; exit 1 ;; \
-    esac \
-    && rustup show active-toolchain \
-    && rustup target add "${RUST_TARGET}" \
-    && cargo zigbuild --release --locked --target "${RUST_TARGET}" -p discord-keep-alive \
-    && cp "/app/target/${RUST_TARGET}/release/discord-keep-alive" /app/discord-keep-alive
-
-FROM scratch
-
+ARG IMAGE_TITLE=discord-keep-alive
+ARG IMAGE_SOURCE=https://code.snipcola.st/snipcola/Discord-Keep-Alive
+ARG IMAGE_LICENSE=ISC
 ARG VERSION=0.0.0-dev
 ARG REVISION=unknown
 
-LABEL org.opencontainers.image.source="https://code.snipcola.st/snipcola/Discord-Keep-Alive" \
-      org.opencontainers.image.title="discord-keep-alive" \
-      org.opencontainers.image.licenses="ISC" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${REVISION}"
+FROM --platform=$BUILDPLATFORM ${ZIGBUILD_IMAGE} AS chef
+ARG CARGO_CHEF_VERSION
+WORKDIR /app
+COPY rust-toolchain.toml ./
+RUN rustup show active-toolchain \
+ && cargo install cargo-chef --locked --version "${CARGO_CHEF_VERSION}"
 
-COPY --from=builder --chown=65532:65532 /app/discord-keep-alive /discord-keep-alive
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+ARG TARGETPLATFORM
+ARG PACKAGE
+
+RUN case "${TARGETPLATFORM}" in \
+      linux/amd64) rust_target=x86_64-unknown-linux-musl ;; \
+      linux/arm64) rust_target=aarch64-unknown-linux-musl ;; \
+      *) echo "Unsupported platform: ${TARGETPLATFORM}" >&2; exit 1 ;; \
+    esac \
+ && printf '%s\n' "${rust_target}" >/tmp/rust-target \
+ && rustup show active-toolchain \
+ && rustup target add "${rust_target}"
+
+COPY --from=planner /app/recipe.json recipe.json
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    rust_target="$(cat /tmp/rust-target)" \
+ && cargo chef cook \
+      --release \
+      --locked \
+      --zigbuild \
+      --recipe-path recipe.json \
+      --target "${rust_target}" \
+      -p "${PACKAGE}"
+
+COPY . .
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    rust_target="$(cat /tmp/rust-target)" \
+ && cargo zigbuild --release --locked --target "${rust_target}" -p "${PACKAGE}" \
+ && cp "/app/target/${rust_target}/release/${PACKAGE}" /out
+
+FROM scratch
+
+ARG IMAGE_TITLE
+ARG IMAGE_SOURCE
+ARG IMAGE_LICENSE
+ARG VERSION
+ARG REVISION
+
+LABEL org.opencontainers.image.source="${IMAGE_SOURCE}" \
+      org.opencontainers.image.title="${IMAGE_TITLE}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.licenses="${IMAGE_LICENSE}"
+
+COPY --from=builder --chown=65532:65532 /out /app
 
 USER 65532:65532
 
 ENV HEALTH_SOCKET=/dev/shm/dka-health.sock
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=2s --retries=3 \
-  CMD ["/discord-keep-alive", "health"]
+  CMD ["/app", "health"]
 
-ENTRYPOINT ["/discord-keep-alive"]
+ENTRYPOINT ["/app"]
