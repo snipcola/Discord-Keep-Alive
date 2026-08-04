@@ -1,0 +1,58 @@
+name: Cargo publish meta
+description: Package version, publish decision, and image base refs
+
+inputs:
+  package_name:
+    required: true
+  image_name:
+    required: true
+  manifest_path:
+    required: false
+    default: Cargo.toml
+  force_release:
+    description: Publish even without version bump or release marker
+    required: false
+    default: "false"
+  release_marker:
+    description: Subject substring that forces a same-version publish
+    required: false
+    default: "#release"
+  local_registry:
+    required: true
+  local_user:
+    required: true
+  gh_user:
+    required: true
+  dh_user:
+    required: true
+
+outputs:
+  version:
+    value: ${{ steps.meta.outputs.version }}
+  changed:
+    value: ${{ steps.meta.outputs.changed }}
+  reason:
+    value: ${{ steps.meta.outputs.reason }}
+  local:
+    value: ${{ steps.meta.outputs.local }}
+  ghcr:
+    value: ${{ steps.meta.outputs.ghcr }}
+  docker:
+    value: ${{ steps.meta.outputs.docker }}
+
+runs:
+  using: composite
+  steps:
+    - id: meta
+      shell: bash
+      env:
+        FORCE_RELEASE: ${{ inputs.force_release }}
+        PACKAGE_NAME: ${{ inputs.package_name }}
+        MANIFEST_PATH: ${{ inputs.manifest_path }}
+        IMAGE_NAME: ${{ inputs.image_name }}
+        RELEASE_MARKER: ${{ inputs.release_marker }}
+        LOCAL_REGISTRY: ${{ inputs.local_registry }}
+        LOCAL_USER: ${{ inputs.local_user }}
+        GH_USER: ${{ inputs.gh_user }}
+        DH_USER: ${{ inputs.dh_user }}
+      run: bash "${{ github.action_path }}/run.sh"

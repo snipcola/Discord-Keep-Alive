@@ -1,0 +1,54 @@
+name: Gitea Tag
+description: Create a repository tag via the Gitea API
+
+inputs:
+  version:
+    required: true
+  prefix:
+    required: false
+    default: "v"
+  message:
+    required: false
+    default: ""
+  target:
+    required: false
+    default: ""
+  conflict:
+    description: Skip, fail, or override if the tag exists on another commit
+    required: false
+    default: override
+  latest:
+    description: Also move floating tag latest to the same commit
+    required: false
+    default: "true"
+  token:
+    required: true
+  server_url:
+    required: false
+    default: ""
+  repository:
+    required: false
+    default: ""
+
+outputs:
+  tag:
+    value: ${{ steps.tag.outputs.tag }}
+  created:
+    value: ${{ steps.tag.outputs.created }}
+
+runs:
+  using: composite
+  steps:
+    - id: tag
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        PREFIX: ${{ inputs.prefix }}
+        MESSAGE: ${{ inputs.message }}
+        TARGET: ${{ inputs.target }}
+        CONFLICT: ${{ inputs.conflict }}
+        LATEST: ${{ inputs.latest }}
+        TOKEN: ${{ inputs.token }}
+        SERVER_URL: ${{ inputs.server_url }}
+        REPOSITORY: ${{ inputs.repository }}
+      run: bash "${{ github.action_path }}/run.sh"
