@@ -8,7 +8,8 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 use self::account::AccountLayer;
 use self::format::HumanFormat;
 
-/// Init tracing: `RUST_LOG` wins when set; otherwise workspace crates at `log_level` with noisy deps muted. ANSI only on a TTY.
+// Prefer RUST_LOG when set; otherwise log workspace crates at log_level and mute noisy deps.
+// Color only when stderr is a TTY.
 pub fn init(log_level: &str) {
   let filter =
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter(log_level)));
@@ -30,9 +31,10 @@ fn default_filter(level: &str) -> String {
 }
 
 fn normalize_level(level: &str) -> String {
-  match level.to_ascii_lowercase().as_str() {
-    "error" | "warn" | "info" | "debug" | "trace" => level.to_ascii_lowercase(),
-    _ => "info".into(),
+  let lower = level.to_ascii_lowercase();
+  match lower.as_str() {
+    "error" | "warn" | "info" | "debug" | "trace" => lower,
+    _ => crate::config::DEFAULT_LOG_LEVEL.into(),
   }
 }
 

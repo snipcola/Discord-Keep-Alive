@@ -17,7 +17,7 @@ use tracing::{debug, error, info};
 use crate::payload::GatewayPayload;
 use crate::properties::ClientProperties;
 use crate::reconnect::{backoff_with_jitter, resume_ws_url};
-use crate::{GATEWAY_HOST, gateway_url};
+use crate::{GATEWAY_HOST, gateway_url, is_shutdown};
 
 use self::connect::connect_and_run;
 
@@ -26,7 +26,7 @@ type WsStream =
 type WsWrite = SplitSink<WsStream, Message>;
 type WsRead = SplitStream<WsStream>;
 
-/// Presence is finished JSON; the gateway does not rebuild it.
+// Presence is ready-made JSON; the gateway never rebuilds it.
 #[derive(Debug, Clone)]
 pub struct SessionParams {
   pub name: String,
@@ -43,7 +43,7 @@ struct SessionState {
   seq: Option<i64>,
   session_id: Option<String>,
   resume_url: Option<String>,
-  /// After READY/RESUMED; healthy drop resets reconnect attempt counters.
+  // Set after READY/RESUMED. A healthy drop resets reconnect attempts.
   session_healthy: bool,
 }
 
@@ -79,13 +79,29 @@ enum SessionEnd {
   Shutdown,
   Reconnect {
     resume: bool,
-    /// Extra backoff (e.g. 2s after INVALID_SESSION).
+    // Optional extra wait (for example 2s after INVALID_SESSION).
     extra_delay: Option<Duration>,
   },
   Fatal {
     code: u16,
     reason: String,
   },
+}
+
+impl SessionEnd {
+  fn reconnect(resume: bool) -> Self {
+    Self::Reconnect {
+      resume,
+      extra_delay: None,
+    }
+  }
+
+  fn reconnect_after(resume: bool, delay: Duration) -> Self {
+    Self::Reconnect {
+      resume,
+      extra_delay: Some(delay),
+    }
+  }
 }
 
 pub async fn run_session(
@@ -97,10 +113,8 @@ pub async fn run_session(
   let mut attempt: u32 = 0;
 
   loop {
-    if *shutdown.borrow() {
-      state.set_healthy(false);
-      info!("disconnected");
-      return Ok(());
+    if is_shutdown(&shutdown) {
+      return finish_disconnect(&mut state);
     }
 
     let connect_url = if state.can_resume() {
@@ -113,11 +127,7 @@ pub async fn run_session(
     state.set_healthy(false);
 
     match connect_and_run(&params, &mut state, &connect_url, &mut shutdown).await {
-      Ok(SessionEnd::Shutdown) => {
-        state.set_healthy(false);
-        info!("disconnected");
-        return Ok(());
-      }
+      Ok(SessionEnd::Shutdown) => return finish_disconnect(&mut state),
       Ok(SessionEnd::Fatal { code, reason }) => {
         state.set_healthy(false);
         error!(code, reason = %reason, "session stopped (fatal close)");
@@ -148,6 +158,12 @@ pub async fn run_session(
       }
     }
   }
+}
+
+fn finish_disconnect(state: &mut SessionState) -> Result<()> {
+  state.set_healthy(false);
+  info!("disconnected");
+  Ok(())
 }
 
 async fn schedule_reconnect(
@@ -200,12 +216,12 @@ fn format_delay(delay: Duration) -> String {
 }
 
 async fn wait_or_shutdown(delay: Duration, shutdown: &mut watch::Receiver<bool>) -> bool {
-  if *shutdown.borrow() {
+  if is_shutdown(shutdown) {
     return true;
   }
   tokio::select! {
     _ = sleep(delay) => false,
-    changed = shutdown.changed() => changed.is_err() || *shutdown.borrow(),
+    changed = shutdown.changed() => changed.is_err() || is_shutdown(shutdown),
   }
 }
 

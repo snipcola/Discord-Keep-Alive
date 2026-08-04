@@ -14,6 +14,7 @@ use tracing::{debug, trace};
 use dka_presence::AccountKind;
 
 use crate::compress::TransportDecompress;
+use crate::is_shutdown;
 use crate::payload::{
   GatewayEnvelope, GatewayPayload, HelloData, OP_HELLO, OP_IDENTIFY, OP_PRESENCE_UPDATE,
 };
@@ -81,11 +82,11 @@ pub(super) async fn graceful_disconnect(
 }
 
 pub(super) async fn send_identify(write: &mut WsWrite, params: &SessionParams) -> Result<()> {
-  // Presence is applied again after READY/RESUMED; still send it here for the identify window.
+  // Identify carries presence for the pre-READY window; READY/RESUMED re-apply it.
   let mut d = json!({
     "token": params.token,
     "properties": identify_properties(&params.properties),
-    // Payload zlib, not transport `compress=zstd-stream`.
+    // Payload-level zlib off; transport already uses zstd-stream.
     "compress": false,
     "large_threshold": 50,
     "presence": params.presence.clone(),
@@ -101,21 +102,19 @@ pub(super) enum HelloWaitError {
   Other(anyhow::Error),
 }
 
+impl HelloWaitError {
+  fn other(err: impl Into<anyhow::Error>) -> Self {
+    Self::Other(err.into())
+  }
+
+  fn closed() -> Self {
+    Self::Other(anyhow::anyhow!("connection closed before Hello"))
+  }
+}
+
 impl From<anyhow::Error> for HelloWaitError {
   fn from(err: anyhow::Error) -> Self {
     Self::Other(err)
-  }
-}
-
-impl From<tokio_tungstenite::tungstenite::Error> for HelloWaitError {
-  fn from(err: tokio_tungstenite::tungstenite::Error) -> Self {
-    Self::Other(err.into())
-  }
-}
-
-impl From<serde_json::Error> for HelloWaitError {
-  fn from(err: serde_json::Error) -> Self {
-    Self::Other(err.into())
   }
 }
 
@@ -128,25 +127,23 @@ pub(super) async fn wait_for_hello(
   tokio::pin!(deadline);
 
   loop {
-    if *shutdown.borrow() {
+    if is_shutdown(shutdown) {
       return Err(HelloWaitError::Shutdown);
     }
 
     tokio::select! {
-      _ = &mut deadline => return Err(HelloWaitError::Other(anyhow::anyhow!("timed out waiting for Hello"))),
+      _ = &mut deadline => {
+        return Err(HelloWaitError::other(anyhow::anyhow!("timed out waiting for Hello")));
+      }
       changed = shutdown.changed() => {
-        if changed.is_err() || *shutdown.borrow() {
+        if changed.is_err() || is_shutdown(shutdown) {
           return Err(HelloWaitError::Shutdown);
         }
       }
       msg = read.next() => {
         match msg {
           Some(Ok(Message::Ping(_))) => {}
-          Some(Ok(Message::Close(_))) => {
-            return Err(HelloWaitError::Other(anyhow::anyhow!(
-              "connection closed before Hello"
-            )));
-          }
+          Some(Ok(Message::Close(_))) | None => return Err(HelloWaitError::closed()),
           Some(Ok(msg)) => {
             let hello = if let Some(text) = decode_inbound(msg, decomp)? {
               let payload = GatewayEnvelope::from_json(text.as_str())
@@ -165,12 +162,7 @@ pub(super) async fn wait_for_hello(
               return Ok(hello);
             }
           }
-          Some(Err(err)) => return Err(err.into()),
-          None => {
-            return Err(HelloWaitError::Other(anyhow::anyhow!(
-              "connection closed before Hello"
-            )));
-          }
+          Some(Err(err)) => return Err(HelloWaitError::other(err)),
         }
       }
     }

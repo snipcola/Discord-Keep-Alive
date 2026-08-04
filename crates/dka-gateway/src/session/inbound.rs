@@ -3,7 +3,7 @@ use tokio_tungstenite::tungstenite::{Message, protocol::frame::Utf8Bytes};
 
 use crate::compress::TransportDecompress;
 
-/// Frame JSON text. Borrowed decompressed text is invalidated by the next `TransportDecompress::push`.
+// Decompressed text is only valid until the next decompress push.
 pub(super) enum InboundText<'a> {
   Text(Utf8Bytes),
   Decompressed(&'a str),
@@ -18,7 +18,7 @@ impl<'a> InboundText<'a> {
   }
 }
 
-/// `Ok(None)` for control frames (ping/pong/close/etc.) handled by the caller.
+// Returns None for control frames (ping/pong/close); the caller handles those.
 pub(super) fn decode_inbound<'a>(
   msg: Message,
   decomp: &'a mut TransportDecompress,

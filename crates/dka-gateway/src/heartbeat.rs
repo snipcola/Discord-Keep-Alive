@@ -7,6 +7,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, MissedTickBehavior, interval, sleep};
 use tracing::trace;
 
+use crate::is_shutdown;
 use crate::reconnect::unit_f64;
 
 pub enum HeartbeatCmd {
@@ -21,21 +22,21 @@ pub async fn heartbeat_loop(
   seq_cell: Arc<AtomicI64>,
   shutdown: &mut watch::Receiver<bool>,
 ) {
-  // Discord: first heartbeat after interval * random(0..1); then every interval.
-  if *shutdown.borrow() {
+  // First beat is delayed by interval * random(0..1); later beats are every interval.
+  if is_shutdown(shutdown) {
     return;
   }
   let jitter_ms = (interval_ms as f64 * unit_f64()) as u64;
   tokio::select! {
     _ = sleep(Duration::from_millis(jitter_ms)) => {}
     changed = shutdown.changed() => {
-      if changed.is_err() || *shutdown.borrow() {
+      if changed.is_err() || is_shutdown(shutdown) {
         return;
       }
     }
   }
 
-  // interval()'s first tick is immediate; intentional after the jitter sleep above.
+  // interval() fires immediately; that is fine after the jitter sleep above.
   let mut ticker = interval(Duration::from_millis(interval_ms));
   ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -44,7 +45,7 @@ pub async fn heartbeat_loop(
   loop {
     tokio::select! {
       changed = shutdown.changed() => {
-        if changed.is_err() || *shutdown.borrow() {
+        if changed.is_err() || is_shutdown(shutdown) {
           return;
         }
       }
@@ -61,11 +62,7 @@ pub async fn heartbeat_loop(
           return;
         }
         let raw = seq_cell.load(Ordering::Relaxed);
-        let seq = if raw < 0 {
-          Value::Null
-        } else {
-          json!(raw)
-        };
+        let seq = if raw < 0 { Value::Null } else { json!(raw) };
         if tx.send(HeartbeatCmd::Send { seq }).is_err() {
           return;
         }

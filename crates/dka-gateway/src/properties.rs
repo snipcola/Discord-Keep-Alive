@@ -30,7 +30,7 @@ impl Defaults {
   }
 }
 
-pub fn identify_properties(props: &ClientProperties) -> Value {
+pub(crate) fn identify_properties(props: &ClientProperties) -> Value {
   let mut map = Map::new();
   map.insert("os".into(), json!(props.os));
   if let Some(browser) = &props.browser {
@@ -74,37 +74,54 @@ mod tests {
   }
 
   #[test]
-  fn bot_uses_bot_defaults() {
+  fn client_property_templates() {
     let defaults = sample_defaults();
-    let props =
-      identify_properties(defaults.client_properties(AccountKind::Bot, Some(Device::Desktop)));
-    assert_eq!(props["os"], "FreeBSD");
-    assert_eq!(props["browser"], "lib");
-    assert_eq!(props["device"], "lib");
-    assert_eq!(
-      defaults
-        .client_properties(AccountKind::Bot, None)
-        .user_agent
-        .as_deref(),
-      Some("bot-ua")
-    );
-  }
-
-  #[test]
-  fn web_defaults_selected_for_user() {
-    let defaults = sample_defaults();
-    let props =
-      identify_properties(defaults.client_properties(AccountKind::User, Some(Device::Web)));
-    assert_eq!(props["os"], "Windows");
-    assert_eq!(props["browser"], "Firefox");
-    assert_eq!(props["device"], "");
-    assert_eq!(
-      defaults
-        .client_properties(AccountKind::User, Some(Device::Web))
-        .user_agent
-        .as_deref(),
-      Some("web-ua")
-    );
+    let cases = [
+      (
+        "bot",
+        AccountKind::Bot,
+        Some(Device::Desktop),
+        "FreeBSD",
+        Some("lib"),
+        "lib",
+        Some("bot-ua"),
+      ),
+      (
+        "web",
+        AccountKind::User,
+        Some(Device::Web),
+        "Windows",
+        Some("Firefox"),
+        "",
+        Some("web-ua"),
+      ),
+      (
+        "desktop",
+        AccountKind::User,
+        Some(Device::Desktop),
+        "Windows",
+        Some("Discord Client"),
+        "Discord Client",
+        Some("desktop-ua"),
+      ),
+      (
+        "mobile",
+        AccountKind::User,
+        Some(Device::Mobile),
+        "iOS",
+        Some("Discord iOS"),
+        "iPhone",
+        None,
+      ),
+    ];
+    for (label, kind, device, os, browser, device_name, ua) in cases {
+      let raw = defaults.client_properties(kind, device);
+      let props = identify_properties(raw);
+      assert_eq!(props["os"], os, "{label}");
+      assert_eq!(props["browser"], browser.unwrap(), "{label}");
+      assert_eq!(props["device"], device_name, "{label}");
+      assert_eq!(raw.user_agent.as_deref(), ua, "{label}");
+    }
   }
 
   #[test]
@@ -113,33 +130,5 @@ mod tests {
     defaults.web.browser = None;
     let props = identify_properties(defaults.client_properties(AccountKind::User, None));
     assert!(props.get("browser").is_none());
-  }
-
-  #[test]
-  fn desktop_and_mobile_templates() {
-    let defaults = sample_defaults();
-    let desktop =
-      identify_properties(defaults.client_properties(AccountKind::User, Some(Device::Desktop)));
-    assert_eq!(desktop["browser"], "Discord Client");
-    assert_eq!(desktop["device"], "Discord Client");
-    assert_eq!(
-      defaults
-        .client_properties(AccountKind::User, Some(Device::Desktop))
-        .user_agent
-        .as_deref(),
-      Some("desktop-ua")
-    );
-
-    let mobile =
-      identify_properties(defaults.client_properties(AccountKind::User, Some(Device::Mobile)));
-    assert_eq!(mobile["os"], "iOS");
-    assert_eq!(mobile["browser"], "Discord iOS");
-    assert_eq!(mobile["device"], "iPhone");
-    assert!(
-      defaults
-        .client_properties(AccountKind::User, Some(Device::Mobile))
-        .user_agent
-        .is_none()
-    );
   }
 }

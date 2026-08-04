@@ -27,7 +27,7 @@ pub fn build_presence_data(
       }
     }
     AccountKind::Bot => {
-      // Bots only get one activity; extras are ignored by Discord.
+      // Bots keep only the first activity; Discord ignores the rest.
       if let Some(v) = activities.iter().find_map(|a| a.to_activity(kind)) {
         out.push(v);
       }
@@ -45,11 +45,21 @@ pub fn build_presence_data(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::activity::named;
   use crate::constants::{AccountKind, ActivityType, Status};
+
+  fn presence(
+    status: Option<Status>,
+    custom: Option<&CustomStatusConfig>,
+    activities: &[ActivityConfig],
+    kind: AccountKind,
+  ) -> Value {
+    build_presence_data(status, custom, activities, false, None, kind)
+  }
 
   #[test]
   fn empty_presence_online() {
-    let d = build_presence_data(None, None, &[], false, None, AccountKind::User);
+    let d = presence(None, None, &[], AccountKind::User);
     assert_eq!(d["status"], "online");
     assert_eq!(d["activities"], json!([]));
     assert_eq!(d["afk"], false);
@@ -62,14 +72,7 @@ mod tests {
       text: Some("brb".into()),
       emoji: Some("🔥".into()),
     };
-    let d = build_presence_data(
-      Some(Status::Idle),
-      Some(&custom),
-      &[],
-      false,
-      None,
-      AccountKind::User,
-    );
+    let d = presence(Some(Status::Idle), Some(&custom), &[], AccountKind::User);
     assert_eq!(d["status"], "idle");
     assert_eq!(d["activities"].as_array().unwrap().len(), 1);
     assert_eq!(d["activities"][0]["type"], 4);
@@ -83,24 +86,14 @@ mod tests {
       text: Some("coding".into()),
       emoji: None,
     };
-    let a = ActivityConfig {
-      name: Some("Rust".into()),
-      activity_type: Some(ActivityType::Playing),
-      application_id: "1".into(),
-      ..ActivityConfig::new()
-    };
-    let b = ActivityConfig {
-      name: Some("Spotify".into()),
-      activity_type: Some(ActivityType::Listening),
-      application_id: "1".into(),
-      ..ActivityConfig::new()
-    };
-    let d = build_presence_data(
+    let mut a = named("Rust");
+    a.activity_type = Some(ActivityType::Playing);
+    let mut b = named("Spotify");
+    b.activity_type = Some(ActivityType::Listening);
+    let d = presence(
       Some(Status::Online),
       Some(&custom),
       &[a, b],
-      false,
-      None,
       AccountKind::User,
     );
     let acts = d["activities"].as_array().unwrap();
@@ -115,14 +108,11 @@ mod tests {
 
   #[test]
   fn bot_activity_omits_rich_fields() {
-    let activity = ActivityConfig {
-      name: Some("Game".into()),
-      activity_type: Some(ActivityType::Playing),
-      details: Some("Level 1".into()),
-      application_id: "99".into(),
-      ..ActivityConfig::new()
-    };
-    let d = build_presence_data(None, None, &[activity], false, None, AccountKind::Bot);
+    let mut activity = named("Game");
+    activity.activity_type = Some(ActivityType::Playing);
+    activity.details = Some("Level 1".into());
+    activity.application_id = "99".into();
+    let d = presence(None, None, &[activity], AccountKind::Bot);
     let act = &d["activities"][0];
     assert_eq!(act["name"], "Game");
     assert_eq!(act["type"], 0);
@@ -136,26 +126,11 @@ mod tests {
       text: Some("ignored".into()),
       emoji: Some("x".into()),
     };
-    let first = ActivityConfig {
-      name: Some("First".into()),
-      activity_type: Some(ActivityType::Playing),
-      application_id: "1".into(),
-      ..ActivityConfig::new()
-    };
-    let second = ActivityConfig {
-      name: Some("Second".into()),
-      activity_type: Some(ActivityType::Watching),
-      application_id: "1".into(),
-      ..ActivityConfig::new()
-    };
-    let d = build_presence_data(
-      None,
-      Some(&custom),
-      &[first, second],
-      false,
-      None,
-      AccountKind::Bot,
-    );
+    let mut first = named("First");
+    first.activity_type = Some(ActivityType::Playing);
+    let mut second = named("Second");
+    second.activity_type = Some(ActivityType::Watching);
+    let d = presence(None, Some(&custom), &[first, second], AccountKind::Bot);
     let acts = d["activities"].as_array().unwrap();
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["name"], "First");
@@ -164,13 +139,12 @@ mod tests {
 
   #[test]
   fn nameless_activities_skipped() {
-    let empty = ActivityConfig::new();
-    let named = ActivityConfig {
-      name: Some("Only".into()),
-      application_id: "1".into(),
-      ..ActivityConfig::new()
-    };
-    let d = build_presence_data(None, None, &[empty, named], false, None, AccountKind::User);
+    let d = presence(
+      None,
+      None,
+      &[ActivityConfig::new(), named("Only")],
+      AccountKind::User,
+    );
     assert_eq!(d["activities"].as_array().unwrap().len(), 1);
     assert_eq!(d["activities"][0]["name"], "Only");
   }

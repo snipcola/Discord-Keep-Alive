@@ -32,31 +32,45 @@ pub const DEFAULT_MOBILE_OS: &str = "iOS";
 pub const DEFAULT_MOBILE_BROWSER: &str = "Discord iOS";
 pub const DEFAULT_MOBILE_DEVICE: &str = "iPhone";
 
+fn props(
+  os: &str,
+  browser: Option<&str>,
+  device: &str,
+  user_agent: Option<&str>,
+) -> ClientProperties {
+  ClientProperties {
+    os: os.into(),
+    browser: browser.map(str::to_string),
+    device: device.into(),
+    user_agent: user_agent.map(str::to_string),
+  }
+}
+
 pub fn product_defaults() -> Defaults {
   Defaults {
-    bot: ClientProperties {
-      os: DEFAULT_BOT_OS.into(),
-      browser: Some(DEFAULT_BOT_BROWSER.into()),
-      device: DEFAULT_BOT_DEVICE.into(),
-      user_agent: None,
-    },
-    web: ClientProperties {
-      os: DEFAULT_WEB_OS.into(),
-      browser: Some(DEFAULT_WEB_BROWSER.into()),
-      device: DEFAULT_WEB_DEVICE.into(),
-      user_agent: Some(DEFAULT_WEB_UA.into()),
-    },
-    desktop: ClientProperties {
-      os: DEFAULT_DESKTOP_OS.into(),
-      browser: Some(DEFAULT_DESKTOP_BROWSER.into()),
-      device: DEFAULT_DESKTOP_DEVICE.into(),
-      user_agent: Some(DEFAULT_DESKTOP_UA.into()),
-    },
-    mobile: ClientProperties {
-      os: DEFAULT_MOBILE_OS.into(),
-      browser: Some(DEFAULT_MOBILE_BROWSER.into()),
-      device: DEFAULT_MOBILE_DEVICE.into(),
-      user_agent: None,
-    },
+    bot: props(
+      DEFAULT_BOT_OS,
+      Some(DEFAULT_BOT_BROWSER),
+      DEFAULT_BOT_DEVICE,
+      None,
+    ),
+    web: props(
+      DEFAULT_WEB_OS,
+      Some(DEFAULT_WEB_BROWSER),
+      DEFAULT_WEB_DEVICE,
+      Some(DEFAULT_WEB_UA),
+    ),
+    desktop: props(
+      DEFAULT_DESKTOP_OS,
+      Some(DEFAULT_DESKTOP_BROWSER),
+      DEFAULT_DESKTOP_DEVICE,
+      Some(DEFAULT_DESKTOP_UA),
+    ),
+    mobile: props(
+      DEFAULT_MOBILE_OS,
+      Some(DEFAULT_MOBILE_BROWSER),
+      DEFAULT_MOBILE_DEVICE,
+      None,
+    ),
   }
 }

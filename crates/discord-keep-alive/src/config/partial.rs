@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::token::SecretString;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct PartialConfig {
   #[serde(default)]
   pub log_level: Option<String>,
@@ -16,12 +16,12 @@ pub struct PartialConfig {
   #[serde(default)]
   pub accounts: Vec<PartialAccount>,
 
-  // Flat sugar: if token is set, prepended before `[[accounts]]`.
+  // Flat fields with a token become account 0 before [[accounts]].
   #[serde(flatten)]
   pub account: PartialAccount,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct PartialDefaults {
   #[serde(default)]
   pub bot: PartialClientProperties,
@@ -33,7 +33,7 @@ pub struct PartialDefaults {
   pub mobile: PartialClientProperties,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct PartialClientProperties {
   #[serde(default)]
   pub os: Option<String>,
@@ -45,7 +45,7 @@ pub struct PartialClientProperties {
   pub user_agent: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct PartialAccount {
   #[serde(default)]
   pub name: Option<String>,
@@ -59,14 +59,14 @@ pub struct PartialAccount {
   pub status: Option<String>,
   #[serde(default)]
   pub custom_status: Option<PartialCustomStatus>,
-  // Singular sugar: if name is set, prepended before `activities`.
+  // A singular named activity is prepended before activities[].
   #[serde(default)]
   pub activity: Option<PartialActivity>,
   #[serde(default)]
   pub activities: Vec<PartialActivity>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct PartialCustomStatus {
   #[serde(default)]
   pub text: Option<String>,
@@ -74,7 +74,7 @@ pub struct PartialCustomStatus {
   pub emoji: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct PartialActivity {
   #[serde(default)]
   pub name: Option<String>,

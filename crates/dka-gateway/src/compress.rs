@@ -2,12 +2,12 @@ use anyhow::{Context, Result};
 use zstd::stream::raw::{Decoder, InBuffer, Operation, OutBuffer};
 
 const SCRATCH_LEN: usize = 8 * 1024;
-/// Steady-state capacity floor after reclaim (covers normal gateway frames).
+// Keep this much capacity after reclaim for normal frames.
 const KEEP_CAP: usize = 64 * 1024;
-/// Only reclaim when capacity exceeds this (READY-sized spikes).
+// Only shrink after large spikes (for example READY).
 const SHRINK_THRESHOLD: usize = 256 * 1024;
 
-/// One shared zstd-stream context for the lifetime of the WebSocket connection.
+// Shared zstd stream for the life of one WebSocket connection.
 pub(crate) struct TransportDecompress {
   decoder: Decoder<'static>,
   out: Vec<u8>,
@@ -23,7 +23,7 @@ impl TransportDecompress {
     })
   }
 
-  /// Whole frame is consumed; returned slice is invalidated by the next `push`.
+  // Output is only valid until the next push.
   pub(crate) fn push(&mut self, compressed: &[u8]) -> Result<&[u8]> {
     self.out.clear();
     let mut input = InBuffer::around(compressed);
@@ -39,7 +39,7 @@ impl TransportDecompress {
 
       let in_done = input.pos() >= compressed.len();
       let out_full = output.pos() >= self.scratch.len();
-      // Keep draining when the scratch filled (more output may remain after input ends).
+      // Keep reading while the scratch buffer is full.
       if in_done && !out_full {
         break;
       }
@@ -48,8 +48,7 @@ impl TransportDecompress {
     Ok(&self.out)
   }
 
-  /// Drop peak capacity after a large frame once borrows into `out` are gone.
-  /// Clears first: `shrink_to` cannot go below `len`.
+  // Clear before shrink_to; shrink cannot drop below current len.
   pub(crate) fn reclaim(&mut self) {
     if self.out.capacity() > SHRINK_THRESHOLD {
       self.out.clear();
@@ -63,8 +62,7 @@ mod tests {
   use super::*;
   use zstd::stream::raw::{Encoder, InBuffer, Operation, OutBuffer};
 
-  /// Encode each payload as its own WS binary frame on one continuous zstd stream
-  /// (compress + flush per payload, matching Discord zstd-stream transport).
+  // One continuous zstd stream with compress+flush per payload.
   fn compress_stream_messages(chunks: &[&[u8]]) -> Vec<Vec<u8>> {
     let mut encoder = Encoder::new(0).expect("encoder");
     let mut frames = Vec::new();

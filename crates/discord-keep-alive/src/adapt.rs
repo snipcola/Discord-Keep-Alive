@@ -69,34 +69,16 @@ fn log_presence_summary(account: &AccountConfig) {
     })
     .collect();
 
-  match (custom_text, rich_summary.is_empty()) {
-    (Some(text), true) => {
-      info!(
-        account = %account_name,
-        "presence config: {status} ({kind}/{device}), custom {text}"
-      );
-    }
-    (Some(text), false) => {
-      info!(
-        account = %account_name,
-        "presence config: {status} ({kind}/{device}), custom {text}, {}",
-        rich_summary.join(", ")
-      );
-    }
-    (None, false) => {
-      info!(
-        account = %account_name,
-        "presence config: {status} ({kind}/{device}), {}",
-        rich_summary.join(", ")
-      );
-    }
-    (None, true) => {
-      info!(
-        account = %account_name,
-        "presence config: {status} ({kind}/{device})"
-      );
-    }
+  let mut summary = format!("presence config: {status} ({kind}/{device})");
+  if let Some(text) = custom_text {
+    summary.push_str(", custom ");
+    summary.push_str(text);
   }
+  if !rich_summary.is_empty() {
+    summary.push_str(", ");
+    summary.push_str(&rich_summary.join(", "));
+  }
+  info!(account = %account_name, "{summary}");
 
   if custom_text.is_none() && rich_summary.is_empty() {
     return;
@@ -105,39 +87,41 @@ fn log_presence_summary(account: &AccountConfig) {
   if let Some(cs) = &account.custom_status {
     debug!(
       account = %account_name,
-      text = cs.text.as_deref().unwrap_or("-"),
-      emoji = cs.emoji.as_deref().unwrap_or("-"),
+      text = dash(cs.text.as_deref()),
+      emoji = dash(cs.emoji.as_deref()),
       "custom status"
     );
   }
 
   for (i, act) in account.activities.iter().enumerate() {
+    let ty = act.activity_type.map(|t| t.to_string());
+    let platform = act.platform.map(|p| p.to_string());
     debug!(
       account = %account_name,
       index = i,
-      name = act.name.as_deref().unwrap_or("-"),
-      r#type = act
-        .activity_type
-        .map(|t| t.to_string())
-        .as_deref()
-        .unwrap_or("-"),
-      platform = act.platform.map(|p| p.to_string()).as_deref().unwrap_or("-"),
-      timestamp = act.timestamp.as_deref().unwrap_or("-"),
+      name = dash(act.name.as_deref()),
+      r#type = dash(ty.as_deref()),
+      platform = dash(platform.as_deref()),
+      timestamp = dash(act.timestamp.as_deref()),
       application_id = %act.application_id,
-      details = act.details.as_deref().unwrap_or("-"),
-      url = act.url.as_deref().unwrap_or("-"),
-      large_image = act.large_image.image.as_deref().unwrap_or("-"),
-      large_image_text = act.large_image.text.as_deref().unwrap_or("-"),
-      small_image = act.small_image.image.as_deref().unwrap_or("-"),
-      small_image_text = act.small_image.text.as_deref().unwrap_or("-"),
-      button = act.button.name.as_deref().unwrap_or("-"),
-      button_url = act.button.url.as_deref().unwrap_or("-"),
-      button2 = act.button2.name.as_deref().unwrap_or("-"),
-      button2_url = act.button2.url.as_deref().unwrap_or("-"),
+      details = dash(act.details.as_deref()),
+      url = dash(act.url.as_deref()),
+      large_image = dash(act.large_image.image.as_deref()),
+      large_image_text = dash(act.large_image.text.as_deref()),
+      small_image = dash(act.small_image.image.as_deref()),
+      small_image_text = dash(act.small_image.text.as_deref()),
+      button = dash(act.button.name.as_deref()),
+      button_url = dash(act.button.url.as_deref()),
+      button2 = dash(act.button2.name.as_deref()),
+      button2_url = dash(act.button2.url.as_deref()),
       party_id = %act.party.id,
-      party_current = act.party.current.as_deref().unwrap_or("-"),
-      party_max = act.party.max.as_deref().unwrap_or("-"),
+      party_current = dash(act.party.current.as_deref()),
+      party_max = dash(act.party.max.as_deref()),
       "activity details"
     );
   }
+}
+
+fn dash(o: Option<&str>) -> &str {
+  o.unwrap_or("-")
 }

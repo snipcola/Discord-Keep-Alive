@@ -2,10 +2,10 @@ use std::fmt;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-/// Credential wrapper; `Debug` prints `<redacted>`.
-#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+// Debug prints <redacted> so tokens never show up in logs.
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct SecretString(String);
 

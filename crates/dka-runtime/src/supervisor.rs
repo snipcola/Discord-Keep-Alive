@@ -36,8 +36,6 @@ async fn run_account(
   shutdown: watch::Receiver<bool>,
 ) {
   let name = params.name.clone();
-  let span = info_span!("session", account = %name);
-
   async move {
     let account_name = params.name.clone();
     let on_live: LiveSink = match health {
@@ -48,6 +46,6 @@ async fn run_account(
       error!(error = %err, "session failed");
     }
   }
-  .instrument(span)
+  .instrument(info_span!("session", account = %name))
   .await;
 }

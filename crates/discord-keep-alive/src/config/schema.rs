@@ -30,6 +30,18 @@ impl DefaultsProfile {
       Self::Mobile => &mut defaults.mobile,
     }
   }
+
+  pub fn resolved_mut(
+    self,
+    defaults: &mut dka_gateway::properties::Defaults,
+  ) -> &mut dka_gateway::properties::ClientProperties {
+    match self {
+      Self::Bot => &mut defaults.bot,
+      Self::Web => &mut defaults.web,
+      Self::Desktop => &mut defaults.desktop,
+      Self::Mobile => &mut defaults.mobile,
+    }
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +92,7 @@ impl AccountScalarField {
     Self::Status,
   ];
 
-  /// Env suffix after `ACCOUNT_{i}_` or bare flat key; `Name` has none.
+  // Name has no env suffix (ACCOUNT / ACCOUNT_0, not ACCOUNT_NAME).
   pub fn env_suffix(self) -> Option<&'static str> {
     match self {
       Self::Name => None,
@@ -91,7 +103,7 @@ impl AccountScalarField {
     }
   }
 
-  /// Clap long flag without `--`; `Name` is bare `--account`.
+  // Name's CLI flag is --account, not --name.
   pub const fn cli_long(self) -> &'static str {
     match self {
       Self::Token => "token",
@@ -102,7 +114,7 @@ impl AccountScalarField {
     }
   }
 
-  /// Non-token fields only (`Token` → `set` / `take`).
+  // Token is SecretString; call set/take instead of this.
   pub fn get_mut(self, account: &mut PartialAccount) -> &mut Option<String> {
     match self {
       Self::Token => unreachable!("AccountScalarField::Token: use set/take"),
@@ -212,52 +224,36 @@ impl ActivityField {
     Self::PartyMax,
   ];
 
-  /// Env suffix after `ACTIVITY_{j}_` or singular `ACTIVITY_`; `Name` has none.
-  pub fn env_suffix(self) -> Option<&'static str> {
+  // Env suffix (None for bare name) and clap long without leading dashes.
+  const fn meta(self) -> (Option<&'static str>, &'static str) {
     match self {
-      Self::Name => None,
-      Self::Type => Some("TYPE"),
-      Self::Platform => Some("PLATFORM"),
-      Self::Timestamp => Some("TIMESTAMP"),
-      Self::ApplicationId => Some("APPLICATION_ID"),
-      Self::Details => Some("DETAILS"),
-      Self::Url => Some("URL"),
-      Self::LargeImage => Some("LARGE_IMAGE"),
-      Self::LargeImageText => Some("LARGE_IMAGE_TEXT"),
-      Self::SmallImage => Some("SMALL_IMAGE"),
-      Self::SmallImageText => Some("SMALL_IMAGE_TEXT"),
-      Self::Button => Some("BUTTON"),
-      Self::ButtonUrl => Some("BUTTON_URL"),
-      Self::Button2 => Some("BUTTON_2"),
-      Self::Button2Url => Some("BUTTON_2_URL"),
-      Self::PartyId => Some("PARTY_ID"),
-      Self::PartyCurrent => Some("PARTY_CURRENT"),
-      Self::PartyMax => Some("PARTY_MAX"),
+      Self::Name => (None, "activity"),
+      Self::Type => (Some("TYPE"), "activity-type"),
+      Self::Platform => (Some("PLATFORM"), "activity-platform"),
+      Self::Timestamp => (Some("TIMESTAMP"), "activity-timestamp"),
+      Self::ApplicationId => (Some("APPLICATION_ID"), "activity-application-id"),
+      Self::Details => (Some("DETAILS"), "activity-details"),
+      Self::Url => (Some("URL"), "activity-url"),
+      Self::LargeImage => (Some("LARGE_IMAGE"), "activity-large-image"),
+      Self::LargeImageText => (Some("LARGE_IMAGE_TEXT"), "activity-large-image-text"),
+      Self::SmallImage => (Some("SMALL_IMAGE"), "activity-small-image"),
+      Self::SmallImageText => (Some("SMALL_IMAGE_TEXT"), "activity-small-image-text"),
+      Self::Button => (Some("BUTTON"), "activity-button"),
+      Self::ButtonUrl => (Some("BUTTON_URL"), "activity-button-url"),
+      Self::Button2 => (Some("BUTTON_2"), "activity-button-2"),
+      Self::Button2Url => (Some("BUTTON_2_URL"), "activity-button-2-url"),
+      Self::PartyId => (Some("PARTY_ID"), "activity-party-id"),
+      Self::PartyCurrent => (Some("PARTY_CURRENT"), "activity-party-current"),
+      Self::PartyMax => (Some("PARTY_MAX"), "activity-party-max"),
     }
   }
 
-  /// Clap long flag without `--`; `Name` is bare `--activity`.
+  pub fn env_suffix(self) -> Option<&'static str> {
+    self.meta().0
+  }
+
   pub const fn cli_long(self) -> &'static str {
-    match self {
-      Self::Name => "activity",
-      Self::Type => "activity-type",
-      Self::Platform => "activity-platform",
-      Self::Timestamp => "activity-timestamp",
-      Self::ApplicationId => "activity-application-id",
-      Self::Details => "activity-details",
-      Self::Url => "activity-url",
-      Self::LargeImage => "activity-large-image",
-      Self::LargeImageText => "activity-large-image-text",
-      Self::SmallImage => "activity-small-image",
-      Self::SmallImageText => "activity-small-image-text",
-      Self::Button => "activity-button",
-      Self::ButtonUrl => "activity-button-url",
-      Self::Button2 => "activity-button-2",
-      Self::Button2Url => "activity-button-2-url",
-      Self::PartyId => "activity-party-id",
-      Self::PartyCurrent => "activity-party-current",
-      Self::PartyMax => "activity-party-max",
-    }
+    self.meta().1
   }
 
   pub fn get_mut(self, act: &mut PartialActivity) -> &mut Option<String> {
@@ -287,15 +283,15 @@ impl ActivityField {
 pub const ENV_LOG_LEVEL: &str = "LOG_LEVEL";
 pub const ENV_HEALTH_SOCKET: &str = "HEALTH_SOCKET";
 
-/// Account discovery anchors on non-empty `ACCOUNT_{i}_TOKEN`.
+// Indexed accounts are found via non-empty ACCOUNT_N_TOKEN.
 pub const ACCOUNT_INDEX_PREFIX: &str = "ACCOUNT_";
 pub const ACCOUNT_INDEX_TOKEN_SUFFIX: &str = "_TOKEN";
 pub const ACCOUNT_SINGULAR: &str = "ACCOUNT";
 
-/// Activity discovery anchors on bare `ACTIVITY_{j}` (not `_TYPE` alone).
+// Indexed activities are found via bare ACTIVITY_N (not ACTIVITY_N_TYPE alone).
 pub const ACTIVITY_INDEX_PREFIX: &str = "ACTIVITY_";
 
-/// Parse `{prefix}{index}{suffix}`: ASCII digits only, no leading zeros (except `0`).
+// Index must be plain digits with no leading zeros (except 0).
 pub fn parse_indexed_key(key: &str, prefix: &str, suffix: &str) -> Option<usize> {
   let rest = key.strip_prefix(prefix)?;
   let index_str = if suffix.is_empty() {
@@ -312,7 +308,6 @@ pub fn parse_indexed_key(key: &str, prefix: &str, suffix: &str) -> Option<usize>
   index_str.parse().ok()
 }
 
-/// Sorted unique indices from non-empty `{prefix}{index}{suffix}` pairs.
 pub fn collect_indices_from<'a, I>(pairs: I, prefix: &str, suffix: &str) -> Vec<usize>
 where
   I: IntoIterator<Item = (&'a str, &'a str)>,
@@ -340,7 +335,6 @@ pub fn collect_indices(prefix: &str, suffix: &str) -> Vec<usize> {
   )
 }
 
-/// Name: bare `ACCOUNT`; other fields: flat `TOKEN`, `KIND`, …
 pub fn singular_account_env_key(field: AccountScalarField) -> String {
   match field.env_suffix() {
     None => ACCOUNT_SINGULAR.into(),
@@ -348,7 +342,6 @@ pub fn singular_account_env_key(field: AccountScalarField) -> String {
   }
 }
 
-/// Name: bare `ACCOUNT_{i}`; other fields: `ACCOUNT_{i}_{SUFFIX}`.
 pub fn indexed_account_env_key(account_index: usize, field: AccountScalarField) -> String {
   match field.env_suffix() {
     None => format!("{ACCOUNT_INDEX_PREFIX}{account_index}"),
@@ -356,7 +349,7 @@ pub fn indexed_account_env_key(account_index: usize, field: AccountScalarField) 
   }
 }
 
-/// `account_prefix` is `""` or e.g. `ACCOUNT_3_`.
+// account_prefix is "" or ACCOUNT_3_.
 pub fn singular_activity_env_key(account_prefix: &str, field: ActivityField) -> String {
   match field.env_suffix() {
     None => format!("{account_prefix}ACTIVITY"),
@@ -364,7 +357,6 @@ pub fn singular_activity_env_key(account_prefix: &str, field: ActivityField) -> 
   }
 }
 
-/// Name: bare `…ACTIVITY_{j}`; other fields: `…ACTIVITY_{j}_{SUFFIX}`.
 pub fn indexed_activity_env_key(
   account_prefix: &str,
   activity_index: usize,
@@ -383,124 +375,166 @@ mod tests {
   use super::*;
 
   #[test]
-  fn parse_indexed_key_account_token() {
-    assert_eq!(
-      parse_indexed_key("ACCOUNT_0_TOKEN", "ACCOUNT_", "_TOKEN"),
-      Some(0)
-    );
-    assert_eq!(
-      parse_indexed_key("ACCOUNT_31_TOKEN", "ACCOUNT_", "_TOKEN"),
-      Some(31)
-    );
-    assert_eq!(
-      parse_indexed_key("ACCOUNT_100_TOKEN", "ACCOUNT_", "_TOKEN"),
-      Some(100)
-    );
+  fn parse_indexed_key_accepts() {
+    for (label, key, prefix, suffix, expected) in [
+      (
+        "account_0",
+        "ACCOUNT_0_TOKEN",
+        "ACCOUNT_",
+        "_TOKEN",
+        Some(0usize),
+      ),
+      (
+        "account_31",
+        "ACCOUNT_31_TOKEN",
+        "ACCOUNT_",
+        "_TOKEN",
+        Some(31),
+      ),
+      (
+        "account_100",
+        "ACCOUNT_100_TOKEN",
+        "ACCOUNT_",
+        "_TOKEN",
+        Some(100),
+      ),
+      ("activity_0", "ACTIVITY_0", "ACTIVITY_", "", Some(0)),
+      ("activity_12", "ACTIVITY_12", "ACTIVITY_", "", Some(12)),
+      (
+        "acct_act_1",
+        "ACCOUNT_0_ACTIVITY_1",
+        "ACCOUNT_0_ACTIVITY_",
+        "",
+        Some(1),
+      ),
+    ] {
+      assert_eq!(parse_indexed_key(key, prefix, suffix), expected, "{label}");
+    }
   }
 
   #[test]
-  fn parse_indexed_key_activity_name() {
-    assert_eq!(parse_indexed_key("ACTIVITY_0", "ACTIVITY_", ""), Some(0));
-    assert_eq!(parse_indexed_key("ACTIVITY_12", "ACTIVITY_", ""), Some(12));
-    assert_eq!(parse_indexed_key("ACTIVITY_0_TYPE", "ACTIVITY_", ""), None);
-    assert_eq!(
-      parse_indexed_key("ACTIVITY_0_DETAILS", "ACTIVITY_", ""),
-      None
-    );
-  }
-
-  #[test]
-  fn parse_indexed_key_account_activity() {
-    assert_eq!(
-      parse_indexed_key("ACCOUNT_0_ACTIVITY_1", "ACCOUNT_0_ACTIVITY_", ""),
-      Some(1)
-    );
-    assert_eq!(
-      parse_indexed_key("ACCOUNT_0_ACTIVITY_1_TYPE", "ACCOUNT_0_ACTIVITY_", ""),
-      None
-    );
-  }
-
-  #[test]
-  fn parse_indexed_key_rejects_noise() {
-    assert_eq!(
-      parse_indexed_key("ACCOUNT__TOKEN", "ACCOUNT_", "_TOKEN"),
-      None
-    );
-    assert_eq!(
-      parse_indexed_key("ACCOUNT_01_TOKEN", "ACCOUNT_", "_TOKEN"),
-      None
-    );
-    assert_eq!(
-      parse_indexed_key("ACCOUNT_x_TOKEN", "ACCOUNT_", "_TOKEN"),
-      None
-    );
-    assert_eq!(parse_indexed_key("ACCOUNT_0", "ACCOUNT_", "_TOKEN"), None);
-    assert_eq!(parse_indexed_key("TOKEN", "ACCOUNT_", "_TOKEN"), None);
-    assert_eq!(parse_indexed_key("ACTIVITY_", "ACTIVITY_", ""), None);
-    assert_eq!(parse_indexed_key("ACTIVITY_01", "ACTIVITY_", ""), None);
+  fn parse_indexed_key_rejects() {
+    for (label, key, prefix, suffix) in [
+      ("empty_index", "ACCOUNT__TOKEN", "ACCOUNT_", "_TOKEN"),
+      ("leading_zero", "ACCOUNT_01_TOKEN", "ACCOUNT_", "_TOKEN"),
+      ("non_digit", "ACCOUNT_x_TOKEN", "ACCOUNT_", "_TOKEN"),
+      ("missing_suffix", "ACCOUNT_0", "ACCOUNT_", "_TOKEN"),
+      ("no_prefix", "TOKEN", "ACCOUNT_", "_TOKEN"),
+      ("activity_empty", "ACTIVITY_", "ACTIVITY_", ""),
+      ("activity_leading_zero", "ACTIVITY_01", "ACTIVITY_", ""),
+      ("activity_type_suffix", "ACTIVITY_0_TYPE", "ACTIVITY_", ""),
+      (
+        "activity_details_suffix",
+        "ACTIVITY_0_DETAILS",
+        "ACTIVITY_",
+        "",
+      ),
+      (
+        "account_activity_type",
+        "ACCOUNT_0_ACTIVITY_1_TYPE",
+        "ACCOUNT_0_ACTIVITY_",
+        "",
+      ),
+    ] {
+      assert_eq!(parse_indexed_key(key, prefix, suffix), None, "{label}");
+    }
   }
 
   #[test]
   fn account_env_keys_follow_catalog() {
-    assert_eq!(
-      singular_account_env_key(AccountScalarField::Name),
-      "ACCOUNT"
-    );
-    assert_eq!(singular_account_env_key(AccountScalarField::Token), "TOKEN");
-    assert_eq!(
-      singular_account_env_key(AccountScalarField::Status),
-      "STATUS"
-    );
-    assert_eq!(
-      indexed_account_env_key(0, AccountScalarField::Name),
-      "ACCOUNT_0"
-    );
-    assert_eq!(
-      indexed_account_env_key(2, AccountScalarField::Token),
-      "ACCOUNT_2_TOKEN"
-    );
-    assert_eq!(
-      indexed_account_env_key(1, AccountScalarField::Kind),
-      "ACCOUNT_1_KIND"
-    );
+    for (label, got, want) in [
+      (
+        "singular_name",
+        singular_account_env_key(AccountScalarField::Name),
+        "ACCOUNT",
+      ),
+      (
+        "singular_token",
+        singular_account_env_key(AccountScalarField::Token),
+        "TOKEN",
+      ),
+      (
+        "singular_status",
+        singular_account_env_key(AccountScalarField::Status),
+        "STATUS",
+      ),
+      (
+        "idx_name",
+        indexed_account_env_key(0, AccountScalarField::Name),
+        "ACCOUNT_0",
+      ),
+      (
+        "idx_token",
+        indexed_account_env_key(2, AccountScalarField::Token),
+        "ACCOUNT_2_TOKEN",
+      ),
+      (
+        "idx_kind",
+        indexed_account_env_key(1, AccountScalarField::Kind),
+        "ACCOUNT_1_KIND",
+      ),
+    ] {
+      assert_eq!(got, want, "{label}");
+    }
   }
 
   #[test]
   fn activity_env_keys_follow_catalog() {
-    assert_eq!(
-      singular_activity_env_key("", ActivityField::Name),
-      "ACTIVITY"
-    );
-    assert_eq!(
-      singular_activity_env_key("", ActivityField::Type),
-      "ACTIVITY_TYPE"
-    );
-    assert_eq!(
-      singular_activity_env_key("ACCOUNT_2_", ActivityField::Details),
-      "ACCOUNT_2_ACTIVITY_DETAILS"
-    );
-    assert_eq!(
-      indexed_activity_env_key("", 5, ActivityField::Name),
-      "ACTIVITY_5"
-    );
-    assert_eq!(
-      indexed_activity_env_key("ACCOUNT_1_", 0, ActivityField::Type),
-      "ACCOUNT_1_ACTIVITY_0_TYPE"
-    );
+    for (label, got, want) in [
+      (
+        "sing_name",
+        singular_activity_env_key("", ActivityField::Name),
+        "ACTIVITY",
+      ),
+      (
+        "sing_type",
+        singular_activity_env_key("", ActivityField::Type),
+        "ACTIVITY_TYPE",
+      ),
+      (
+        "sing_details_pref",
+        singular_activity_env_key("ACCOUNT_2_", ActivityField::Details),
+        "ACCOUNT_2_ACTIVITY_DETAILS",
+      ),
+      (
+        "idx_name",
+        indexed_activity_env_key("", 5, ActivityField::Name),
+        "ACTIVITY_5",
+      ),
+      (
+        "idx_type_pref",
+        indexed_activity_env_key("ACCOUNT_1_", 0, ActivityField::Type),
+        "ACCOUNT_1_ACTIVITY_0_TYPE",
+      ),
+    ] {
+      assert_eq!(got, want, "{label}");
+    }
   }
 
   #[test]
   fn cli_long_names_match_env_identity() {
-    assert_eq!(AccountScalarField::Token.cli_long(), "token");
-    assert_eq!(AccountScalarField::Name.cli_long(), "account");
-    assert_eq!(CustomStatusField::Text.cli_long(), "custom-status-text");
-    assert_eq!(ActivityField::Name.cli_long(), "activity");
-    assert_eq!(ActivityField::Type.cli_long(), "activity-type");
-    assert_eq!(ActivityField::Button2.cli_long(), "activity-button-2");
-    assert_eq!(
-      ActivityField::ApplicationId.cli_long(),
-      "activity-application-id"
-    );
+    for (label, got, want) in [
+      ("token", AccountScalarField::Token.cli_long(), "token"),
+      ("account", AccountScalarField::Name.cli_long(), "account"),
+      (
+        "cs_text",
+        CustomStatusField::Text.cli_long(),
+        "custom-status-text",
+      ),
+      ("act_name", ActivityField::Name.cli_long(), "activity"),
+      ("act_type", ActivityField::Type.cli_long(), "activity-type"),
+      (
+        "act_btn2",
+        ActivityField::Button2.cli_long(),
+        "activity-button-2",
+      ),
+      (
+        "act_app_id",
+        ActivityField::ApplicationId.cli_long(),
+        "activity-application-id",
+      ),
+    ] {
+      assert_eq!(got, want, "{label}");
+    }
   }
 }

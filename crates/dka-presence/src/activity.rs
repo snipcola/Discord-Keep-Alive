@@ -1,12 +1,11 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::constants::{
   AccountKind, ActivityPlatform, ActivityType, DEFAULT_APPLICATION_ID, DEFAULT_PARTY_ID,
 };
 
-/// CDN/media URLs become `mp:...`. Known prefixes (`mp:`, `youtube:`, `spotify:`,
-/// `twitch:`, `external/`) and bare numeric asset ids are left unchanged.
-pub fn normalize_activity_image(image: &str) -> String {
+// Rewrite Discord CDN/media URLs to mp:.... Leave known prefixes and numeric ids alone.
+pub(crate) fn normalize_activity_image(image: &str) -> String {
   let image = image.trim();
   if image.is_empty() {
     return String::new();
@@ -144,7 +143,25 @@ pub fn pin_default_activity_timestamps(activities: &mut [ActivityConfig], now: i
   }
 }
 
-// Discord only accepts name, type, state, and url for bot activities.
+fn put_str(obj: &mut Value, key: &str, value: Option<&str>) {
+  if let Some(v) = value.filter(|s| !s.is_empty()) {
+    obj[key] = json!(v);
+  }
+}
+
+fn put_str_map(map: &mut Map<String, Value>, key: &str, value: Option<&str>) {
+  if let Some(v) = value.filter(|s| !s.is_empty()) {
+    map.insert(key.into(), json!(v));
+  }
+}
+
+fn put_image(map: &mut Map<String, Value>, key: &str, image: Option<&str>) {
+  if let Some(image) = image.filter(|s| !s.is_empty()) {
+    map.insert(key.into(), json!(normalize_activity_image(image)));
+  }
+}
+
+// Bots may only send name, type, state, and url.
 fn build_bot_activity(name: &str, cfg: &ActivityConfig) -> Value {
   let ty = match cfg.activity_type {
     None | Some(ActivityType::Custom) => ActivityType::Playing,
@@ -155,16 +172,12 @@ fn build_bot_activity(name: &str, cfg: &ActivityConfig) -> Value {
     "name": name,
     "type": ty.as_i64(),
   });
-  if let Some(url) = cfg.url.as_deref().filter(|s| !s.is_empty()) {
-    activity["url"] = json!(url);
-  }
-  if let Some(state) = cfg.details.as_deref().filter(|s| !s.is_empty()) {
-    activity["state"] = json!(state);
-  }
+  put_str(&mut activity, "url", cfg.url.as_deref());
+  put_str(&mut activity, "state", cfg.details.as_deref());
   activity
 }
 
-pub fn build_custom_status(state: &str, emoji: Option<&str>) -> Value {
+pub(crate) fn build_custom_status(state: &str, emoji: Option<&str>) -> Value {
   let mut activity = json!({
     "name": "Custom Status",
     "type": ActivityType::Custom.as_i64(),
@@ -180,7 +193,7 @@ pub fn build_custom_status(state: &str, emoji: Option<&str>) -> Value {
 
 fn parse_emoji(raw: &str) -> Value {
   let raw = raw.trim();
-  // <:name:id> / <a:name:id>, else bare id or unicode name.
+  // Accept <:name:id>, <a:name:id>, a bare id, or a unicode name.
   if let Some(inner) = raw.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
     let (animated, rest) = if let Some(rest) = inner.strip_prefix("a:") {
       (true, rest)
@@ -208,7 +221,7 @@ fn parse_emoji(raw: &str) -> Value {
   }
 }
 
-pub fn build_rich_presence(name: &str, cfg: &ActivityConfig) -> Value {
+pub(crate) fn build_rich_presence(name: &str, cfg: &ActivityConfig) -> Value {
   let mut activity = json!({
     "name": name,
     "application_id": cfg.application_id,
@@ -233,27 +246,14 @@ pub fn build_rich_presence(name: &str, cfg: &ActivityConfig) -> Value {
     activity["timestamps"] = json!({ "start": start_secs.saturating_mul(1000) });
   }
 
-  if let Some(details) = cfg.details.as_deref().filter(|s| !s.is_empty()) {
-    activity["details"] = json!(details);
-  }
+  put_str(&mut activity, "details", cfg.details.as_deref());
+  put_str(&mut activity, "url", cfg.url.as_deref());
 
-  if let Some(url) = cfg.url.as_deref().filter(|s| !s.is_empty()) {
-    activity["url"] = json!(url);
-  }
-
-  let mut assets = serde_json::Map::new();
-  if let Some(image) = cfg.large_image.image.as_deref().filter(|s| !s.is_empty()) {
-    assets.insert("large_image".into(), json!(normalize_activity_image(image)));
-  }
-  if let Some(text) = cfg.large_image.text.as_deref().filter(|s| !s.is_empty()) {
-    assets.insert("large_text".into(), json!(text));
-  }
-  if let Some(image) = cfg.small_image.image.as_deref().filter(|s| !s.is_empty()) {
-    assets.insert("small_image".into(), json!(normalize_activity_image(image)));
-  }
-  if let Some(text) = cfg.small_image.text.as_deref().filter(|s| !s.is_empty()) {
-    assets.insert("small_text".into(), json!(text));
-  }
+  let mut assets = Map::new();
+  put_image(&mut assets, "large_image", cfg.large_image.image.as_deref());
+  put_str_map(&mut assets, "large_text", cfg.large_image.text.as_deref());
+  put_image(&mut assets, "small_image", cfg.small_image.image.as_deref());
+  put_str_map(&mut assets, "small_text", cfg.small_image.text.as_deref());
   if !assets.is_empty() {
     activity["assets"] = Value::Object(assets);
   }
@@ -274,7 +274,7 @@ pub fn build_rich_presence(name: &str, cfg: &ActivityConfig) -> Value {
     activity["metadata"] = json!({ "button_urls": button_urls });
   }
 
-  let mut party = serde_json::Map::new();
+  let mut party = Map::new();
   if !cfg.party.id.is_empty() {
     party.insert("id".into(), json!(cfg.party.id));
   }
@@ -293,37 +293,46 @@ pub fn build_rich_presence(name: &str, cfg: &ActivityConfig) -> Value {
 }
 
 #[cfg(test)]
+pub(crate) fn named(name: &str) -> ActivityConfig {
+  ActivityConfig {
+    name: Some(name.into()),
+    application_id: "1".into(),
+    ..ActivityConfig::new()
+  }
+}
+
+#[cfg(test)]
 mod tests {
   use super::*;
   use crate::constants::{ActivityPlatform, ActivityType};
 
-  #[test]
-  fn custom_status_with_emoji() {
-    let v = build_custom_status("hello", Some("🔥"));
-    assert_eq!(v["type"], 4);
-    assert_eq!(v["name"], "Custom Status");
-    assert_eq!(v["state"], "hello");
-    assert_eq!(v["emoji"]["name"], "🔥");
+  fn user_activity(cfg: ActivityConfig) -> Value {
+    cfg.to_activity(AccountKind::User).unwrap()
   }
 
   #[test]
-  fn custom_status_numeric_emoji_id() {
-    let v = build_custom_status("hi", Some("1234567890"));
-    assert_eq!(v["emoji"]["id"], "1234567890");
-    assert!(v["emoji"].get("name").is_none());
-  }
-
-  #[test]
-  fn custom_status_message_form_emoji() {
-    let v = build_custom_status("hi", Some("<:wave:123>"));
-    assert_eq!(v["emoji"]["name"], "wave");
-    assert_eq!(v["emoji"]["id"], "123");
-    assert!(v["emoji"].get("animated").is_none());
-
-    let animated = build_custom_status("hi", Some("<a:party:456>"));
-    assert_eq!(animated["emoji"]["name"], "party");
-    assert_eq!(animated["emoji"]["id"], "456");
-    assert_eq!(animated["emoji"]["animated"], true);
+  fn custom_status_emoji_forms() {
+    let cases: &[(&str, &str, Value)] = &[
+      ("unicode", "🔥", json!({ "name": "🔥" })),
+      ("numeric_id", "1234567890", json!({ "id": "1234567890" })),
+      (
+        "static_tag",
+        "<:wave:123>",
+        json!({ "name": "wave", "id": "123" }),
+      ),
+      (
+        "animated_tag",
+        "<a:party:456>",
+        json!({ "name": "party", "id": "456", "animated": true }),
+      ),
+    ];
+    for (label, emoji, expected) in cases {
+      let v = build_custom_status("hi", Some(emoji));
+      assert_eq!(v["type"], 4, "{label}");
+      assert_eq!(v["name"], "Custom Status", "{label}");
+      assert_eq!(v["state"], "hi", "{label}");
+      assert_eq!(v["emoji"], *expected, "{label}");
+    }
   }
 
   #[test]
@@ -337,56 +346,65 @@ mod tests {
 
   #[test]
   fn custom_status_config_requires_text() {
-    let empty = CustomStatusConfig::default();
-    assert!(empty.to_activity().is_none());
+    assert!(CustomStatusConfig::default().to_activity().is_none());
 
-    let cfg = CustomStatusConfig {
+    let v = CustomStatusConfig {
       text: Some("brb".into()),
       emoji: Some("💤".into()),
-    };
-    let v = cfg.to_activity().unwrap();
+    }
+    .to_activity()
+    .unwrap();
     assert_eq!(v["type"], 4);
     assert_eq!(v["state"], "brb");
     assert_eq!(v["emoji"]["name"], "💤");
   }
 
   #[test]
-  fn rich_presence_defaults_application_id() {
-    let cfg = ActivityConfig {
-      name: Some("Game".into()),
-      activity_type: Some(ActivityType::Playing),
-      application_id: DEFAULT_APPLICATION_ID.into(),
-      ..ActivityConfig::new()
-    };
-    let v = cfg.to_activity(AccountKind::User).unwrap();
-    assert_eq!(v["name"], "Game");
-    assert_eq!(v["type"], 0);
-    assert_eq!(v["application_id"], "1");
+  fn rich_presence_defaults_and_fields() {
+    let mut cfg = named("Game");
+    cfg.activity_type = Some(ActivityType::Playing);
+    let v = user_activity(cfg);
+    assert_eq!(
+      (&v["name"], &v["type"], &v["application_id"]),
+      (&json!("Game"), &json!(0), &json!("1")),
+      "defaults"
+    );
+
+    let mut cfg = named("Song");
+    cfg.activity_type = Some(ActivityType::Listening);
+    cfg.platform = Some(ActivityPlatform::Xbox);
+    cfg.timestamp = Some("1700000000".into());
+    cfg.details = Some("Artist".into());
+    cfg.application_id = "99".into();
+    let v = user_activity(cfg);
+    assert_eq!(v["platform"], "xbox", "platform_ts");
+    assert_eq!(
+      v["timestamps"]["start"], 1_700_000_000_000i64,
+      "platform_ts"
+    );
+    assert_eq!(v["details"], "Artist", "platform_ts");
+    assert_eq!(v["application_id"], "99", "platform_ts");
   }
 
   #[test]
   fn rich_presence_buttons_and_party() {
-    let cfg = ActivityConfig {
-      name: Some("Stream".into()),
-      activity_type: Some(ActivityType::Streaming),
-      url: Some("https://twitch.tv/x".into()),
-      button: ActivityButton {
-        name: Some("Join".into()),
-        url: Some("https://example.com/a".into()),
-      },
-      button2: ActivityButton {
-        name: Some("Watch".into()),
-        url: Some("https://example.com/b".into()),
-      },
-      party: ActivityParty {
-        id: "party1".into(),
-        current: Some("2".into()),
-        max: Some("5".into()),
-      },
-      application_id: "1".into(),
-      ..Default::default()
+    let mut cfg = named("Stream");
+    cfg.activity_type = Some(ActivityType::Streaming);
+    cfg.url = Some("https://twitch.tv/x".into());
+    cfg.button = ActivityButton {
+      name: Some("Join".into()),
+      url: Some("https://example.com/a".into()),
     };
-    let v = cfg.to_activity(AccountKind::User).unwrap();
+    cfg.button2 = ActivityButton {
+      name: Some("Watch".into()),
+      url: Some("https://example.com/b".into()),
+    };
+    cfg.party = ActivityParty {
+      id: "party1".into(),
+      current: Some("2".into()),
+      max: Some("5".into()),
+    };
+    let v = user_activity(cfg);
     assert_eq!(v["buttons"], json!(["Join", "Watch"]));
     assert_eq!(
       v["metadata"]["button_urls"],
@@ -398,93 +416,57 @@ mod tests {
   }
 
   #[test]
-  fn partial_button_ignored() {
-    let cfg = ActivityConfig {
-      name: Some("X".into()),
-      button: ActivityButton {
-        name: Some("Only name".into()),
-        url: None,
-      },
-      application_id: "1".into(),
-      ..Default::default()
+  fn partial_activity_fields() {
+    let mut cfg = named("X");
+    cfg.button = ActivityButton {
+      name: Some("Only name".into()),
+      url: None,
     };
-    let v = cfg.to_activity(AccountKind::User).unwrap();
-    assert!(v.get("buttons").is_none());
-  }
+    assert!(
+      user_activity(cfg).get("buttons").is_none(),
+      "partial_button"
+    );
 
-  #[test]
-  fn party_id_without_size() {
-    let cfg = ActivityConfig {
-      name: Some("X".into()),
-      party: ActivityParty {
-        id: "1".into(),
-        current: Some("1".into()),
-        max: None,
-      },
-      application_id: "1".into(),
-      ..Default::default()
+    let mut cfg = named("X");
+    cfg.party = ActivityParty {
+      id: "1".into(),
+      current: Some("1".into()),
+      max: None,
     };
-    let v = cfg.to_activity(AccountKind::User).unwrap();
-    assert_eq!(v["party"]["id"], "1");
-    assert!(v["party"].get("size").is_none());
-  }
+    let v = user_activity(cfg);
+    assert_eq!(v["party"]["id"], "1", "party_id_only");
+    assert!(v["party"].get("size").is_none(), "party_id_only");
 
-  #[test]
-  fn assets_text_without_image() {
-    let cfg = ActivityConfig {
-      name: Some("X".into()),
-      large_image: ImageAsset {
-        image: None,
-        text: Some("hover".into()),
-      },
-      application_id: "1".into(),
-      ..Default::default()
+    let mut cfg = named("X");
+    cfg.large_image = ImageAsset {
+      image: None,
+      text: Some("hover".into()),
     };
-    let v = cfg.to_activity(AccountKind::User).unwrap();
-    assert_eq!(v["assets"]["large_text"], "hover");
-    assert!(v["assets"].get("large_image").is_none());
+    let v = user_activity(cfg);
+    assert_eq!(v["assets"]["large_text"], "hover", "assets_text_only");
+    assert!(v["assets"].get("large_image").is_none(), "assets_text_only");
   }
 
   #[test]
   fn no_name_yields_none() {
-    let cfg = ActivityConfig::new();
-    assert!(cfg.to_activity(AccountKind::User).is_none());
-  }
-
-  #[test]
-  fn platform_and_timestamp() {
-    let cfg = ActivityConfig {
-      name: Some("Song".into()),
-      activity_type: Some(ActivityType::Listening),
-      platform: Some(ActivityPlatform::Xbox),
-      timestamp: Some("1700000000".into()),
-      details: Some("Artist".into()),
-      application_id: "99".into(),
-      ..Default::default()
-    };
-    let v = cfg.to_activity(AccountKind::User).unwrap();
-    assert_eq!(v["platform"], "xbox");
-    assert_eq!(v["timestamps"]["start"], 1_700_000_000_000i64);
-    assert_eq!(v["details"], "Artist");
-    assert_eq!(v["application_id"], "99");
+    assert!(
+      ActivityConfig::new()
+        .to_activity(AccountKind::User)
+        .is_none()
+    );
   }
 
   #[test]
   fn pin_default_activity_timestamps_fills_missing_and_empty() {
     let mut activities = [
+      named("A"),
       ActivityConfig {
-        name: Some("A".into()),
-        ..ActivityConfig::new()
-      },
-      ActivityConfig {
-        name: Some("B".into()),
         timestamp: Some(String::new()),
-        ..ActivityConfig::new()
+        ..named("B")
       },
       ActivityConfig {
-        name: Some("C".into()),
         timestamp: Some("1700000000".into()),
-        ..ActivityConfig::new()
+        ..named("C")
       },
     ];
 
@@ -497,105 +479,85 @@ mod tests {
 
   #[test]
   fn pin_default_activity_timestamps_is_stable() {
-    let mut activities = [ActivityConfig {
-      name: Some("A".into()),
-      ..ActivityConfig::new()
-    }];
+    let mut activities = [named("A")];
 
     pin_default_activity_timestamps(&mut activities, 1_800_000_000);
     pin_default_activity_timestamps(&mut activities, 1_900_000_000);
 
     assert_eq!(activities[0].timestamp.as_deref(), Some("1800000000"));
-    let v = activities[0].to_activity(AccountKind::User).unwrap();
+    let v = user_activity(activities[0].clone());
     assert_eq!(v["timestamps"]["start"], 1_800_000_000_000i64);
   }
 
   #[test]
   fn bot_activity_whitelist() {
-    let cfg = ActivityConfig {
-      name: Some("Stream".into()),
-      activity_type: Some(ActivityType::Streaming),
-      url: Some("https://twitch.tv/x".into()),
-      details: Some("Live".into()),
-      button: ActivityButton {
-        name: Some("Join".into()),
-        url: Some("https://example.com".into()),
-      },
-      application_id: "1".into(),
-      ..Default::default()
+    let mut cfg = named("Stream");
+    cfg.activity_type = Some(ActivityType::Streaming);
+    cfg.url = Some("https://twitch.tv/x".into());
+    cfg.details = Some("Live".into());
+    cfg.button = ActivityButton {
+      name: Some("Join".into()),
+      url: Some("https://example.com".into()),
     };
     let v = cfg.to_activity(AccountKind::Bot).unwrap();
-    assert_eq!(v["name"], "Stream");
-    assert_eq!(v["type"], 1);
-    assert_eq!(v["url"], "https://twitch.tv/x");
-    assert_eq!(v["state"], "Live");
-    assert!(v.get("buttons").is_none());
-    assert!(v.get("application_id").is_none());
-  }
-
-  #[test]
-  fn bot_custom_maps_to_playing() {
-    let cfg = ActivityConfig {
-      name: Some("brb".into()),
-      activity_type: Some(ActivityType::Custom),
-      application_id: "1".into(),
-      ..Default::default()
-    };
-    let v = cfg.to_activity(AccountKind::Bot).unwrap();
-    assert_eq!(v["name"], "brb");
-    assert_eq!(v["type"], 0);
-    assert!(v.get("emoji").is_none());
-    assert!(v.get("state").is_none());
-  }
-
-  #[test]
-  fn user_custom_type_on_rich_maps_to_playing() {
-    let cfg = ActivityConfig {
-      name: Some("brb".into()),
-      activity_type: Some(ActivityType::Custom),
-      application_id: "1".into(),
-      ..Default::default()
-    };
-    let v = cfg.to_activity(AccountKind::User).unwrap();
-    assert_eq!(v["name"], "brb");
-    assert_eq!(v["type"], 0);
-    assert!(v.get("emoji").is_none());
-  }
-
-  #[test]
-  fn normalize_cdn_url_to_mp() {
     assert_eq!(
-      normalize_activity_image("https://cdn.discordapp.com/app-assets/123/abc.png?size=128"),
-      "mp:app-assets/123/abc.png"
+      (&v["name"], &v["type"], &v["url"], &v["state"]),
+      (
+        &json!("Stream"),
+        &json!(1),
+        &json!("https://twitch.tv/x"),
+        &json!("Live")
+      )
     );
-    assert_eq!(
-      normalize_activity_image("https://media.discordapp.net/external/hash/img.png"),
-      "mp:external/hash/img.png"
-    );
+    assert!(v.get("buttons").is_none() && v.get("application_id").is_none());
   }
 
   #[test]
-  fn normalize_preserves_known_forms() {
-    assert_eq!(normalize_activity_image("mp:already"), "mp:already");
-    assert_eq!(normalize_activity_image("1234567890"), "1234567890");
-    assert_eq!(
-      normalize_activity_image("youtube:dQw4w9WgXcQ"),
-      "youtube:dQw4w9WgXcQ"
-    );
+  fn custom_type_maps_to_playing() {
+    let mut cfg = named("brb");
+    cfg.activity_type = Some(ActivityType::Custom);
+    for kind in [AccountKind::Bot, AccountKind::User] {
+      let v = cfg.to_activity(kind).unwrap();
+      assert_eq!(v["name"], "brb", "{kind:?}");
+      assert_eq!(v["type"], 0, "{kind:?}");
+      assert!(v.get("emoji").is_none(), "{kind:?}");
+      if kind == AccountKind::Bot {
+        assert!(v.get("state").is_none(), "{kind:?}");
+      }
+    }
+  }
+
+  #[test]
+  fn normalize_activity_image_inputs() {
+    for (label, input, expected) in [
+      (
+        "cdn_query",
+        "https://cdn.discordapp.com/app-assets/123/abc.png?size=128",
+        "mp:app-assets/123/abc.png",
+      ),
+      (
+        "media_external",
+        "https://media.discordapp.net/external/hash/img.png",
+        "mp:external/hash/img.png",
+      ),
+      ("mp_prefix", "mp:already", "mp:already"),
+      ("numeric_id", "1234567890", "1234567890"),
+      ("youtube", "youtube:dQw4w9WgXcQ", "youtube:dQw4w9WgXcQ"),
+    ] {
+      assert_eq!(normalize_activity_image(input), expected, "{label}");
+    }
   }
 
   #[test]
   fn rich_presence_rewrites_large_image() {
-    let cfg = ActivityConfig {
-      name: Some("X".into()),
-      large_image: ImageAsset {
-        image: Some("https://cdn.discordapp.com/app-assets/1/2.png".into()),
-        text: None,
-      },
-      application_id: "1".into(),
-      ..Default::default()
+    let mut cfg = named("X");
+    cfg.large_image = ImageAsset {
+      image: Some("https://cdn.discordapp.com/app-assets/1/2.png".into()),
+      text: None,
     };
-    let v = cfg.to_activity(AccountKind::User).unwrap();
-    assert_eq!(v["assets"]["large_image"], "mp:app-assets/1/2.png");
+    assert_eq!(
+      user_activity(cfg)["assets"]["large_image"],
+      "mp:app-assets/1/2.png"
+    );
   }
 }

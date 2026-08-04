@@ -18,19 +18,20 @@ use tracing::{Instrument, Span, debug, error, warn};
 
 use crate::compress::TransportDecompress;
 use crate::heartbeat::{HeartbeatCmd, heartbeat_loop};
+use crate::is_shutdown;
 use crate::payload::{GatewayEnvelope, GatewayPayload, OP_HEARTBEAT, OP_RESUME};
 
-use super::dispatch::{PayloadAction, handle_payload};
+use super::dispatch::handle_payload;
 use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_for_hello};
 use super::inbound::decode_inbound;
 use super::{SessionEnd, SessionParams, SessionState, WsStream, send_json};
 
-// Discord: 4004 auth failed; 4010-4014 shard/intent/API fatals: do not reconnect.
+// Auth and shard/intent failures are fatal; do not reconnect.
 fn is_fatal_close_code(code: u16) -> bool {
   matches!(code, 4004 | 4010..=4014)
 }
 
-// Discord 4007 (invalid seq): start a fresh identify, never resume.
+// Invalid seq (4007): identify again, do not resume.
 fn resume_after_close(code: u16) -> bool {
   code != 4007
 }
@@ -41,7 +42,7 @@ pub(super) async fn connect_and_run(
   url: &str,
   shutdown: &mut watch::Receiver<bool>,
 ) -> Result<SessionEnd> {
-  if *shutdown.borrow() {
+  if is_shutdown(shutdown) {
     return Ok(SessionEnd::Shutdown);
   }
 
@@ -52,7 +53,7 @@ pub(super) async fn connect_and_run(
     tokio::select! {
       biased;
       changed = shutdown.changed() => {
-        if changed.is_err() || *shutdown.borrow() {
+        if changed.is_err() || is_shutdown(shutdown) {
           return Ok(SessionEnd::Shutdown);
         }
       }
@@ -62,7 +63,7 @@ pub(super) async fn connect_and_run(
   let (mut write, mut read) = ws.split();
   let mut decomp = TransportDecompress::new()?;
 
-  if *shutdown.borrow() {
+  if is_shutdown(shutdown) {
     graceful_disconnect(&mut write, &mut read, false, params.kind).await;
     return Ok(SessionEnd::Shutdown);
   }
@@ -117,7 +118,7 @@ pub(super) async fn connect_and_run(
   let end: SessionEnd;
 
   loop {
-    if *shutdown.borrow() {
+    if is_shutdown(shutdown) {
       end = SessionEnd::Shutdown;
       break;
     }
@@ -126,7 +127,7 @@ pub(super) async fn connect_and_run(
       biased;
 
       changed = shutdown.changed() => {
-        if changed.is_err() || *shutdown.borrow() {
+        if changed.is_err() || is_shutdown(shutdown) {
           end = SessionEnd::Shutdown;
           break;
         }
@@ -142,19 +143,11 @@ pub(super) async fn connect_and_run(
             .await?;
             debug!(seq = %seq, "heartbeat sent");
           }
-          Some(HeartbeatCmd::Zombie) => {
-            warn!("heartbeat ack timed out");
-            end = SessionEnd::Reconnect {
-              resume: true,
-              extra_delay: None,
-            };
-            break;
-          }
-          None => {
-            end = SessionEnd::Reconnect {
-              resume: true,
-              extra_delay: None,
-            };
+          other => {
+            if matches!(other, Some(HeartbeatCmd::Zombie)) {
+              warn!("heartbeat ack timed out");
+            }
+            end = SessionEnd::reconnect(true);
             break;
           }
         }
@@ -166,10 +159,7 @@ pub(super) async fn connect_and_run(
             write.send(Message::Pong(data)).await?;
           }
           Some(Ok(Message::Close(frame))) => {
-            let code = frame
-              .as_ref()
-              .map(|f| u16::from(f.code))
-              .unwrap_or(1000);
+            let code = frame.as_ref().map(|f| u16::from(f.code)).unwrap_or(1000);
             let reason = frame
               .as_ref()
               .map(|f| f.reason.to_string())
@@ -180,42 +170,30 @@ pub(super) async fn connect_and_run(
             } else {
               let resume = resume_after_close(code);
               debug!(code, reason = %reason, resume, "connection closed");
-              end = SessionEnd::Reconnect {
-                resume,
-                extra_delay: None,
-              };
+              end = SessionEnd::reconnect(resume);
             }
             break;
           }
           Some(Ok(msg)) => {
-            let action = if let Some(text) = decode_inbound(msg, &mut decomp)? {
+            let end_action = if let Some(text) = decode_inbound(msg, &mut decomp)? {
               let payload = GatewayEnvelope::from_json(text.as_str())
                 .context("decode gateway payload")?;
-              Some(
-                handle_payload(
-                  params,
-                  state,
-                  &payload,
-                  &seq_cell,
-                  &ack_tx,
-                  &mut write,
-                  &mut presence_applied,
-                )
-                .await?,
+              handle_payload(
+                params,
+                state,
+                &payload,
+                &seq_cell,
+                &ack_tx,
+                &mut write,
+                &mut presence_applied,
               )
+              .await?
             } else {
               None
             };
             decomp.reclaim();
-            if let Some(PayloadAction::Reconnect {
-              resume,
-              extra_delay,
-            }) = action
-            {
-              end = SessionEnd::Reconnect {
-                resume,
-                extra_delay,
-              };
+            if let Some(session_end) = end_action {
+              end = session_end;
               break;
             }
           }
@@ -224,10 +202,7 @@ pub(super) async fn connect_and_run(
             return Err(err.into());
           }
           None => {
-            end = SessionEnd::Reconnect {
-              resume: true,
-              extra_delay: None,
-            };
+            end = SessionEnd::reconnect(true);
             break;
           }
         }

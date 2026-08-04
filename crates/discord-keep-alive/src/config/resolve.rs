@@ -7,48 +7,41 @@ use super::partial::{
   PartialAccount, PartialActivity, PartialClientProperties, PartialConfig, PartialCustomStatus,
   PartialDefaults,
 };
-use super::{AccountConfig, ConfigError};
+use super::schema::DefaultsProfile;
+use super::{AccountConfig, ConfigError, DEFAULT_LOG_LEVEL, trim_opt, trim_owned};
 use dka_gateway::properties::{ClientProperties, Defaults};
 
 use crate::defaults::product_defaults;
 
-fn nonempty(s: Option<&str>) -> Option<&str> {
-  s.map(str::trim).filter(|s| !s.is_empty())
-}
-
-// Flat account requires a token; device/status alone must not invent one.
+// Flat account is real only when a token is present.
 fn flat_account_configured(account: &PartialAccount) -> bool {
-  nonempty(account.token.as_deref()).is_some()
+  trim_opt(account.token.as_deref()).is_some()
 }
 
 fn account_slot_configured(a: &PartialAccount) -> bool {
-  nonempty(a.token.as_deref()).is_some()
-    || nonempty(a.name.as_deref()).is_some()
-    || nonempty(a.kind.as_deref()).is_some()
-    || nonempty(a.device.as_deref()).is_some()
-    || nonempty(a.status.as_deref()).is_some()
+  trim_opt(a.token.as_deref()).is_some()
+    || trim_opt(a.name.as_deref()).is_some()
+    || trim_opt(a.kind.as_deref()).is_some()
+    || trim_opt(a.device.as_deref()).is_some()
+    || trim_opt(a.status.as_deref()).is_some()
     || a.custom_status.is_some()
     || a.activity.is_some()
     || a.activities.iter().any(activity_configured)
 }
 
-// Name gates activities the way token gates accounts.
+// Activities without a name are ignored.
 fn activity_configured(a: &PartialActivity) -> bool {
-  nonempty(a.name.as_deref()).is_some()
+  trim_opt(a.name.as_deref()).is_some()
 }
 
 fn custom_status_configured(cs: &PartialCustomStatus) -> bool {
-  nonempty(cs.text.as_deref()).is_some()
+  trim_opt(cs.text.as_deref()).is_some()
 }
 
 pub fn resolve_config(
   partial: PartialConfig,
 ) -> Result<(String, Option<String>, Defaults, Vec<AccountConfig>), ConfigError> {
-  let log_level = partial
-    .log_level
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty())
-    .unwrap_or_else(|| "info".into());
+  let log_level = trim_owned(partial.log_level).unwrap_or_else(|| DEFAULT_LOG_LEVEL.into());
   let health_socket = super::normalize_health_socket(partial.health_socket);
   let defaults = resolve_defaults(partial.defaults);
   let accounts = resolve_accounts(partial.account, partial.accounts)?;
@@ -57,10 +50,20 @@ pub fn resolve_config(
 
 fn resolve_defaults(raw: PartialDefaults) -> Defaults {
   let mut defaults = product_defaults();
-  apply_client_property_overrides(&mut defaults.bot, raw.bot);
-  apply_client_property_overrides(&mut defaults.web, raw.web);
-  apply_client_property_overrides(&mut defaults.desktop, raw.desktop);
-  apply_client_property_overrides(&mut defaults.mobile, raw.mobile);
+  let PartialDefaults {
+    bot,
+    web,
+    desktop,
+    mobile,
+  } = raw;
+  for (profile, src) in [
+    (DefaultsProfile::Bot, bot),
+    (DefaultsProfile::Web, web),
+    (DefaultsProfile::Desktop, desktop),
+    (DefaultsProfile::Mobile, mobile),
+  ] {
+    apply_client_property_overrides(profile.resolved_mut(&mut defaults), src);
+  }
   defaults
 }
 
@@ -105,40 +108,23 @@ fn resolve_accounts(
 
   let mut accounts = Vec::with_capacity(raw_accounts.len());
   for (i, raw) in raw_accounts.into_iter().enumerate() {
-    let name = nonempty(raw.name.as_deref())
+    let name = trim_opt(raw.name.as_deref())
       .map(str::to_string)
       .unwrap_or_else(|| format!("account-{i}"));
-    let token = nonempty(raw.token.as_deref())
+    let token = trim_opt(raw.token.as_deref())
       .map(super::token::SecretString::new)
       .ok_or_else(|| ConfigError::MissingToken(name.clone()))?;
 
-    let kind = match nonempty(raw.kind.as_deref()) {
-      None => AccountKind::User,
-      Some(v) => AccountKind::parse(v)
-        .ok_or_else(|| ConfigError::Invalid(name.clone(), format!("invalid kind '{v}'")))?,
+    let kind =
+      parse_enum_field(&name, "kind", raw.kind, AccountKind::parse)?.unwrap_or(AccountKind::User);
+
+    let device = if kind == AccountKind::Bot {
+      None
+    } else {
+      parse_enum_field(&name, "device", raw.device, Device::parse)?
     };
 
-    let device = match nonempty(raw.device.as_deref()) {
-      None => None,
-      Some(v) => {
-        if kind == AccountKind::Bot {
-          None
-        } else {
-          Some(
-            Device::parse(v)
-              .ok_or_else(|| ConfigError::Invalid(name.clone(), format!("invalid device '{v}'")))?,
-          )
-        }
-      }
-    };
-
-    let status = match nonempty(raw.status.as_deref()) {
-      None => None,
-      Some(v) => Some(
-        Status::parse(v)
-          .ok_or_else(|| ConfigError::Invalid(name.clone(), format!("invalid status '{v}'")))?,
-      ),
-    };
+    let status = parse_enum_field(&name, "status", raw.status, Status::parse)?;
 
     let custom_status = match raw.custom_status {
       Some(cs) if custom_status_configured(&cs) && kind == AccountKind::User => {
@@ -180,7 +166,7 @@ fn resolve_activities(
 
   let mut out = Vec::with_capacity(raw.len());
   for (i, act) in raw.into_iter().enumerate() {
-    // Unset application_id/party_id default to 1, 2, 3… by resolved order.
+    // Missing application_id / party_id become "1", "2", ... in resolve order.
     let default_id = (i as u64 + 1).to_string();
     out.push(parse_activity(account, act, &default_id)?);
   }
@@ -189,8 +175,22 @@ fn resolve_activities(
 
 fn parse_custom_status(raw: PartialCustomStatus) -> CustomStatusConfig {
   CustomStatusConfig {
-    text: nonempty(raw.text.as_deref()).map(str::to_string),
-    emoji: nonempty(raw.emoji.as_deref()).map(str::to_string),
+    text: trim_opt(raw.text.as_deref()).map(str::to_string),
+    emoji: trim_opt(raw.emoji.as_deref()).map(str::to_string),
+  }
+}
+
+fn parse_enum_field<T>(
+  account: &str,
+  field: &str,
+  raw: Option<String>,
+  parse: impl FnOnce(&str) -> Option<T>,
+) -> Result<Option<T>, ConfigError> {
+  match trim_opt(raw.as_deref()) {
+    None => Ok(None),
+    Some(v) => parse(v)
+      .map(Some)
+      .ok_or_else(|| ConfigError::Invalid(account.into(), format!("invalid {field} '{v}'"))),
   }
 }
 
@@ -199,7 +199,7 @@ fn parse_i64_field(
   field: &str,
   raw: Option<String>,
 ) -> Result<Option<String>, ConfigError> {
-  match nonempty(raw.as_deref()) {
+  match trim_opt(raw.as_deref()) {
     None => Ok(None),
     Some(v) => {
       v.parse::<i64>()
@@ -215,9 +215,9 @@ fn parse_activity(
   default_id: &str,
 ) -> Result<ActivityConfig, ConfigError> {
   let mut activity = ActivityConfig::new();
-  activity.name = nonempty(raw.name.as_deref()).map(str::to_string);
+  activity.name = trim_opt(raw.name.as_deref()).map(str::to_string);
 
-  if let Some(ty) = nonempty(raw.activity_type.as_deref()) {
+  if let Some(ty) = trim_opt(raw.activity_type.as_deref()) {
     let parsed = ActivityType::parse(ty).ok_or_else(|| {
       ConfigError::Invalid(account.into(), format!("invalid activity type '{ty}'"))
     })?;
@@ -230,39 +230,37 @@ fn parse_activity(
     activity.activity_type = Some(parsed);
   }
 
-  if let Some(platform) = nonempty(raw.platform.as_deref()) {
-    activity.platform = Some(ActivityPlatform::parse(platform).ok_or_else(|| {
-      ConfigError::Invalid(
-        account.into(),
-        format!("invalid activity platform '{platform}'"),
-      )
-    })?);
-  }
+  activity.platform = parse_enum_field(
+    account,
+    "activity platform",
+    raw.platform,
+    ActivityPlatform::parse,
+  )?;
 
   activity.timestamp = parse_i64_field(account, "activity timestamp", raw.timestamp)?;
-  activity.application_id = nonempty(raw.application_id.as_deref())
+  activity.application_id = trim_opt(raw.application_id.as_deref())
     .map(str::to_string)
     .unwrap_or_else(|| default_id.to_string());
-  activity.details = nonempty(raw.details.as_deref()).map(str::to_string);
-  activity.url = nonempty(raw.url.as_deref()).map(str::to_string);
+  activity.details = trim_opt(raw.details.as_deref()).map(str::to_string);
+  activity.url = trim_opt(raw.url.as_deref()).map(str::to_string);
   activity.large_image = ImageAsset {
-    image: nonempty(raw.large_image.as_deref()).map(str::to_string),
-    text: nonempty(raw.large_image_text.as_deref()).map(str::to_string),
+    image: trim_opt(raw.large_image.as_deref()).map(str::to_string),
+    text: trim_opt(raw.large_image_text.as_deref()).map(str::to_string),
   };
   activity.small_image = ImageAsset {
-    image: nonempty(raw.small_image.as_deref()).map(str::to_string),
-    text: nonempty(raw.small_image_text.as_deref()).map(str::to_string),
+    image: trim_opt(raw.small_image.as_deref()).map(str::to_string),
+    text: trim_opt(raw.small_image_text.as_deref()).map(str::to_string),
   };
   activity.button = ActivityButton {
-    name: nonempty(raw.button.as_deref()).map(str::to_string),
-    url: nonempty(raw.button_url.as_deref()).map(str::to_string),
+    name: trim_opt(raw.button.as_deref()).map(str::to_string),
+    url: trim_opt(raw.button_url.as_deref()).map(str::to_string),
   };
   activity.button2 = ActivityButton {
-    name: nonempty(raw.button2.as_deref()).map(str::to_string),
-    url: nonempty(raw.button2_url.as_deref()).map(str::to_string),
+    name: trim_opt(raw.button2.as_deref()).map(str::to_string),
+    url: trim_opt(raw.button2_url.as_deref()).map(str::to_string),
   };
   activity.party = ActivityParty {
-    id: nonempty(raw.party_id.as_deref())
+    id: trim_opt(raw.party_id.as_deref())
       .map(str::to_string)
       .unwrap_or_else(|| default_id.to_string()),
     current: parse_i64_field(account, "party_current", raw.party_current)?,
@@ -286,96 +284,172 @@ mod tests {
   use super::*;
   use dka_presence::{AccountKind, Device};
 
+  fn acc(token: &str) -> PartialAccount {
+    PartialAccount {
+      token: Some(token.into()),
+      ..Default::default()
+    }
+  }
+
+  fn partial_flat(account: PartialAccount) -> PartialConfig {
+    PartialConfig {
+      account,
+      ..Default::default()
+    }
+  }
+
+  fn resolve_ok(p: PartialConfig) -> Vec<AccountConfig> {
+    let (_, _, _, accounts) = resolve_config(p).unwrap();
+    accounts
+  }
+
+  fn assert_invalid(label: &str, p: PartialConfig) {
+    let err = resolve_config(p).unwrap_err();
+    assert!(
+      matches!(err, ConfigError::Invalid(_, _)),
+      "{label}: {err:?}"
+    );
+  }
+
+  fn assert_invalid_msg(label: &str, p: PartialConfig, needle: &str) {
+    let err = resolve_config(p).unwrap_err();
+    match &err {
+      ConfigError::Invalid(_, m) if m.contains(needle) => {}
+      _ => panic!("{label}: expected Invalid containing {needle:?}, got {err:?}"),
+    }
+  }
+
+  fn flat_with_activity(act: PartialActivity) -> PartialConfig {
+    partial_flat(PartialAccount {
+      token: Some("t".into()),
+      activity: Some(act),
+      ..Default::default()
+    })
+  }
+
+  fn named_act(name: &str) -> PartialActivity {
+    PartialActivity {
+      name: Some(name.into()),
+      ..Default::default()
+    }
+  }
+
+  fn three_activities(
+    first: PartialActivity,
+    second: PartialActivity,
+    third: PartialActivity,
+  ) -> PartialConfig {
+    partial_flat(PartialAccount {
+      token: Some("t".into()),
+      activity: Some(first),
+      activities: vec![second, third],
+      ..Default::default()
+    })
+  }
+
   #[test]
   fn flat_account_prepended_before_toml_accounts() {
-    let partial = PartialConfig {
+    let a = resolve_ok(PartialConfig {
       account: PartialAccount {
-        token: Some("flat-token".into()),
         name: Some("from-env".into()),
         device: Some("mobile".into()),
         status: Some("dnd".into()),
-        activity: None,
-        ..Default::default()
+        ..acc("flat-token")
       },
       accounts: vec![PartialAccount {
         name: Some("from-toml".into()),
-        token: Some("toml-token".into()),
         device: Some("desktop".into()),
         status: Some("online".into()),
-        activity: None,
-        ..Default::default()
+        ..acc("toml-token")
       }],
       ..Default::default()
-    };
-
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
-    assert_eq!(accounts.len(), 2);
-    assert_eq!(accounts[0].name, "from-env");
-    assert_eq!(accounts[0].token, "flat-token");
-    assert_eq!(accounts[0].kind, AccountKind::User);
-    assert_eq!(accounts[0].device, Some(Device::Mobile));
-    assert_eq!(accounts[1].name, "from-toml");
-    assert_eq!(accounts[1].token, "toml-token");
+    });
+    assert_eq!(a.len(), 2);
+    assert_eq!((&*a[0].name, &*a[0].token), ("from-env", "flat-token"));
+    assert_eq!(a[0].kind, AccountKind::User);
+    assert_eq!(a[0].device, Some(Device::Mobile));
+    assert_eq!((&*a[1].name, &*a[1].token), ("from-toml", "toml-token"));
   }
 
   #[test]
   fn bot_kind_ignores_device() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("bot-token".into()),
-        kind: Some("bot".into()),
-        device: Some("desktop".into()),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
+    let accounts = resolve_ok(partial_flat(PartialAccount {
+      kind: Some("bot".into()),
+      device: Some("desktop".into()),
+      ..acc("bot-token")
+    }));
     assert_eq!(accounts[0].kind, AccountKind::Bot);
     assert_eq!(accounts[0].device, None);
   }
 
   #[test]
-  fn invalid_kind_errors() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        kind: Some("alien".into()),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let err = resolve_config(partial).unwrap_err();
-    assert!(matches!(err, ConfigError::Invalid(_, _)));
+  fn invalid_field_errors() {
+    let cases: &[(&str, PartialConfig, Option<&str>)] = &[
+      (
+        "kind",
+        partial_flat(PartialAccount {
+          kind: Some("alien".into()),
+          ..acc("t")
+        }),
+        None,
+      ),
+      (
+        "device",
+        partial_flat(PartialAccount {
+          device: Some("toaster".into()),
+          ..acc("t")
+        }),
+        None,
+      ),
+      (
+        "custom_activity_type",
+        flat_with_activity(PartialActivity {
+          activity_type: Some("custom".into()),
+          ..named_act("x")
+        }),
+        Some("custom_status"),
+      ),
+      (
+        "timestamp",
+        flat_with_activity(PartialActivity {
+          timestamp: Some("not-a-number".into()),
+          ..named_act("x")
+        }),
+        Some("timestamp"),
+      ),
+      (
+        "streaming_url",
+        flat_with_activity(PartialActivity {
+          activity_type: Some("streaming".into()),
+          ..named_act("live")
+        }),
+        Some("url"),
+      ),
+    ];
+    for &(label, ref partial, needle) in cases {
+      match needle {
+        None => assert_invalid(label, partial.clone()),
+        Some(n) => assert_invalid_msg(label, partial.clone(), n),
+      }
+    }
   }
 
   #[test]
-  fn toml_accounts_alone_work() {
-    let partial = PartialConfig {
+  fn resolve_minimal_account_sources() {
+    let a = resolve_ok(partial_flat(acc("solo")));
+    assert_eq!(a.len(), 1, "flat");
+    assert_eq!(a[0].token, "solo", "flat");
+    assert_eq!(a[0].name, "account-0", "flat");
+
+    let a = resolve_ok(PartialConfig {
       accounts: vec![PartialAccount {
         name: Some("only".into()),
-        token: Some("t".into()),
-        ..Default::default()
+        ..acc("t")
       }],
       ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
-    assert_eq!(accounts.len(), 1);
-    assert_eq!(accounts[0].name, "only");
-  }
-
-  #[test]
-  fn flat_only_works() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("solo".into()),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
-    assert_eq!(accounts.len(), 1);
-    assert_eq!(accounts[0].token, "solo");
-    assert_eq!(accounts[0].name, "account-0");
+    });
+    assert_eq!(a.len(), 1, "toml");
+    assert_eq!(a[0].name, "only", "toml");
   }
 
   #[test]
@@ -386,7 +460,7 @@ mod tests {
 
   #[test]
   fn flat_without_token_ignored_when_toml_accounts_exist() {
-    let partial = PartialConfig {
+    let accounts = resolve_ok(PartialConfig {
       account: PartialAccount {
         device: Some("desktop".into()),
         status: Some("online".into()),
@@ -394,28 +468,12 @@ mod tests {
       },
       accounts: vec![PartialAccount {
         name: Some("only".into()),
-        token: Some("t".into()),
-        ..Default::default()
+        ..acc("t")
       }],
       ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
+    });
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].name, "only");
-  }
-
-  #[test]
-  fn invalid_device_errors() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        device: Some("toaster".into()),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let err = resolve_config(partial).unwrap_err();
-    assert!(matches!(err, ConfigError::Invalid(_, _)));
   }
 
   #[test]
@@ -435,66 +493,41 @@ mod tests {
 
   #[test]
   fn activity_defaults_ids_sequential() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        activity: Some(PartialActivity {
-          name: Some("first".into()),
-          ..Default::default()
-        }),
-        activities: vec![
-          PartialActivity {
-            name: Some("second".into()),
-            ..Default::default()
-          },
-          PartialActivity {
-            name: Some("third".into()),
-            application_id: Some("99".into()),
-            party_id: Some("party-x".into()),
-            ..Default::default()
-          },
-        ],
-        ..Default::default()
+    let acts = &resolve_ok(three_activities(
+      named_act("first"),
+      named_act("second"),
+      PartialActivity {
+        application_id: Some("99".into()),
+        party_id: Some("party-x".into()),
+        ..named_act("third")
       },
-      ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
-    assert_eq!(accounts[0].activities.len(), 3);
-    assert_eq!(accounts[0].activities[0].application_id, "1");
-    assert_eq!(accounts[0].activities[0].party.id, "1");
-    assert_eq!(accounts[0].activities[1].application_id, "2");
-    assert_eq!(accounts[0].activities[1].party.id, "2");
-    assert_eq!(accounts[0].activities[2].application_id, "99");
-    assert_eq!(accounts[0].activities[2].party.id, "party-x");
+    ))[0]
+      .activities;
+    assert_eq!(acts.len(), 3);
+    assert_eq!(acts[0].application_id, "1");
+    assert_eq!(acts[0].party.id, "1");
+    assert_eq!(acts[1].application_id, "2");
+    assert_eq!(acts[1].party.id, "2");
+    assert_eq!(acts[2].application_id, "99");
+    assert_eq!(acts[2].party.id, "party-x");
   }
 
   #[test]
   fn singular_activity_prepended_before_array() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        activity: Some(PartialActivity {
-          name: Some("first".into()),
-          activity_type: Some("playing".into()),
-          ..Default::default()
-        }),
-        activities: vec![
-          PartialActivity {
-            name: Some("second".into()),
-            activity_type: Some("listening".into()),
-            ..Default::default()
-          },
-          PartialActivity {
-            name: Some("third".into()),
-            activity_type: Some("watching".into()),
-            ..Default::default()
-          },
-        ],
-        ..Default::default()
+    let accounts = resolve_ok(three_activities(
+      PartialActivity {
+        activity_type: Some("playing".into()),
+        ..named_act("first")
       },
-      ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
+      PartialActivity {
+        activity_type: Some("listening".into()),
+        ..named_act("second")
+      },
+      PartialActivity {
+        activity_type: Some("watching".into()),
+        ..named_act("third")
+      },
+    ));
     let names: Vec<_> = accounts[0]
       .activities
       .iter()
@@ -505,147 +538,67 @@ mod tests {
 
   #[test]
   fn activity_without_name_skipped() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        activity: Some(PartialActivity {
-          details: Some("no name".into()),
-          ..Default::default()
-        }),
-        activities: vec![
-          PartialActivity {
-            details: Some("also no name".into()),
-            ..Default::default()
-          },
-          PartialActivity {
-            name: Some("kept".into()),
-            ..Default::default()
-          },
-        ],
+    let accounts = resolve_ok(partial_flat(PartialAccount {
+      activity: Some(PartialActivity {
+        details: Some("no name".into()),
         ..Default::default()
-      },
-      ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
+      }),
+      activities: vec![
+        PartialActivity {
+          details: Some("also no name".into()),
+          ..Default::default()
+        },
+        named_act("kept"),
+      ],
+      ..acc("t")
+    }));
     assert_eq!(accounts[0].activities.len(), 1);
     assert_eq!(accounts[0].activities[0].name.as_deref(), Some("kept"));
   }
 
   #[test]
   fn custom_status_user_only() {
-    let user = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        custom_status: Some(PartialCustomStatus {
-          text: Some("brb".into()),
-          emoji: Some("💤".into()),
-        }),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(user).unwrap();
+    let accounts = resolve_ok(partial_flat(PartialAccount {
+      custom_status: Some(PartialCustomStatus {
+        text: Some("brb".into()),
+        emoji: Some("💤".into()),
+      }),
+      ..acc("t")
+    }));
     let cs = accounts[0].custom_status.as_ref().unwrap();
     assert_eq!(cs.text.as_deref(), Some("brb"));
     assert_eq!(cs.emoji.as_deref(), Some("💤"));
 
-    let bot = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        kind: Some("bot".into()),
-        custom_status: Some(PartialCustomStatus {
-          text: Some("ignored".into()),
-          emoji: Some("x".into()),
-        }),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(bot).unwrap();
+    let accounts = resolve_ok(partial_flat(PartialAccount {
+      kind: Some("bot".into()),
+      custom_status: Some(PartialCustomStatus {
+        text: Some("ignored".into()),
+        emoji: Some("x".into()),
+      }),
+      ..acc("t")
+    }));
     assert!(accounts[0].custom_status.is_none());
   }
 
   #[test]
   fn custom_status_without_text_ignored() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        custom_status: Some(PartialCustomStatus {
-          text: None,
-          emoji: Some("🔥".into()),
-        }),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let (_, _, _, accounts) = resolve_config(partial).unwrap();
+    let accounts = resolve_ok(partial_flat(PartialAccount {
+      custom_status: Some(PartialCustomStatus {
+        text: None,
+        emoji: Some("🔥".into()),
+      }),
+      ..acc("t")
+    }));
     assert!(accounts[0].custom_status.is_none());
   }
 
   #[test]
-  fn activity_type_custom_errors() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        activity: Some(PartialActivity {
-          name: Some("x".into()),
-          activity_type: Some("custom".into()),
-          ..Default::default()
-        }),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let err = resolve_config(partial).unwrap_err();
-    assert!(matches!(err, ConfigError::Invalid(_, ref m) if m.contains("custom_status")));
-  }
-
-  #[test]
-  fn invalid_timestamp_errors() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        activity: Some(PartialActivity {
-          name: Some("x".into()),
-          timestamp: Some("not-a-number".into()),
-          ..Default::default()
-        }),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let err = resolve_config(partial).unwrap_err();
-    assert!(matches!(err, ConfigError::Invalid(_, ref m) if m.contains("timestamp")));
-  }
-
-  #[test]
-  fn streaming_requires_url() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        activity: Some(PartialActivity {
-          name: Some("live".into()),
-          activity_type: Some("streaming".into()),
-          ..Default::default()
-        }),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let err = resolve_config(partial).unwrap_err();
-    assert!(matches!(err, ConfigError::Invalid(_, ref m) if m.contains("url")));
-  }
-
-  #[test]
   fn whitespace_token_is_missing() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("   ".into()),
-        ..Default::default()
-      },
+    let err = resolve_config(partial_flat(PartialAccount {
+      token: Some("   ".into()),
       ..Default::default()
-    };
-    let err = resolve_config(partial).unwrap_err();
+    }))
+    .unwrap_err();
     assert!(matches!(err, ConfigError::NoAccounts));
   }
 
@@ -667,69 +620,49 @@ mod tests {
 
   #[test]
   fn defaults_builtin_when_unset() {
-    let partial = PartialConfig {
-      account: PartialAccount {
-        token: Some("t".into()),
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let (_, _, defaults, _) = resolve_config(partial).unwrap();
+    let (_, _, defaults, _) = resolve_config(partial_flat(acc("t"))).unwrap();
     assert_eq!(defaults, product_defaults());
   }
 
   #[test]
   fn defaults_partial_override() {
-    let partial = PartialConfig {
+    let props =
+      |os: Option<&str>, browser: Option<&str>, device: Option<&str>, ua: Option<&str>| {
+        PartialClientProperties {
+          os: os.map(str::to_string),
+          browser: browser.map(str::to_string),
+          device: device.map(str::to_string),
+          user_agent: ua.map(str::to_string),
+        }
+      };
+    let (_, _, d, _) = resolve_config(PartialConfig {
       defaults: PartialDefaults {
-        bot: PartialClientProperties {
-          os: Some("FreeBSD".into()),
-          browser: None,
-          device: None,
-          user_agent: Some("bot-ua".into()),
-        },
-        web: PartialClientProperties {
-          os: None,
-          browser: Some("Chrome".into()),
-          device: Some("".into()),
-          user_agent: Some("".into()),
-        },
-        mobile: PartialClientProperties {
-          os: None,
-          browser: Some("".into()),
-          device: Some("Pixel".into()),
-          user_agent: None,
-        },
+        bot: props(Some("FreeBSD"), None, None, Some("bot-ua")),
+        web: props(None, Some("Chrome"), Some(""), Some("")),
+        mobile: props(None, Some(""), Some("Pixel"), None),
         ..Default::default()
       },
-      account: PartialAccount {
-        token: Some("t".into()),
-        ..Default::default()
-      },
+      account: acc("t"),
       ..Default::default()
-    };
-    let (_, _, defaults, _) = resolve_config(partial).unwrap();
-    let builtin = product_defaults();
-
-    assert_eq!(defaults.bot.os, "FreeBSD");
-    assert_eq!(defaults.bot.browser, builtin.bot.browser);
-    assert_eq!(defaults.bot.device, builtin.bot.device);
-    assert_eq!(defaults.bot.user_agent.as_deref(), Some("bot-ua"));
-
-    assert_eq!(defaults.web.os, builtin.web.os);
-    assert_eq!(defaults.web.browser.as_deref(), Some("Chrome"));
-    assert_eq!(defaults.web.device, "");
-    assert!(defaults.web.user_agent.is_none());
-
-    assert_eq!(defaults.desktop, builtin.desktop);
+    })
+    .unwrap();
+    let b = product_defaults();
+    assert_eq!(d.bot.os, "FreeBSD");
+    assert_eq!(d.bot.browser, b.bot.browser);
+    assert_eq!(d.bot.device, b.bot.device);
+    assert_eq!(d.bot.user_agent.as_deref(), Some("bot-ua"));
+    assert_eq!(d.web.os, b.web.os);
+    assert_eq!(d.web.browser.as_deref(), Some("Chrome"));
+    assert_eq!(d.web.device, "");
+    assert!(d.web.user_agent.is_none());
+    assert_eq!(d.desktop, b.desktop);
     assert_eq!(
-      defaults.desktop.user_agent.as_deref(),
+      d.desktop.user_agent.as_deref(),
       Some(crate::defaults::DEFAULT_DESKTOP_UA)
     );
-
-    assert_eq!(defaults.mobile.os, builtin.mobile.os);
-    assert!(defaults.mobile.browser.is_none());
-    assert_eq!(defaults.mobile.device, "Pixel");
-    assert!(defaults.mobile.user_agent.is_none());
+    assert_eq!(d.mobile.os, b.mobile.os);
+    assert!(d.mobile.browser.is_none());
+    assert_eq!(d.mobile.device, "Pixel");
+    assert!(d.mobile.user_agent.is_none());
   }
 }

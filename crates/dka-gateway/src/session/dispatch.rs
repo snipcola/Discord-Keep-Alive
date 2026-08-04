@@ -13,15 +13,7 @@ use crate::payload::{
   OP_INVALID_SESSION, OP_PRESENCE_UPDATE, OP_RECONNECT, ReadyInfo,
 };
 
-use super::{SessionParams, SessionState, WsWrite, send_json};
-
-pub(super) enum PayloadAction {
-  Continue,
-  Reconnect {
-    resume: bool,
-    extra_delay: Option<Duration>,
-  },
-}
+use super::{SessionEnd, SessionParams, SessionState, WsWrite, send_json};
 
 pub(super) async fn handle_payload(
   params: &SessionParams,
@@ -31,28 +23,25 @@ pub(super) async fn handle_payload(
   ack_tx: &watch::Sender<Instant>,
   write: &mut WsWrite,
   presence_applied: &mut bool,
-) -> Result<PayloadAction> {
+) -> Result<Option<SessionEnd>> {
   if let Some(s) = payload.s {
     state.seq = Some(s);
     seq_cell.store(s, Ordering::Relaxed);
   }
 
-  match payload.op {
-    OP_HELLO => Ok(PayloadAction::Continue),
+  Ok(match payload.op {
+    OP_HELLO => None,
     OP_HEARTBEAT_ACK => {
       let _ = ack_tx.send(Instant::now());
-      Ok(PayloadAction::Continue)
+      None
     }
     OP_HEARTBEAT => {
       send_json(write, &GatewayPayload::new(OP_HEARTBEAT, json!(state.seq))).await?;
-      Ok(PayloadAction::Continue)
+      None
     }
     OP_RECONNECT => {
       warn!("server requested reconnect");
-      Ok(PayloadAction::Reconnect {
-        resume: true,
-        extra_delay: None,
-      })
+      Some(SessionEnd::reconnect(true))
     }
     OP_INVALID_SESSION => {
       let resumable = payload
@@ -63,10 +52,10 @@ pub(super) async fn handle_payload(
       if !resumable {
         state.clear_session();
       }
-      Ok(PayloadAction::Reconnect {
-        resume: resumable,
-        extra_delay: Some(Duration::from_secs(2)),
-      })
+      Some(SessionEnd::reconnect_after(
+        resumable,
+        Duration::from_secs(2),
+      ))
     }
     OP_DISPATCH => {
       let event = payload.t.unwrap_or("");
@@ -82,7 +71,7 @@ pub(super) async fn handle_payload(
             info!("logged in");
           }
           apply_presence(params, write, presence_applied).await?;
-          Ok(PayloadAction::Continue)
+          None
         }
         "RESUMED" => {
           state.set_healthy(true);
@@ -90,19 +79,19 @@ pub(super) async fn handle_payload(
           if !*presence_applied {
             apply_presence(params, write, presence_applied).await?;
           }
-          Ok(PayloadAction::Continue)
+          None
         }
         _ => {
           trace!(event, "dispatch");
-          Ok(PayloadAction::Continue)
+          None
         }
       }
     }
     other => {
       debug!(op = other, "unhandled opcode");
-      Ok(PayloadAction::Continue)
+      None
     }
-  }
+  })
 }
 
 async fn apply_presence(

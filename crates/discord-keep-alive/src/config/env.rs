@@ -17,12 +17,13 @@ pub fn from_env() -> PartialConfig {
   from_env_lookup(|key| std::env::var(key).ok())
 }
 
-/// Build from `lookup`. Index discovery still scans process env; use [`from_env_map`] to inject both.
+// Values come from lookup; index discovery still walks process env.
+// Tests should use from_env_map to inject both.
 pub fn from_env_lookup(lookup: impl Fn(&str) -> Option<String>) -> PartialConfig {
   from_env_lookup_discover(lookup, collect_indices)
 }
 
-/// From an explicit map for lookup and discovery (never reads process env).
+// Test helper: lookup and index discovery both use the map (no process env).
 #[cfg(test)]
 pub fn from_env_map(map: &std::collections::HashMap<String, String>) -> PartialConfig {
   let pairs: Vec<(&str, &str)> = map.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
@@ -180,7 +181,5 @@ fn indexed_activities_from_env(
 }
 
 fn env_opt(lookup: &impl Fn(&str) -> Option<String>, key: &str) -> Option<String> {
-  lookup(key)
-    .map(|v| v.trim().to_string())
-    .filter(|v| !v.is_empty())
+  super::trim_owned(lookup(key))
 }

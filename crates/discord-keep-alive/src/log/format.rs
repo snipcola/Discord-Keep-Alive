@@ -62,7 +62,7 @@ fn write_hms(writer: &mut Writer<'_>) -> fmt::Result {
   )
 }
 
-// Days since Unix epoch → Y-M-D (Howard civil_from_days).
+// Convert days since Unix epoch to Y-M-D (Howard civil_from_days).
 fn civil_from_days(days: i64) -> (i32, u32, u32) {
   let z = days + 719_468;
   let era = if z >= 0 { z } else { z - 146_096 } / 146_097;

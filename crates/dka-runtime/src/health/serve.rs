@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -20,19 +21,54 @@ pub async fn probe_once(endpoint: &str) -> Result<bool> {
 }
 
 fn parse_status(buf: &[u8]) -> bool {
-  let text = std::str::from_utf8(buf).unwrap_or("").trim();
-  text.eq_ignore_ascii_case("ok")
+  std::str::from_utf8(buf)
+    .unwrap_or("")
+    .trim()
+    .eq_ignore_ascii_case("ok")
 }
 
-async fn respond_status<W>(writer: &mut W, state: &HealthState)
-where
-  W: AsyncWriteExt + Unpin,
-{
+async fn respond_status(w: &mut (impl AsyncWriteExt + Unpin), state: &HealthState) {
   let body = state.status_line();
   trace!(status = %body.trim(), "health probe response");
-  if let Err(err) = writer.write_all(body.as_bytes()).await {
+  if let Err(err) = w.write_all(body.as_bytes()).await {
     debug!(error = %err, "health write failed");
   }
+}
+
+async fn read_probe_status(r: &mut (impl AsyncReadExt + Unpin)) -> Result<bool> {
+  let mut buf = [0u8; 64];
+  let n = r.read(&mut buf).await.context("read health response")?;
+  Ok(parse_status(&buf[..n]))
+}
+
+async fn serve_loop<F, Fut, S>(
+  shutdown: &mut watch::Receiver<bool>,
+  state: Arc<HealthState>,
+  mut next: F,
+) -> Result<()>
+where
+  F: FnMut() -> Fut,
+  Fut: Future<Output = Result<Option<S>>>,
+  S: AsyncWriteExt + Unpin,
+{
+  loop {
+    if *shutdown.borrow() {
+      break;
+    }
+    tokio::select! {
+      changed = shutdown.changed() => {
+        if changed.is_err() || *shutdown.borrow() {
+          break;
+        }
+      }
+      accepted = next() => {
+        if let Some(mut stream) = accepted? {
+          respond_status(&mut stream, &state).await;
+        }
+      }
+    }
+  }
+  Ok(())
 }
 
 #[cfg(unix)]
@@ -63,29 +99,16 @@ mod platform {
       UnixListener::bind(path).with_context(|| format!("bind health socket {}", path.display()))?;
     debug!(path = %path.display(), "health socket listening");
 
-    loop {
-      if *shutdown.borrow() {
-        break;
-      }
-
-      tokio::select! {
-        changed = shutdown.changed() => {
-          if changed.is_err() || *shutdown.borrow() {
-            break;
-          }
-        }
-        accepted = listener.accept() => {
-          match accepted {
-            Ok((mut stream, _)) => {
-              respond_status(&mut stream, &state).await;
-            }
-            Err(err) => {
-              debug!(error = %err, "health accept failed");
-            }
-          }
+    serve_loop(shutdown, state, || async {
+      match listener.accept().await {
+        Ok((stream, _)) => Ok(Some(stream)),
+        Err(err) => {
+          debug!(error = %err, "health accept failed");
+          Ok(None)
         }
       }
-    }
+    })
+    .await?;
 
     let _ = std::fs::remove_file(path);
     Ok(())
@@ -93,16 +116,10 @@ mod platform {
 
   pub async fn probe_once(endpoint: &str) -> Result<bool> {
     use tokio::net::UnixStream;
-
     let mut stream = UnixStream::connect(endpoint)
       .await
       .with_context(|| format!("connect health socket {endpoint}"))?;
-    let mut buf = [0u8; 64];
-    let n = stream
-      .read(&mut buf)
-      .await
-      .context("read health socket response")?;
-    Ok(parse_status(&buf[..n]))
+    read_probe_status(&mut stream).await
   }
 }
 
@@ -129,47 +146,31 @@ mod platform {
     let name = pipe_path(endpoint);
     debug!(pipe = %name, "health pipe listening");
 
-    loop {
-      if *shutdown.borrow() {
-        break;
-      }
-
-      let mut server = ServerOptions::new()
-        .create(&name)
-        .with_context(|| format!("create health pipe {name}"))?;
-
-      tokio::select! {
-        changed = shutdown.changed() => {
-          if changed.is_err() || *shutdown.borrow() {
-            break;
-          }
-        }
-        connected = server.connect() => {
-          if let Err(err) = connected {
+    serve_loop(shutdown, state, || {
+      let name = name.as_str();
+      async move {
+        let server = ServerOptions::new()
+          .create(name)
+          .with_context(|| format!("create health pipe {name}"))?;
+        match server.connect().await {
+          Ok(()) => Ok(Some(server)),
+          Err(err) => {
             debug!(error = %err, "health pipe connect failed");
-            continue;
+            Ok(None)
           }
-          respond_status(&mut server, &state).await;
         }
       }
-    }
-
-    Ok(())
+    })
+    .await
   }
 
   pub async fn probe_once(endpoint: &str) -> Result<bool> {
     use tokio::net::windows::named_pipe::ClientOptions;
-
     let name = pipe_path(endpoint);
     let mut client = ClientOptions::new()
       .open(&name)
       .with_context(|| format!("open health pipe {name}"))?;
-    let mut buf = [0u8; 64];
-    let n = client
-      .read(&mut buf)
-      .await
-      .context("read health pipe response")?;
-    Ok(parse_status(&buf[..n]))
+    read_probe_status(&mut client).await
   }
 }
 

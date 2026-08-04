@@ -38,7 +38,7 @@ impl HealthState {
 
   pub fn status_line(&self) -> &'static str {
     let map = self.live.lock().unwrap_or_else(|e| e.into_inner());
-    if accounts_healthy(&map) {
+    if !map.is_empty() && map.values().all(|&live| live) {
       "ok\n"
     } else {
       "fail\n"
@@ -46,11 +46,7 @@ impl HealthState {
   }
 }
 
-fn accounts_healthy(map: &HashMap<String, bool>) -> bool {
-  !map.is_empty() && map.values().all(|&live| live)
-}
-
-/// Exit codes: `0` healthy, `1` unhealthy, `2` unreachable / misconfigured.
+// Exit codes: 0 healthy, 1 unhealthy, 2 unreachable or misconfigured.
 pub async fn probe(endpoint: &str) -> i32 {
   match tokio::time::timeout(PROBE_TIMEOUT, serve::probe_once(endpoint)).await {
     Ok(Ok(true)) => 0,

@@ -165,7 +165,6 @@ dependencies = [
 name = "discord-keep-alive"
 version = "0.3.4"
 dependencies = [
- "anyhow",
  "clap",
  "dka-gateway",
  "dka-presence",
@@ -173,7 +172,6 @@ dependencies = [
  "figment",
  "rustls",
  "serde",
- "serde_json",
  "thiserror",
  "tokio",
  "tracing",

@@ -14,15 +14,12 @@ dka-gateway.workspace = true
 dka-runtime.workspace = true
 
 serde.workspace = true
-serde_json.workspace = true
-
 thiserror.workspace = true
-anyhow.workspace = true
 
 tokio.workspace = true
 rustls.workspace = true
 
-figment.workspace = true
 clap.workspace = true
+figment.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

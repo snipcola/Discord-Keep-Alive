@@ -130,19 +130,15 @@ mod tests {
 
   #[test]
   fn invalid_session_bool() {
-    let true_env = GatewayEnvelope::from_json(r#"{"op":9,"d":true,"s":null,"t":null}"#).unwrap();
-    let resumable = true_env
-      .d_str()
-      .and_then(|d| serde_json::from_str(d).ok())
-      .unwrap_or(false);
-    assert!(resumable);
-
-    let false_env = GatewayEnvelope::from_json(r#"{"op":9,"d":false,"s":null,"t":null}"#).unwrap();
-    let resumable = false_env
-      .d_str()
-      .and_then(|d| serde_json::from_str(d).ok())
-      .unwrap_or(false);
-    assert!(!resumable);
+    for (label, d, expected) in [("true", "true", true), ("false", "false", false)] {
+      let text = format!(r#"{{"op":9,"d":{d},"s":null,"t":null}}"#);
+      let env = GatewayEnvelope::from_json(&text).unwrap();
+      let resumable = env
+        .d_str()
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .unwrap_or(false);
+      assert_eq!(resumable, expected, "{label}");
+    }
   }
 
   #[test]
@@ -154,20 +150,17 @@ mod tests {
 
   #[test]
   fn display_name_discriminator() {
-    let with_zero = ReadyInfo {
-      username: "user".into(),
-      discriminator: Some("0".into()),
-      session_id: "s".into(),
-      resume_gateway_url: crate::GATEWAY_HOST.into(),
-    };
-    assert_eq!(with_zero.display_name(), "user");
-
-    let with_num = ReadyInfo {
-      username: "user".into(),
-      discriminator: Some("1234".into()),
-      session_id: "s".into(),
-      resume_gateway_url: crate::GATEWAY_HOST.into(),
-    };
-    assert_eq!(with_num.display_name(), "user#1234");
+    for (label, disc, expected) in [
+      ("zero", Some("0"), "user"),
+      ("num", Some("1234"), "user#1234"),
+    ] {
+      let info = ReadyInfo {
+        username: "user".into(),
+        discriminator: disc.map(str::to_string),
+        session_id: "s".into(),
+        resume_gateway_url: crate::GATEWAY_HOST.into(),
+      };
+      assert_eq!(info.display_name(), expected, "{label}");
+    }
   }
 }

@@ -4,8 +4,8 @@ use crate::gateway_query;
 
 const MAX_BACKOFF_SECS: u64 = 90;
 
-/// Exponential delay: 1s, 2s, 4s, … capped at 90s, plus up to 25% jitter.
-/// `attempt` starts at 1 for the first reconnect.
+// Exponential backoff from 1s, capped at 90s, plus up to 25% jitter.
+// attempt is 1 on the first reconnect.
 pub fn backoff_with_jitter(attempt: u32) -> Duration {
   let exp = attempt.saturating_sub(1).min(7);
   let base_ms = (1u64 << exp).min(MAX_BACKOFF_SECS).saturating_mul(1000);
@@ -23,7 +23,7 @@ pub fn resume_ws_url(base: &str) -> String {
   }
 }
 
-/// Uniform random in `[0, 1)` from a thread-local xorshift (avoids a `rand` dep).
+// Random float in [0, 1) from a small thread-local xorshift (no rand crate).
 pub fn unit_f64() -> f64 {
   use std::cell::Cell;
   use std::collections::hash_map::DefaultHasher;
