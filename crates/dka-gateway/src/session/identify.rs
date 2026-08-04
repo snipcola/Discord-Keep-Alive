@@ -14,7 +14,9 @@ use tracing::{debug, trace};
 use dka_presence::AccountKind;
 
 use crate::compress::TransportDecompress;
-use crate::payload::{GatewayPayload, HelloData, OP_HELLO, OP_IDENTIFY, OP_PRESENCE_UPDATE};
+use crate::payload::{
+  GatewayEnvelope, GatewayPayload, HelloData, OP_HELLO, OP_IDENTIFY, OP_PRESENCE_UPDATE,
+};
 use crate::properties::identify_properties;
 
 use super::inbound::decode_inbound;
@@ -146,11 +148,20 @@ pub(super) async fn wait_for_hello(
             )));
           }
           Some(Ok(msg)) => {
-            if let Some(payload) = decode_inbound(msg, decomp)?
-              && payload.op == OP_HELLO
-            {
-              let hello: HelloData = serde_json::from_value(payload.d)
-                .context("decode Hello data")?;
+            let hello = if let Some(text) = decode_inbound(msg, decomp)? {
+              let payload = GatewayEnvelope::from_json(text.as_str())
+                .context("decode gateway payload")?;
+              if payload.op == OP_HELLO {
+                let d = payload.d_str().unwrap_or("null");
+                Some(serde_json::from_str::<HelloData>(d).context("decode Hello data")?)
+              } else {
+                None
+              }
+            } else {
+              None
+            };
+            decomp.reclaim();
+            if let Some(hello) = hello {
               return Ok(hello);
             }
           }

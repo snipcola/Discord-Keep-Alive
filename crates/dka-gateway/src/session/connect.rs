@@ -18,7 +18,7 @@ use tracing::{Instrument, Span, debug, error, warn};
 
 use crate::compress::TransportDecompress;
 use crate::heartbeat::{HeartbeatCmd, heartbeat_loop};
-use crate::payload::{GatewayPayload, OP_HEARTBEAT, OP_RESUME};
+use crate::payload::{GatewayEnvelope, GatewayPayload, OP_HEARTBEAT, OP_RESUME};
 
 use super::dispatch::{PayloadAction, handle_payload};
 use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_for_hello};
@@ -188,28 +188,35 @@ pub(super) async fn connect_and_run(
             break;
           }
           Some(Ok(msg)) => {
-            if let Some(payload) = decode_inbound(msg, &mut decomp)? {
-              match handle_payload(
-                params,
-                state,
-                &payload,
-                &seq_cell,
-                &ack_tx,
-                &mut write,
-                &mut presence_applied,
-              ).await? {
-                PayloadAction::Continue => {}
-                PayloadAction::Reconnect {
-                  resume,
-                  extra_delay,
-                } => {
-                  end = SessionEnd::Reconnect {
-                    resume,
-                    extra_delay,
-                  };
-                  break;
-                }
-              }
+            let action = if let Some(text) = decode_inbound(msg, &mut decomp)? {
+              let payload = GatewayEnvelope::from_json(text.as_str())
+                .context("decode gateway payload")?;
+              Some(
+                handle_payload(
+                  params,
+                  state,
+                  &payload,
+                  &seq_cell,
+                  &ack_tx,
+                  &mut write,
+                  &mut presence_applied,
+                )
+                .await?,
+              )
+            } else {
+              None
+            };
+            decomp.reclaim();
+            if let Some(PayloadAction::Reconnect {
+              resume,
+              extra_delay,
+            }) = action
+            {
+              end = SessionEnd::Reconnect {
+                resume,
+                extra_delay,
+              };
+              break;
             }
           }
           Some(Err(err)) => {

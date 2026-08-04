@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, value::RawValue};
 
 pub const OP_DISPATCH: u8 = 0;
 pub const OP_HEARTBEAT: u8 = 1;
@@ -11,33 +11,40 @@ pub const OP_INVALID_SESSION: u8 = 9;
 pub const OP_HELLO: u8 = 10;
 pub const OP_HEARTBEAT_ACK: u8 = 11;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GatewayPayload {
   pub op: u8,
-  #[serde(default)]
   pub d: Value,
-  #[serde(default)]
-  pub s: Option<i64>,
-  #[serde(default)]
-  pub t: Option<String>,
 }
 
 impl GatewayPayload {
   pub fn new(op: u8, d: Value) -> Self {
-    Self {
-      op,
-      d,
-      s: None,
-      t: None,
-    }
+    Self { op, d }
   }
 
   pub fn to_json(&self) -> Result<String, serde_json::Error> {
     serde_json::to_string(self)
   }
+}
 
-  pub fn from_json(text: &str) -> Result<Self, serde_json::Error> {
+#[derive(Debug, Deserialize)]
+pub struct GatewayEnvelope<'a> {
+  pub op: u8,
+  #[serde(default, borrow)]
+  pub d: Option<&'a RawValue>,
+  #[serde(default)]
+  pub s: Option<i64>,
+  #[serde(default, borrow)]
+  pub t: Option<&'a str>,
+}
+
+impl<'a> GatewayEnvelope<'a> {
+  pub fn from_json(text: &'a str) -> Result<Self, serde_json::Error> {
     serde_json::from_str(text)
+  }
+
+  pub fn d_str(&self) -> Option<&'a str> {
+    self.d.map(RawValue::get)
   }
 }
 
@@ -54,6 +61,21 @@ pub struct ReadyInfo {
   pub resume_gateway_url: String,
 }
 
+#[derive(Deserialize)]
+struct ReadyBody {
+  session_id: String,
+  #[serde(default)]
+  resume_gateway_url: Option<String>,
+  user: ReadyUser,
+}
+
+#[derive(Deserialize)]
+struct ReadyUser {
+  username: String,
+  #[serde(default)]
+  discriminator: Option<String>,
+}
+
 impl ReadyInfo {
   pub fn display_name(&self) -> String {
     match &self.discriminator {
@@ -62,25 +84,90 @@ impl ReadyInfo {
     }
   }
 
-  pub fn from_ready_data(d: &Value) -> Option<Self> {
-    let user = d.get("user")?;
-    let username = user.get("username")?.as_str()?.to_string();
-    let discriminator = user
-      .get("discriminator")
-      .and_then(|v| v.as_str())
-      .map(|s| s.to_string());
-    let session_id = d.get("session_id")?.as_str()?.to_string();
-    let resume_gateway_url = d
-      .get("resume_gateway_url")
-      .and_then(|v| v.as_str())
-      .unwrap_or(crate::GATEWAY_HOST)
-      .to_string();
-
+  pub fn from_ready_json(d: &str) -> Option<Self> {
+    let body: ReadyBody = serde_json::from_str(d).ok()?;
     Some(Self {
-      username,
-      discriminator,
-      session_id,
-      resume_gateway_url,
+      username: body.user.username,
+      discriminator: body.user.discriminator,
+      session_id: body.session_id,
+      resume_gateway_url: body
+        .resume_gateway_url
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| crate::GATEWAY_HOST.to_string()),
     })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn hello_envelope_keeps_raw_d() {
+    let text = r#"{"op":10,"d":{"heartbeat_interval":41250},"s":null,"t":null}"#;
+    let env = GatewayEnvelope::from_json(text).unwrap();
+    assert_eq!(env.op, OP_HELLO);
+    let d = env.d_str().unwrap();
+    assert!(d.contains("heartbeat_interval"));
+    let hello: HelloData = serde_json::from_str(d).unwrap();
+    assert_eq!(hello.heartbeat_interval, 41250);
+  }
+
+  #[test]
+  fn ready_extracts_fields_ignoring_junk() {
+    let big = "x".repeat(10_000);
+    let text = format!(
+      r#"{{"op":0,"s":1,"t":"READY","d":{{"session_id":"abc","resume_gateway_url":"wss://resume.example","user":{{"username":"snip","discriminator":"1234"}},"guilds":[{{"id":"1","blob":"{big}"}}]}}}}"#
+    );
+    let env = GatewayEnvelope::from_json(&text).unwrap();
+    assert_eq!(env.t, Some("READY"));
+    let info = ReadyInfo::from_ready_json(env.d_str().unwrap()).unwrap();
+    assert_eq!(info.username, "snip");
+    assert_eq!(info.discriminator.as_deref(), Some("1234"));
+    assert_eq!(info.session_id, "abc");
+    assert_eq!(info.resume_gateway_url, "wss://resume.example");
+  }
+
+  #[test]
+  fn invalid_session_bool() {
+    let true_env = GatewayEnvelope::from_json(r#"{"op":9,"d":true,"s":null,"t":null}"#).unwrap();
+    let resumable = true_env
+      .d_str()
+      .and_then(|d| serde_json::from_str(d).ok())
+      .unwrap_or(false);
+    assert!(resumable);
+
+    let false_env = GatewayEnvelope::from_json(r#"{"op":9,"d":false,"s":null,"t":null}"#).unwrap();
+    let resumable = false_env
+      .d_str()
+      .and_then(|d| serde_json::from_str(d).ok())
+      .unwrap_or(false);
+    assert!(!resumable);
+  }
+
+  #[test]
+  fn ready_missing_resume_url_falls_back() {
+    let d = r#"{"session_id":"sid","user":{"username":"u"}}"#;
+    let info = ReadyInfo::from_ready_json(d).unwrap();
+    assert_eq!(info.resume_gateway_url, crate::GATEWAY_HOST);
+  }
+
+  #[test]
+  fn display_name_discriminator() {
+    let with_zero = ReadyInfo {
+      username: "user".into(),
+      discriminator: Some("0".into()),
+      session_id: "s".into(),
+      resume_gateway_url: crate::GATEWAY_HOST.into(),
+    };
+    assert_eq!(with_zero.display_name(), "user");
+
+    let with_num = ReadyInfo {
+      username: "user".into(),
+      discriminator: Some("1234".into()),
+      session_id: "s".into(),
+      resume_gateway_url: crate::GATEWAY_HOST.into(),
+    };
+    assert_eq!(with_num.display_name(), "user#1234");
   }
 }

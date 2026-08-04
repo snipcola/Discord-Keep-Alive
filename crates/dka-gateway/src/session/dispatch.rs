@@ -9,8 +9,8 @@ use tokio::time::Instant;
 use tracing::{debug, info, trace, warn};
 
 use crate::payload::{
-  GatewayPayload, OP_DISPATCH, OP_HEARTBEAT, OP_HEARTBEAT_ACK, OP_HELLO, OP_INVALID_SESSION,
-  OP_PRESENCE_UPDATE, OP_RECONNECT, ReadyInfo,
+  GatewayEnvelope, GatewayPayload, OP_DISPATCH, OP_HEARTBEAT, OP_HEARTBEAT_ACK, OP_HELLO,
+  OP_INVALID_SESSION, OP_PRESENCE_UPDATE, OP_RECONNECT, ReadyInfo,
 };
 
 use super::{SessionParams, SessionState, WsWrite, send_json};
@@ -26,7 +26,7 @@ pub(super) enum PayloadAction {
 pub(super) async fn handle_payload(
   params: &SessionParams,
   state: &mut SessionState,
-  payload: &GatewayPayload,
+  payload: &GatewayEnvelope<'_>,
   seq_cell: &Arc<AtomicI64>,
   ack_tx: &watch::Sender<Instant>,
   write: &mut WsWrite,
@@ -55,7 +55,10 @@ pub(super) async fn handle_payload(
       })
     }
     OP_INVALID_SESSION => {
-      let resumable = payload.d.as_bool().unwrap_or(false);
+      let resumable = payload
+        .d_str()
+        .and_then(|d| serde_json::from_str(d).ok())
+        .unwrap_or(false);
       warn!(resumable, "invalid session");
       if !resumable {
         state.clear_session();
@@ -66,10 +69,10 @@ pub(super) async fn handle_payload(
       })
     }
     OP_DISPATCH => {
-      let event = payload.t.as_deref().unwrap_or("");
+      let event = payload.t.unwrap_or("");
       match event {
         "READY" => {
-          if let Some(info) = ReadyInfo::from_ready_data(&payload.d) {
+          if let Some(info) = payload.d_str().and_then(ReadyInfo::from_ready_json) {
             state.session_id = Some(info.session_id.clone());
             state.resume_url = Some(info.resume_gateway_url.clone());
             state.set_healthy(true);

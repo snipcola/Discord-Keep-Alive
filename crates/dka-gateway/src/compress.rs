@@ -2,6 +2,10 @@ use anyhow::{Context, Result};
 use zstd::stream::raw::{Decoder, InBuffer, Operation, OutBuffer};
 
 const SCRATCH_LEN: usize = 8 * 1024;
+/// Steady-state capacity floor after reclaim (covers normal gateway frames).
+const KEEP_CAP: usize = 64 * 1024;
+/// Only reclaim when capacity exceeds this (READY-sized spikes).
+const SHRINK_THRESHOLD: usize = 256 * 1024;
 
 /// One shared zstd-stream context for the lifetime of the WebSocket connection.
 pub(crate) struct TransportDecompress {
@@ -42,6 +46,15 @@ impl TransportDecompress {
     }
 
     Ok(&self.out)
+  }
+
+  /// Drop peak capacity after a large frame once borrows into `out` are gone.
+  /// Clears first: `shrink_to` cannot go below `len`.
+  pub(crate) fn reclaim(&mut self) {
+    if self.out.capacity() > SHRINK_THRESHOLD {
+      self.out.clear();
+      self.out.shrink_to(KEEP_CAP);
+    }
   }
 }
 
@@ -93,5 +106,27 @@ mod tests {
     assert_eq!(out_a, a);
     let out_b = decomp.push(&frames[1]).unwrap().to_vec();
     assert_eq!(out_b, b);
+  }
+
+  #[test]
+  fn reclaim_shrinks_large_capacity() {
+    let mut d = TransportDecompress::new().unwrap();
+    d.out.resize(2 * 1024 * 1024, 0);
+    let before = d.out.capacity();
+    assert!(before > SHRINK_THRESHOLD);
+    d.reclaim();
+    assert!(d.out.is_empty());
+    assert!(d.out.capacity() <= SHRINK_THRESHOLD);
+    assert!(d.out.capacity() < before);
+    assert!(d.out.capacity() >= KEEP_CAP);
+  }
+
+  #[test]
+  fn reclaim_noop_when_capacity_small() {
+    let mut d = TransportDecompress::new().unwrap();
+    let before = d.out.capacity();
+    assert!(before <= SHRINK_THRESHOLD);
+    d.reclaim();
+    assert_eq!(d.out.capacity(), before);
   }
 }
