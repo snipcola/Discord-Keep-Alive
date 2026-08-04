@@ -28,7 +28,7 @@ Compose example: [`docker-compose.example.yaml`](./docker-compose.example.yaml).
 ### From source
 
 ```bash
-git clone https://code.snipcola.st/snipcola/Discord-Keep-Alive
+git clone --depth 1 --branch latest https://code.snipcola.st/snipcola/Discord-Keep-Alive
 cd Discord-Keep-Alive
 cp config.example.toml config.toml
 # Set at least a token before running.

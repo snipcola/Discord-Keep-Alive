@@ -80,6 +80,10 @@ on:
         type: boolean
         required: false
         default: true
+      create_latest_tag:
+        type: boolean
+        required: false
+        default: true
       tag_prefix:
         type: string
         required: false
@@ -271,5 +275,6 @@ jobs:
           prefix: ${{ inputs.tag_prefix }}
           message: ${{ inputs.tag_message }}
           conflict: ${{ inputs.tag_conflict }}
+          latest: ${{ inputs.create_latest_tag }}
           token: ${{ secrets.gitea_token }}
           server_url: ${{ inputs.server_url || env.INTERNAL_SERVER_URL }}
