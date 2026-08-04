@@ -14,7 +14,9 @@ FROM --platform=$BUILDPLATFORM ${ZIGBUILD_IMAGE} AS chef
 ARG CARGO_CHEF_VERSION
 WORKDIR /app
 COPY rust-toolchain.toml ./
-RUN rustup show active-toolchain \
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    rustup show active-toolchain \
  && cargo install cargo-chef --locked --version "${CARGO_CHEF_VERSION}"
 
 FROM chef AS planner
@@ -23,6 +25,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 ARG TARGETPLATFORM
+ARG TARGETARCH
 ARG PACKAGE
 
 RUN case "${TARGETPLATFORM}" in \
@@ -37,6 +40,7 @@ RUN case "${TARGETPLATFORM}" in \
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=cargo-target-${TARGETARCH},target=/app/target,sharing=locked \
     rust_target="$(cat /tmp/rust-target)" \
  && cargo chef cook \
       --release \
@@ -49,6 +53,7 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharin
 COPY . .
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=cargo-target-${TARGETARCH},target=/app/target,sharing=locked \
     rust_target="$(cat /tmp/rust-target)" \
  && cargo zigbuild --release --locked --target "${rust_target}" -p "${PACKAGE}" \
  && cp "/app/target/${rust_target}/release/${PACKAGE}" /out

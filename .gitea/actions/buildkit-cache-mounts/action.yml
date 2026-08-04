@@ -24,7 +24,9 @@ inputs:
     default: |
       {
         "cargo-registry": { "target": "/usr/local/cargo/registry", "id": "cargo-registry" },
-        "cargo-git": { "target": "/usr/local/cargo/git", "id": "cargo-git" }
+        "cargo-git": { "target": "/usr/local/cargo/git", "id": "cargo-git" },
+        "cargo-target-amd64": { "target": "/app/target", "id": "cargo-target-amd64" },
+        "cargo-target-arm64": { "target": "/app/target", "id": "cargo-target-arm64" }
       }
 
 runs:
