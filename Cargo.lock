@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "discord-keep-alive"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "clap",
  "dka-config",
@@ -178,7 +178,7 @@ dependencies = [
 
 [[package]]
 name = "dka-config"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "clap",
  "dka-gateway",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "dka-gateway"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "dka-presence",
@@ -205,14 +205,14 @@ dependencies = [
 
 [[package]]
 name = "dka-presence"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "dka-runtime"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "dka-gateway",
