@@ -10,7 +10,7 @@ services:
       # KIND: user                   # user (default) | bot
       # DEVICE: desktop              # user only: web (default) | desktop | mobile
       # STATUS: online               # online (default) | dnd | idle | invisible
-      # CUSTOM_STATUS_TEXT: afk      # user only
+      # CUSTOM_STATUS: afk           # user only
       # CUSTOM_STATUS_EMOJI: 💤      # user only
       # ACTIVITY: Keep Alive         # first activity name
       # ACTIVITY_TYPE: playing       # playing | streaming | listening | watching | competing | hang
@@ -24,7 +24,7 @@ services:
       # ACCOUNT_0_KIND: user
       # ACCOUNT_0_DEVICE: desktop
       # ACCOUNT_0_STATUS: online
-      # ACCOUNT_0_CUSTOM_STATUS_TEXT: afk
+      # ACCOUNT_0_CUSTOM_STATUS: afk
       # ACCOUNT_0_ACTIVITY: Rust
       # ACCOUNT_0_ACTIVITY_TYPE: playing
       # ACCOUNT_0_ACTIVITY_0: Music

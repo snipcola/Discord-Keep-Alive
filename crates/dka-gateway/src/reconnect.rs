@@ -9,7 +9,7 @@ const MAX_BACKOFF_SECS: u64 = 90;
 pub fn backoff_with_jitter(attempt: u32) -> Duration {
   let exp = attempt.saturating_sub(1).min(7);
   let base_ms = (1u64 << exp).min(MAX_BACKOFF_SECS).saturating_mul(1000);
-  let jitter_ms = (unit_f64() * base_ms as f64 * 0.25) as u64;
+  let jitter_ms = (rand::random::<f64>() * base_ms as f64 * 0.25) as u64;
   Duration::from_millis(base_ms + jitter_ms)
 }
 
@@ -21,37 +21,6 @@ pub fn resume_ws_url(base: &str) -> String {
     let trimmed = base.trim_end_matches('/');
     format!("{trimmed}/?{query}")
   }
-}
-
-// Random float in [0, 1) from a small thread-local xorshift (no rand crate).
-pub fn unit_f64() -> f64 {
-  use std::cell::Cell;
-  use std::collections::hash_map::DefaultHasher;
-  use std::hash::{Hash, Hasher};
-  use std::time::{SystemTime, UNIX_EPOCH};
-
-  thread_local! {
-    static STATE: Cell<u64> = const { Cell::new(0) };
-  }
-
-  STATE.with(|cell| {
-    let mut s = cell.get();
-    if s == 0 {
-      let mut h = DefaultHasher::new();
-      SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
-        .hash(&mut h);
-      std::thread::current().id().hash(&mut h);
-      s = h.finish() | 1;
-    }
-    s ^= s << 13;
-    s ^= s >> 7;
-    s ^= s << 17;
-    cell.set(s);
-    (s as f64) / (u64::MAX as f64 + 1.0)
-  })
 }
 
 #[cfg(test)]
@@ -96,13 +65,5 @@ mod tests {
       resume_ws_url("wss://gateway.discord.gg/?v=9"),
       format!("wss://gateway.discord.gg/?v=9&{query}")
     );
-  }
-
-  #[test]
-  fn unit_f64_in_unit_interval() {
-    for _ in 0..32 {
-      let v = unit_f64();
-      assert!((0.0..1.0).contains(&v));
-    }
   }
 }

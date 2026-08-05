@@ -14,6 +14,7 @@ dka-gateway.workspace = true
 
 serde.workspace = true
 thiserror.workspace = true
+secrecy.workspace = true
 
 clap.workspace = true
 figment.workspace = true

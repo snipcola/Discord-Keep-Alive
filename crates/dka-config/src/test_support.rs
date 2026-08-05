@@ -4,8 +4,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use clap::Parser;
 
-use crate::model::partial::{PartialAccount, PartialActivity, PartialConfig};
-use crate::schema::fields::{AccountScalarField, ActivityField, CustomStatusField};
+use crate::model::partial::{AccountScalars, PartialAccount, PartialActivity, PartialConfig};
+use crate::schema::fields::{
+  AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
+};
 use crate::schema::id::ACCOUNT_FLAT;
 use crate::source::cli::Cli;
 
@@ -21,17 +23,25 @@ pub fn env_map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
 }
 
 pub fn account_with_token(token: &str) -> PartialAccount {
-  PartialAccount {
+  AccountScalars {
     token: Some(token.into()),
     ..Default::default()
   }
+  .into()
 }
 
 pub fn named_account(name: &str) -> PartialAccount {
-  PartialAccount {
+  AccountScalars {
     name: Some(name.into()),
     ..Default::default()
   }
+  .into()
+}
+
+pub fn account_with(token: &str, tweak: impl FnOnce(&mut PartialAccount)) -> PartialAccount {
+  let mut account = account_with_token(token);
+  tweak(&mut account);
+  account
 }
 
 pub fn named_activity(name: &str) -> PartialActivity {
@@ -54,7 +64,10 @@ pub fn flat_with_activities(
   activity_order: Vec<String>,
 ) -> PartialConfig {
   partial_flat(PartialAccount {
-    token: Some("t".into()),
+    scalars: AccountScalars {
+      token: Some("t".into()),
+      ..Default::default()
+    },
     activities,
     activity_order,
     ..Default::default()
@@ -87,4 +100,18 @@ pub fn for_each_catalog_field(
   for &field in ActivityField::ALL {
     on_activity(field);
   }
+}
+
+/// Every defaults profile × client-prop leaf (no flat CLI by design).
+pub fn for_each_defaults_field(mut on_field: impl FnMut(DefaultsProfile, ClientPropField)) {
+  for &profile in DefaultsProfile::ALL {
+    for &field in ClientPropField::ALL {
+      on_field(profile, field);
+    }
+  }
+}
+
+/// Stable sample value for catalog reachability (not domain-valid).
+pub fn catalog_sample_value(label: &str) -> String {
+  format!("cat-{label}")
 }

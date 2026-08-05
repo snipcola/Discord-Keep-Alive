@@ -60,7 +60,6 @@ fn merge_partial_layers(
   Ok(partial)
 }
 
-/// Merge order (last wins): defaults → file → env → CLI, then resolve.
 pub(crate) fn load_with(
   config_path: &Path,
   env_layer: PartialConfig,
@@ -94,7 +93,7 @@ pub(crate) fn load_health_endpoint_with(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::model::partial::{PartialAccount, PartialActivity};
+  use crate::model::partial::PartialActivity;
   use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
   use crate::source::cli::cli_partial;
   use crate::source::defaults::DEFAULT_LOG_LEVEL;
@@ -148,11 +147,7 @@ mod tests {
         let mut m = std::collections::BTreeMap::new();
         m.insert(
           ACCOUNT_FLAT.into(),
-          PartialAccount {
-            token: Some("env-tok".into()),
-            status: Some("online".into()),
-            ..Default::default()
-          },
+          account_with("env-tok", |a| a.status = Some("online".into())),
         );
         m
       },
@@ -161,7 +156,7 @@ mod tests {
     };
     let mut cli = empty_cli();
     cli.log_level = Some("trace".into());
-    cli.token = Some("cli-tok".into());
+    cli.account.token = Some("cli-tok".into());
     let app = load_with(file.path(), env_layer, cli_partial(&cli).unwrap()).unwrap();
     assert_eq!(app.log_level, "trace");
     assert_eq!(app.accounts.len(), 1);
@@ -322,8 +317,8 @@ token = "file-0"
       ..Default::default()
     };
     let mut cli = empty_cli();
-    cli.activity = Some("from-cli".into());
-    cli.activity_type = Some("watching".into());
+    cli.activity.activity = Some("from-cli".into());
+    cli.activity.activity_type = Some("watching".into());
     let act = &load_with(file.path(), env_layer, cli_partial(&cli).unwrap())
       .unwrap()
       .accounts[0]

@@ -9,11 +9,10 @@ use serde::Deserialize;
 
 use crate::error::ConfigError;
 use crate::model::partial::{
-  PartialAccount, PartialActivity, PartialConfig, PartialCustomStatus, PartialDefaults,
-  any_account_field_set, any_activity_field_set,
+  AccountScalars, PartialAccount, PartialActivity, PartialConfig, PartialCustomStatus,
+  PartialDefaults, any_account_field_set, any_activity_field_set,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
-use crate::token::SecretString;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct FileConfig {
@@ -29,18 +28,11 @@ struct FileConfig {
   account: FileAccount,
 }
 
+// Scalars shared with PartialAccount; dual activity containers stay file-only.
 #[derive(Debug, Clone, Default, Deserialize)]
 struct FileAccount {
-  #[serde(default)]
-  name: Option<String>,
-  #[serde(default)]
-  token: Option<SecretString>,
-  #[serde(default)]
-  kind: Option<String>,
-  #[serde(default)]
-  device: Option<String>,
-  #[serde(default)]
-  status: Option<String>,
+  #[serde(flatten)]
+  scalars: AccountScalars,
   #[serde(default)]
   custom_status: Option<PartialCustomStatus>,
   #[serde(default)]
@@ -117,11 +109,7 @@ fn file_account_to_partial(acc: FileAccount) -> PartialAccount {
   }
 
   PartialAccount {
-    name: acc.name,
-    token: acc.token,
-    kind: acc.kind,
-    device: acc.device,
-    status: acc.status,
+    scalars: acc.scalars,
     custom_status: acc.custom_status,
     activities,
     activity_order,

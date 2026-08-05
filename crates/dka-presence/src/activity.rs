@@ -4,7 +4,7 @@ use crate::constants::{
   AccountKind, ActivityPlatform, ActivityType, DEFAULT_APPLICATION_ID, DEFAULT_PARTY_ID,
 };
 
-// Rewrite Discord CDN/media URLs to mp:.... Leave known prefixes and numeric ids alone.
+// Rewrite Discord CDN/media URLs to mp:…. Leave known prefixes and numeric ids alone.
 pub(crate) fn normalize_activity_image(image: &str) -> String {
   let image = image.trim();
   if image.is_empty() {

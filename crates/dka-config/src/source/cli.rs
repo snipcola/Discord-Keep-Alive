@@ -5,19 +5,20 @@ use clap::Parser;
 use crate::error::ConfigError;
 use crate::model::partial::PartialConfig;
 use crate::schema::fields::{
-  AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
+  AccountScalarCliArgs, AccountScalarField, ActivityCliArgs, ActivityField, ClientPropField,
+  CustomStatusCliArgs, CustomStatusField, DefaultsProfile, apply_account_scalar_cli,
+  apply_activity_cli, apply_custom_status_cli,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
 use crate::schema::path::{
-  AccountPath, ConfigPath, account_scalar_path, activity_field_path, apply_path,
-  custom_status_path, parse_account_id, parse_activity_id,
+  AccountPath, ConfigPath, apply_path, parse_account_id, parse_activity_id,
 };
-use crate::token::SecretString;
 use crate::util::trim_to_string;
 
 pub const DEFAULT_CONFIG_PATH: &str = "config.toml";
 
-// No clap env= bindings; process env is applied only via the env source.
+// No clap env=; process env is the env source only.
+// Flat leaves: flatten Args groups (macros cannot expand into struct fields).
 #[derive(Debug, Parser)]
 #[command(
   name = "discord-keep-alive",
@@ -36,105 +37,14 @@ pub struct Cli {
   #[arg(long)]
   pub health_socket: Option<String>,
 
-  /// Token for the flat (default) account.
-  #[arg(long = AccountScalarField::Token.cli_long())]
-  pub token: Option<SecretString>,
+  #[command(flatten)]
+  pub account: AccountScalarCliArgs,
 
-  /// Display name for the flat account.
-  #[arg(long = AccountScalarField::Name.cli_long())]
-  pub name: Option<String>,
+  #[command(flatten)]
+  pub custom_status: CustomStatusCliArgs,
 
-  /// Account kind (`user` or `bot`).
-  #[arg(long = AccountScalarField::Kind.cli_long())]
-  pub kind: Option<String>,
-
-  /// User device (`desktop`, `web`, or `mobile`).
-  #[arg(long = AccountScalarField::Device.cli_long())]
-  pub device: Option<String>,
-
-  /// Presence (`online`, `idle`, `dnd`, or `invisible`).
-  #[arg(long = AccountScalarField::Status.cli_long())]
-  pub status: Option<String>,
-
-  /// Custom status text (users only).
-  #[arg(long = CustomStatusField::Text.cli_long())]
-  pub custom_status_text: Option<String>,
-
-  /// Custom status emoji (users only).
-  #[arg(long = CustomStatusField::Emoji.cli_long())]
-  pub custom_status_emoji: Option<String>,
-
-  /// Flat activity name.
-  #[arg(long = ActivityField::Name.cli_long())]
-  pub activity: Option<String>,
-
-  /// Activity type (`playing`, `streaming`, `listening`, `watching`, `competing`).
-  #[arg(long = ActivityField::Type.cli_long())]
-  pub activity_type: Option<String>,
-
-  /// Activity platform string.
-  #[arg(long = ActivityField::Platform.cli_long())]
-  pub activity_platform: Option<String>,
-
-  /// Activity start time (Unix seconds).
-  #[arg(long = ActivityField::Timestamp.cli_long())]
-  pub activity_timestamp: Option<String>,
-
-  /// Discord application id.
-  #[arg(long = ActivityField::ApplicationId.cli_long())]
-  pub activity_application_id: Option<String>,
-
-  /// Activity details line.
-  #[arg(long = ActivityField::Details.cli_long())]
-  pub activity_details: Option<String>,
-
-  /// Stream URL (required when type is `streaming`).
-  #[arg(long = ActivityField::Url.cli_long())]
-  pub activity_url: Option<String>,
-
-  /// Large image asset key.
-  #[arg(long = ActivityField::LargeImage.cli_long())]
-  pub activity_large_image: Option<String>,
-
-  /// Large image hover text.
-  #[arg(long = ActivityField::LargeImageText.cli_long())]
-  pub activity_large_image_text: Option<String>,
-
-  /// Small image asset key.
-  #[arg(long = ActivityField::SmallImage.cli_long())]
-  pub activity_small_image: Option<String>,
-
-  /// Small image hover text.
-  #[arg(long = ActivityField::SmallImageText.cli_long())]
-  pub activity_small_image_text: Option<String>,
-
-  /// Button 1 label.
-  #[arg(long = ActivityField::Button.cli_long())]
-  pub activity_button: Option<String>,
-
-  /// Button 1 URL.
-  #[arg(long = ActivityField::ButtonUrl.cli_long())]
-  pub activity_button_url: Option<String>,
-
-  /// Button 2 label.
-  #[arg(long = ActivityField::Button2.cli_long())]
-  pub activity_button_2: Option<String>,
-
-  /// Button 2 URL.
-  #[arg(long = ActivityField::Button2Url.cli_long())]
-  pub activity_button_2_url: Option<String>,
-
-  /// Party id.
-  #[arg(long = ActivityField::PartyId.cli_long())]
-  pub activity_party_id: Option<String>,
-
-  /// Party current size.
-  #[arg(long = ActivityField::PartyCurrent.cli_long())]
-  pub activity_party_current: Option<String>,
-
-  /// Party max size.
-  #[arg(long = ActivityField::PartyMax.cli_long())]
-  pub activity_party_max: Option<String>,
+  #[command(flatten)]
+  pub activity: ActivityCliArgs,
 
   /// Account override: `id.path=value` (e.g. `main.token=AAA`).
   #[arg(long = "account-set", value_name = "SPEC", action = clap::ArgAction::Append)]
@@ -161,26 +71,6 @@ pub enum Command {
     config: PathBuf,
   },
 }
-
-const _: () = {
-  const fn eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-      return false;
-    }
-    let mut i = 0;
-    while i < a.len() {
-      if a[i] != b[i] {
-        return false;
-      }
-      i += 1;
-    }
-    true
-  }
-  assert!(eq(AccountScalarField::Name.cli_long(), "account"));
-  assert!(eq(ActivityField::Name.cli_long(), "activity"));
-  assert!(eq(CustomStatusField::Text.cli_long(), "custom-status-text"));
-};
 
 /// CLI partial. Apply order (last wins): flat flags → `--account-set` → `--set`.
 pub fn cli_partial(cli: &Cli) -> Result<PartialConfig, ConfigError> {
@@ -210,76 +100,9 @@ fn apply_flat_flags(partial: &mut PartialConfig, cli: &Cli) {
     apply_path(partial, &ConfigPath::HealthSocket, v);
   }
 
-  for (field, raw) in [
-    (AccountScalarField::Token, cli.token.as_deref()),
-    (AccountScalarField::Name, cli.name.as_deref()),
-    (AccountScalarField::Kind, cli.kind.as_deref()),
-    (AccountScalarField::Device, cli.device.as_deref()),
-    (AccountScalarField::Status, cli.status.as_deref()),
-  ] {
-    if let Some(v) = trim_to_string(raw) {
-      apply_path(partial, &account_scalar_path(ACCOUNT_FLAT, field), v);
-    }
-  }
-
-  for (field, raw) in [
-    (CustomStatusField::Text, cli.custom_status_text.as_deref()),
-    (CustomStatusField::Emoji, cli.custom_status_emoji.as_deref()),
-  ] {
-    if let Some(v) = trim_to_string(raw) {
-      apply_path(partial, &custom_status_path(ACCOUNT_FLAT, field), v);
-    }
-  }
-
-  for (field, raw) in [
-    (ActivityField::Name, cli.activity.as_deref()),
-    (ActivityField::Type, cli.activity_type.as_deref()),
-    (ActivityField::Platform, cli.activity_platform.as_deref()),
-    (ActivityField::Timestamp, cli.activity_timestamp.as_deref()),
-    (
-      ActivityField::ApplicationId,
-      cli.activity_application_id.as_deref(),
-    ),
-    (ActivityField::Details, cli.activity_details.as_deref()),
-    (ActivityField::Url, cli.activity_url.as_deref()),
-    (
-      ActivityField::LargeImage,
-      cli.activity_large_image.as_deref(),
-    ),
-    (
-      ActivityField::LargeImageText,
-      cli.activity_large_image_text.as_deref(),
-    ),
-    (
-      ActivityField::SmallImage,
-      cli.activity_small_image.as_deref(),
-    ),
-    (
-      ActivityField::SmallImageText,
-      cli.activity_small_image_text.as_deref(),
-    ),
-    (ActivityField::Button, cli.activity_button.as_deref()),
-    (ActivityField::ButtonUrl, cli.activity_button_url.as_deref()),
-    (ActivityField::Button2, cli.activity_button_2.as_deref()),
-    (
-      ActivityField::Button2Url,
-      cli.activity_button_2_url.as_deref(),
-    ),
-    (ActivityField::PartyId, cli.activity_party_id.as_deref()),
-    (
-      ActivityField::PartyCurrent,
-      cli.activity_party_current.as_deref(),
-    ),
-    (ActivityField::PartyMax, cli.activity_party_max.as_deref()),
-  ] {
-    if let Some(v) = trim_to_string(raw) {
-      apply_path(
-        partial,
-        &activity_field_path(ACCOUNT_FLAT, ACTIVITY_SINGULAR, field),
-        v,
-      );
-    }
-  }
+  apply_account_scalar_cli(partial, &cli.account);
+  apply_custom_status_cli(partial, &cli.custom_status);
+  apply_activity_cli(partial, &cli.activity);
 }
 
 fn split_kv(spec: &str) -> Result<(&str, String), ConfigError> {
@@ -367,16 +190,14 @@ fn parse_account_relative_path(path: &str) -> Result<AccountPath, ConfigError> {
 /// `Some(Err)` keeps bad field/id errors distinct from unknown roots.
 fn parse_account_relative_segs(segs: &[&str]) -> Option<Result<AccountPath, ConfigError>> {
   match segs {
-    [seg] if parse_account_scalar_token(seg).is_some() => Some(Ok(AccountPath::Scalar(
-      parse_account_scalar_token(seg).expect("checked"),
-    ))),
+    [seg] => parse_account_scalar_token(seg).map(|f| Ok(AccountPath::Scalar(f))),
     ["custom_status", field] => {
       Some(parse_custom_status_field(field).map(AccountPath::CustomStatus))
     }
-    ["activity", field] if parse_activity_field(field).is_ok() => Some(Ok(AccountPath::Activity(
-      ACTIVITY_SINGULAR.into(),
-      parse_activity_field(field).expect("checked"),
-    ))),
+    ["activity", field] => match parse_activity_field(field) {
+      Ok(f) => Some(Ok(AccountPath::Activity(ACTIVITY_SINGULAR.into(), f))),
+      Err(_) => None,
+    },
     ["activity", aid, field] => Some(
       parse_activity_id(aid)
         .and_then(|id| parse_activity_field(field).map(|f| AccountPath::Activity(id, f))),
@@ -400,28 +221,44 @@ fn parse_account_scalar_token(raw: &str) -> Option<AccountScalarField> {
     .copied()
 }
 
-fn parse_custom_status_field(raw: &str) -> Result<CustomStatusField, ConfigError> {
-  CustomStatusField::ALL
+fn parse_by_set_suffix<F: Copy>(
+  all: &[F],
+  raw: &str,
+  set_suffix: impl Fn(F) -> &'static str,
+  unknown: impl FnOnce() -> String,
+) -> Result<F, ConfigError> {
+  all
     .iter()
-    .find(|&&f| f.spec().set_suffix == raw)
+    .find(|&&f| set_suffix(f) == raw)
     .copied()
-    .ok_or_else(|| ConfigError::UnknownField(format!("custom_status.{raw}")))
+    .ok_or_else(|| ConfigError::UnknownField(unknown()))
+}
+
+fn parse_custom_status_field(raw: &str) -> Result<CustomStatusField, ConfigError> {
+  parse_by_set_suffix(
+    CustomStatusField::ALL,
+    raw,
+    |f| f.spec().set_suffix,
+    || format!("custom_status.{raw}"),
+  )
 }
 
 fn parse_activity_field(raw: &str) -> Result<ActivityField, ConfigError> {
-  ActivityField::ALL
-    .iter()
-    .find(|&&f| f.spec().set_suffix == raw)
-    .copied()
-    .ok_or_else(|| ConfigError::UnknownField(format!("activity field '{raw}'")))
+  parse_by_set_suffix(
+    ActivityField::ALL,
+    raw,
+    |f| f.spec().set_suffix,
+    || format!("activity field '{raw}'"),
+  )
 }
 
 fn parse_client_prop_field(raw: &str) -> Result<ClientPropField, ConfigError> {
-  ClientPropField::ALL
-    .iter()
-    .find(|&&f| f.spec().set_suffix == raw)
-    .copied()
-    .ok_or_else(|| ConfigError::UnknownField(format!("client prop '{raw}'")))
+  parse_by_set_suffix(
+    ClientPropField::ALL,
+    raw,
+    |f| f.spec().set_suffix,
+    || format!("client prop '{raw}'"),
+  )
 }
 
 fn parse_defaults_profile(raw: &str) -> Result<DefaultsProfile, ConfigError> {
@@ -439,21 +276,22 @@ fn parse_defaults_profile(raw: &str) -> Result<DefaultsProfile, ConfigError> {
 mod tests {
   use super::*;
   use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
+  use crate::schema::path::{account_scalar_path, activity_field_path, custom_status_path};
   use crate::test_support::*;
 
   #[test]
   fn flat_cli_flags_to_flat_account() {
     let mut cli = empty_cli();
-    cli.token = Some("cli-tok".into());
-    cli.name = Some("cli-name".into());
-    cli.kind = Some("user".into());
-    cli.device = Some("mobile".into());
-    cli.status = Some("dnd".into());
-    cli.custom_status_text = Some("brb".into());
-    cli.custom_status_emoji = Some("💤".into());
-    cli.activity = Some("Game".into());
-    cli.activity_type = Some("playing".into());
-    cli.activity_details = Some("level 1".into());
+    cli.account.token = Some("cli-tok".into());
+    cli.account.name = Some("cli-name".into());
+    cli.account.kind = Some("user".into());
+    cli.account.device = Some("mobile".into());
+    cli.account.status = Some("dnd".into());
+    cli.custom_status.custom_status = Some("brb".into());
+    cli.custom_status.custom_status_emoji = Some("💤".into());
+    cli.activity.activity = Some("Game".into());
+    cli.activity.activity_type = Some("playing".into());
+    cli.activity.activity_details = Some("level 1".into());
     cli.log_level = Some("debug".into());
     cli.health_socket = Some("/tmp/cli-h".into());
 
@@ -581,7 +419,7 @@ mod tests {
   #[test]
   fn set_overrides_flat_last_wins() {
     let mut cli = empty_cli();
-    cli.status = Some("online".into());
+    cli.account.status = Some("online".into());
     cli.set = vec!["status=dnd".into()];
     let p = cli_partial(&cli).unwrap();
     assert_eq!(status_of(&p, ACCOUNT_FLAT), Some("dnd"));
@@ -606,7 +444,7 @@ mod tests {
   #[test]
   fn cli_debug_redacts_token() {
     let mut cli = empty_cli();
-    cli.token = Some("super-secret-token".into());
+    cli.account.token = Some("super-secret-token".into());
     let debug = format!("{cli:?}");
     assert!(debug.contains("<redacted>"), "{debug}");
     assert!(!debug.contains("super-secret-token"), "{debug}");
@@ -660,6 +498,85 @@ mod tests {
         assert_eq!(got, activity_field_path(ACCOUNT_FLAT, "foo", field));
       },
     );
+  }
+
+  /// Every catalog `cli_long` is a real clap long and applies to the flat account only.
+  #[test]
+  fn catalog_cli_longs_parse_and_apply_flat_account() {
+    for_each_catalog_field(
+      |field| {
+        let Some(long) = field.spec().cli_long else {
+          return;
+        };
+        let sample = catalog_sample_value(field.spec().set_suffix);
+        let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
+          .unwrap_or_else(|e| panic!("--{long}: {e}"));
+        let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
+        let mut acc = p
+          .accounts
+          .get(ACCOUNT_FLAT)
+          .cloned()
+          .unwrap_or_else(|| panic!("--{long}: no flat account"));
+        assert_eq!(
+          field.take(&mut acc).as_deref(),
+          Some(sample.as_str()),
+          "--{long}"
+        );
+      },
+      |field| {
+        let long = field.cli_long();
+        let sample = catalog_sample_value(field.spec().set_suffix);
+        let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
+          .unwrap_or_else(|e| panic!("--{long}: {e}"));
+        let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
+        let mut cs = p
+          .accounts
+          .get(ACCOUNT_FLAT)
+          .and_then(|a| a.custom_status.clone())
+          .unwrap_or_else(|| panic!("--{long}: no custom_status"));
+        assert_eq!(
+          field.get_mut(&mut cs).as_deref(),
+          Some(sample.as_str()),
+          "--{long}"
+        );
+      },
+      |field| {
+        let long = field.cli_long();
+        let sample = catalog_sample_value(field.spec().set_suffix);
+        let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
+          .unwrap_or_else(|e| panic!("--{long}: {e}"));
+        let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
+        let mut act = p
+          .accounts
+          .get(ACCOUNT_FLAT)
+          .and_then(|a| a.activities.get(ACTIVITY_SINGULAR).cloned())
+          .unwrap_or_else(|| panic!("--{long}: no singular activity"));
+        assert_eq!(
+          field.get_mut(&mut act).as_deref(),
+          Some(sample.as_str()),
+          "--{long}"
+        );
+      },
+    );
+  }
+
+  #[test]
+  fn catalog_defaults_set_paths_reachable() {
+    for_each_defaults_field(|profile, field| {
+      let path = format!("defaults.{}.{}", profile.toml(), field.spec().set_suffix);
+      let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+      assert_eq!(got, ConfigPath::Defaults(profile, field), "{path}");
+      let sample = catalog_sample_value(field.spec().set_suffix);
+      let mut cli = empty_cli();
+      cli.set = vec![format!("{path}={sample}")];
+      let mut p = cli_partial(&cli).unwrap_or_else(|e| panic!("{path}: {e}"));
+      let props = profile.props_mut(&mut p.defaults);
+      assert_eq!(
+        field.get_mut(props).as_deref(),
+        Some(sample.as_str()),
+        "{path}"
+      );
+    });
   }
 
   #[test]

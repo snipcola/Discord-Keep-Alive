@@ -74,9 +74,7 @@ where
 }
 
 pub(crate) fn merge_order(dst: &mut Vec<String>, src: &[String]) {
-  for id in src {
-    ensure_id_in_order(dst, id);
-  }
+  append_missing_keys(dst, src);
 }
 
 fn merge_map_by_id<V>(
@@ -148,8 +146,8 @@ mod tests {
   use crate::model::partial::{
     PartialAccount, PartialActivity, PartialConfig, PartialCustomStatus,
   };
+  use crate::schema::fields::{ActivityField, CustomStatusField};
   use crate::test_support::*;
-  use crate::token::SecretString;
 
   fn activity_details(details: &str) -> PartialActivity {
     PartialActivity {
@@ -205,13 +203,7 @@ mod tests {
     };
     let src = PartialConfig {
       accounts: BTreeMap::from([
-        (
-          "a".into(),
-          PartialAccount {
-            token: Some(SecretString::new("t")),
-            ..Default::default()
-          },
-        ),
+        ("a".into(), account_with_token("t")),
         ("b".into(), named_account("B")),
       ]),
       account_order: vec!["a".into(), "b".into()],
@@ -230,11 +222,7 @@ mod tests {
     let src = PartialConfig {
       accounts: BTreeMap::from([(
         "1".into(),
-        PartialAccount {
-          token: Some(SecretString::new("tok-1")),
-          name: Some("one".into()),
-          ..Default::default()
-        },
+        account_with("tok-1", |a| a.name = Some("one".into())),
       )]),
       account_order: vec!["1".into()],
       ..Default::default()
@@ -300,6 +288,53 @@ mod tests {
     assert_eq!(
       order,
       vec!["a".to_string(), "b".to_string(), "c".to_string()]
+    );
+  }
+
+  /// Catalog leaves merge by field id (src None does not wipe dst).
+  #[test]
+  fn catalog_activity_and_custom_merge_field_level() {
+    for_each_catalog_field(
+      |_| {},
+      |field| {
+        let mut dst = PartialCustomStatus::default();
+        *field.get_mut(&mut dst) = Some("keep".into());
+        let mut src = PartialCustomStatus::default();
+        for &other in CustomStatusField::ALL {
+          if other != field {
+            *other.get_mut(&mut src) = Some(format!("src-{}", other.spec().set_suffix));
+          }
+        }
+        merge_custom_status(&mut dst, src);
+        assert_eq!(
+          field.get_mut(&mut dst).as_deref(),
+          Some("keep"),
+          "dst leaf {}",
+          field.spec().set_suffix
+        );
+      },
+      |field| {
+        let mut dst = PartialActivity::default();
+        *field.get_mut(&mut dst) = Some("keep".into());
+        let mut src = PartialActivity::default();
+        // Set a different leaf on src so merge is non-empty without wiping `field`.
+        if let Some(&other) = ActivityField::ALL.iter().find(|&&f| f != field) {
+          *other.get_mut(&mut src) = Some("from-src".into());
+          merge_activity(&mut dst, src);
+          assert_eq!(
+            field.get_mut(&mut dst).as_deref(),
+            Some("keep"),
+            "dst leaf {}",
+            field.spec().set_suffix
+          );
+          assert_eq!(
+            other.get_mut(&mut dst).as_deref(),
+            Some("from-src"),
+            "src leaf {}",
+            other.spec().set_suffix
+          );
+        }
+      },
     );
   }
 }

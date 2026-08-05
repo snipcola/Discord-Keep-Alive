@@ -4,7 +4,7 @@ members = ["crates/*"]
 default-members = ["crates/discord-keep-alive"]
 
 [workspace.package]
-version = "0.3.5"
+version = "0.3.6"
 edition = "2024"
 license = "ISC"
 authors = ["snipcola"]
@@ -22,16 +22,19 @@ serde_json = { version = "1.0.151", features = ["raw_value"] }
 anyhow = "1.0.104"
 thiserror = "2.0.19"
 
-tokio = { version = "1.53.1", default-features = false, features = [ "rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util" ] }
-tokio-tungstenite = { version = "0.30.0", features = [ "connect", "rustls-tls-webpki-roots" ] }
-rustls = { version = "0.23.43", default-features = false, features = [ "std", "tls12", "ring" ] }
-futures-util = { version = "0.3.33", default-features = false, features = [ "sink", "std" ] }
+tokio = { version = "1.53.1", default-features = false, features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
+tokio-tungstenite = { version = "0.30.0", features = ["connect", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23.43", default-features = false, features = ["std", "tls12", "ring"] }
+futures-util = { version = "0.3.33", default-features = false, features = ["sink", "std"] }
 zstd = { version = "0.13.3", default-features = false }
 
-clap = { version = "4.6.5", default-features = false, features = [ "std", "derive", "env", "help", "usage", "error-context" ] }
-figment = { version = "0.10.19", features = [ "toml" ] }
+clap = { version = "4.6.5", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+figment = { version = "0.10.19", features = ["toml"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = [ "env-filter", "fmt", "ansi" ] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "ansi", "time", "local-time"] }
+time = { version = "0.3.55", default-features = false, features = ["macros", "formatting"] }
+rand = "0.10.2"
+secrecy = { version = "0.10.3", features = ["serde"] }
 
 [profile.dev]
 debug = "line-tables-only"

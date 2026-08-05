@@ -9,7 +9,6 @@ use self::account::AccountLayer;
 use self::format::HumanFormat;
 
 // Prefer RUST_LOG when set; otherwise log workspace crates at log_level and mute noisy deps.
-// Color only when stderr is a TTY.
 pub fn init(log_level: &str) {
   let filter =
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter(log_level)));
@@ -19,7 +18,7 @@ pub fn init(log_level: &str) {
   tracing_subscriber::registry()
     .with(filter)
     .with(AccountLayer)
-    .with(tracing_subscriber::fmt::layer().event_format(HumanFormat { ansi }))
+    .with(tracing_subscriber::fmt::layer().event_format(HumanFormat::new(ansi)))
     .init();
 }
 

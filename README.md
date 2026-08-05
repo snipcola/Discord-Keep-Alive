@@ -42,3 +42,4 @@ Full field reference: [`config.example.toml`](./config.example.toml).
 - Precedence: **CLI > environment variables > config file > defaults**.
 - Config path defaults to `./config.toml` (override with `--config` or `CONFIG_PATH`).
 - Bots ignore user-only options (device, custom status, images, buttons, and similar) and send only one activity, due to gateway limits.
+- For multi-account support via CLI args, use `--account-set <id>.<path>=<value>`.

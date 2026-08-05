@@ -8,8 +8,8 @@ use dka_presence::{
 
 use crate::error::ConfigError;
 use crate::model::partial::{
-  PartialAccount, PartialActivity, PartialClientProperties, PartialConfig, PartialCustomStatus,
-  PartialDefaults, any_account_field_set,
+  AccountScalars, PartialAccount, PartialActivity, PartialClientProperties, PartialConfig,
+  PartialCustomStatus, PartialDefaults, any_account_field_set,
 };
 use crate::model::resolved::{AccountConfig, AppConfig};
 use crate::product_defaults::product_defaults;
@@ -51,26 +51,12 @@ fn resolve_defaults(raw: PartialDefaults) -> Defaults {
   defaults
 }
 
-fn apply_client_property_overrides(dst: &mut ClientProperties, src: PartialClientProperties) {
-  if let Some(os) = src.os.filter(|s| !s.is_empty()) {
-    dst.os = os;
-  }
-  if let Some(browser) = src.browser {
-    dst.browser = if browser.is_empty() {
-      None
-    } else {
-      Some(browser)
-    };
-  }
-  if let Some(device) = src.device {
-    dst.device = device;
-  }
-  if let Some(user_agent) = src.user_agent {
-    dst.user_agent = if user_agent.is_empty() {
-      None
-    } else {
-      Some(user_agent)
-    };
+fn apply_client_property_overrides(dst: &mut ClientProperties, mut src: PartialClientProperties) {
+  use crate::schema::fields::ClientPropField;
+  for &field in ClientPropField::ALL {
+    if let Some(value) = field.get_mut(&mut src).take() {
+      field.apply_override(dst, value);
+    }
   }
 }
 
@@ -150,32 +136,45 @@ fn resolve_accounts(
 }
 
 fn resolve_one_account(index: usize, raw: PartialAccount) -> Result<AccountConfig, ConfigError> {
-  let name = trim_opt(raw.name.as_deref())
+  let PartialAccount {
+    scalars: AccountScalars {
+      name,
+      token,
+      kind,
+      device,
+      status,
+    },
+    custom_status,
+    activities,
+    activity_order,
+  } = raw;
+
+  let name = trim_opt(name.as_deref())
     .map(str::to_string)
     .unwrap_or_else(|| format!("account-{index}"));
-  let token = trim_opt(raw.token.as_deref())
+  let token = trim_opt(token.as_deref())
     .map(SecretString::new)
     .ok_or_else(|| ConfigError::MissingToken(name.clone()))?;
 
   let kind =
-    parse_enum_field(&name, "kind", raw.kind, AccountKind::parse)?.unwrap_or(AccountKind::User);
+    parse_enum_field(&name, "kind", kind, AccountKind::parse)?.unwrap_or(AccountKind::User);
 
   let device = if kind == AccountKind::Bot {
     None
   } else {
-    parse_enum_field(&name, "device", raw.device, Device::parse)?
+    parse_enum_field(&name, "device", device, Device::parse)?
   };
 
-  let status = parse_enum_field(&name, "status", raw.status, Status::parse)?;
+  let status = parse_enum_field(&name, "status", status, Status::parse)?;
 
-  let custom_status = match raw.custom_status {
+  let custom_status = match custom_status {
     Some(cs) if custom_status_configured(&cs) && kind == AccountKind::User => {
       Some(parse_custom_status(cs))
     }
     _ => None,
   };
 
-  let activities = resolve_activities(&name, raw.activities, &raw.activity_order)?;
+  let activities = resolve_activities(&name, activities, &activity_order)?;
 
   Ok(AccountConfig {
     name,
@@ -317,7 +316,7 @@ fn parse_activity(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::model::partial::{PartialAccount, PartialActivity, PartialCustomStatus};
+  use crate::model::partial::{AccountScalars, PartialActivity, PartialCustomStatus};
   use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
   use crate::test_support::*;
   use dka_presence::{AccountKind, ActivityType, Device};
@@ -349,21 +348,19 @@ mod tests {
       accounts: BTreeMap::from([
         (
           ACCOUNT_FLAT.into(),
-          PartialAccount {
-            name: Some("from-env".into()),
-            device: Some("mobile".into()),
-            status: Some("dnd".into()),
-            ..account_with_token("flat-token")
-          },
+          account_with("flat-token", |a| {
+            a.name = Some("from-env".into());
+            a.device = Some("mobile".into());
+            a.status = Some("dnd".into());
+          }),
         ),
         (
           "0".into(),
-          PartialAccount {
-            name: Some("from-toml".into()),
-            device: Some("desktop".into()),
-            status: Some("online".into()),
-            ..account_with_token("toml-token")
-          },
+          account_with("toml-token", |a| {
+            a.name = Some("from-toml".into());
+            a.device = Some("desktop".into());
+            a.status = Some("online".into());
+          }),
         ),
       ]),
       ..Default::default()
@@ -377,11 +374,10 @@ mod tests {
 
   #[test]
   fn bot_kind_clears_device() {
-    let accounts = resolve_ok(partial_flat(PartialAccount {
-      kind: Some("bot".into()),
-      device: Some("desktop".into()),
-      ..account_with_token("bot-token")
-    }));
+    let accounts = resolve_ok(partial_flat(account_with("bot-token", |a| {
+      a.kind = Some("bot".into());
+      a.device = Some("desktop".into());
+    })));
     assert_eq!(accounts[0].kind, AccountKind::Bot);
     assert_eq!(accounts[0].device, None);
   }
@@ -425,26 +421,17 @@ mod tests {
     let cases: &[(&str, PartialConfig, Option<&str>)] = &[
       (
         "kind",
-        partial_flat(PartialAccount {
-          kind: Some("alien".into()),
-          ..account_with_token("t")
-        }),
+        partial_flat(account_with("t", |a| a.kind = Some("alien".into()))),
         None,
       ),
       (
         "device",
-        partial_flat(PartialAccount {
-          device: Some("toaster".into()),
-          ..account_with_token("t")
-        }),
+        partial_flat(account_with("t", |a| a.device = Some("toaster".into()))),
         None,
       ),
       (
         "status",
-        partial_flat(PartialAccount {
-          status: Some("busy".into()),
-          ..account_with_token("t")
-        }),
+        partial_flat(account_with("t", |a| a.status = Some("busy".into()))),
         None,
       ),
       (
@@ -505,18 +492,16 @@ mod tests {
       accounts: BTreeMap::from([
         (
           ACCOUNT_FLAT.into(),
-          PartialAccount {
+          AccountScalars {
             device: Some("desktop".into()),
             status: Some("online".into()),
             ..Default::default()
-          },
+          }
+          .into(),
         ),
         (
           "0".into(),
-          PartialAccount {
-            name: Some("only".into()),
-            ..account_with_token("t")
-          },
+          account_with("t", |a| a.name = Some("only".into())),
         ),
       ]),
       ..Default::default()
@@ -531,12 +516,12 @@ mod tests {
       account_order: vec!["0".into()],
       accounts: BTreeMap::from([(
         "0".into(),
-        PartialAccount {
+        AccountScalars {
           name: Some("broken".into()),
-          token: None,
           device: Some("web".into()),
           ..Default::default()
-        },
+        }
+        .into(),
       )]),
       ..Default::default()
     };
@@ -617,47 +602,40 @@ mod tests {
 
   #[test]
   fn custom_status_user_only() {
-    let accounts = resolve_ok(partial_flat(PartialAccount {
-      custom_status: Some(PartialCustomStatus {
+    let accounts = resolve_ok(partial_flat(account_with("t", |a| {
+      a.custom_status = Some(PartialCustomStatus {
         text: Some("brb".into()),
         emoji: Some("💤".into()),
-      }),
-      ..account_with_token("t")
-    }));
+      });
+    })));
     let cs = accounts[0].custom_status.as_ref().unwrap();
     assert_eq!(cs.text.as_deref(), Some("brb"));
     assert_eq!(cs.emoji.as_deref(), Some("💤"));
 
-    let accounts = resolve_ok(partial_flat(PartialAccount {
-      kind: Some("bot".into()),
-      custom_status: Some(PartialCustomStatus {
+    let accounts = resolve_ok(partial_flat(account_with("t", |a| {
+      a.kind = Some("bot".into());
+      a.custom_status = Some(PartialCustomStatus {
         text: Some("ignored".into()),
         emoji: Some("x".into()),
-      }),
-      ..account_with_token("t")
-    }));
+      });
+    })));
     assert!(accounts[0].custom_status.is_none());
   }
 
   #[test]
   fn custom_status_without_text_ignored() {
-    let accounts = resolve_ok(partial_flat(PartialAccount {
-      custom_status: Some(PartialCustomStatus {
+    let accounts = resolve_ok(partial_flat(account_with("t", |a| {
+      a.custom_status = Some(PartialCustomStatus {
         text: None,
         emoji: Some("🔥".into()),
-      }),
-      ..account_with_token("t")
-    }));
+      });
+    })));
     assert!(accounts[0].custom_status.is_none());
   }
 
   #[test]
   fn whitespace_token_is_missing() {
-    let err = resolve_config(partial_flat(PartialAccount {
-      token: Some("   ".into()),
-      ..Default::default()
-    }))
-    .unwrap_err();
+    let err = resolve_config(partial_flat(account_with_token("   "))).unwrap_err();
     assert!(matches!(err, ConfigError::NoAccounts));
   }
 
@@ -674,24 +652,15 @@ mod tests {
       accounts: BTreeMap::from([
         (
           "a".into(),
-          PartialAccount {
-            name: Some("A".into()),
-            ..account_with_token("ta")
-          },
+          account_with("ta", |a| a.name = Some("A".into())),
         ),
         (
           "b".into(),
-          PartialAccount {
-            name: Some("B".into()),
-            ..account_with_token("tb")
-          },
+          account_with("tb", |a| a.name = Some("B".into())),
         ),
         (
           "c".into(),
-          PartialAccount {
-            name: Some("C".into()),
-            ..account_with_token("tc")
-          },
+          account_with("tc", |a| a.name = Some("C".into())),
         ),
       ]),
       ..Default::default()
@@ -700,5 +669,20 @@ mod tests {
     assert_eq!(a[0].name, "B");
     assert_eq!(a[1].name, "A");
     assert_eq!(a[2].name, "C");
+  }
+
+  #[test]
+  fn client_prop_empty_string_policy() {
+    let mut partial = partial_flat(account_with_token("t"));
+    partial.defaults.web.os = Some(String::new());
+    partial.defaults.web.browser = Some(String::new());
+    partial.defaults.web.device = Some(String::new());
+    partial.defaults.web.user_agent = Some(String::new());
+    let cfg = resolve_config(partial).unwrap();
+    let product = product_defaults();
+    assert_eq!(cfg.defaults.web.os, product.web.os);
+    assert_eq!(cfg.defaults.web.browser, None);
+    assert_eq!(cfg.defaults.web.user_agent, None);
+    assert_eq!(cfg.defaults.web.device, "");
   }
 }

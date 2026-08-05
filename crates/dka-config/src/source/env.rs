@@ -20,7 +20,7 @@ enum AccountEnvField {
   Custom(CustomStatusField),
 }
 
-// Longest suffix first so CUSTOM_STATUS_TEXT wins over shorter tails.
+// Longest suffix first so CUSTOM_STATUS_EMOJI wins over shorter tails.
 static ACCOUNT_SUFFIXES_LONGEST_FIRST: LazyLock<Vec<(&'static str, AccountEnvField)>> =
   LazyLock::new(|| {
     let mut v: Vec<_> = AccountScalarField::ALL
@@ -226,12 +226,10 @@ fn parse_activity_token(rest: &str) -> Option<(String, ActivityField)> {
   }
   let rest = &rest[1..];
 
-  // ACTIVITY_TYPE → singular activity, field TYPE.
   if let Some(field) = match_activity_suffix(rest) {
     return Some((ACTIVITY_SINGULAR.into(), field));
   }
 
-  // ACTIVITY_foo_TYPE → activity id foo, field TYPE.
   for &(field, suffix) in activity_suffixes_longest_first() {
     let patterned = format!("_{suffix}");
     if let Some(prefix) = rest.strip_suffix(patterned.as_str())
@@ -242,7 +240,6 @@ fn parse_activity_token(rest: &str) -> Option<(String, ActivityField)> {
     }
   }
 
-  // ACTIVITY_foo → activity id foo, name field.
   if let Ok(id) = parse_user_id(rest) {
     return Some((id, ActivityField::Name));
   }
@@ -298,8 +295,9 @@ mod tests {
   fn ambiguity_custom_status_and_large_image_text() {
     let p = from_env_map(&env_map(&[
       ("TOKEN", "t"),
-      ("ACCOUNT_CUSTOM_STATUS_TEXT", "ignored"),
-      ("CUSTOM_STATUS_TEXT", "works"),
+      ("ACCOUNT_CUSTOM_STATUS", "ignored"),
+      ("CUSTOM_STATUS", "works"),
+      ("CUSTOM_STATUS_EMOJI", "💤"),
       ("ACTIVITY_LARGE_IMAGE_TEXT", "hover"),
     ]));
 
@@ -307,6 +305,10 @@ mod tests {
     assert_eq!(
       flat.custom_status.as_ref().and_then(|c| c.text.as_deref()),
       Some("works")
+    );
+    assert_eq!(
+      flat.custom_status.as_ref().and_then(|c| c.emoji.as_deref()),
+      Some("💤")
     );
     assert!(!p.accounts.contains_key("CUSTOM"));
     assert_eq!(
@@ -477,5 +479,92 @@ mod tests {
         );
       },
     );
+  }
+
+  /// Catalog env keys round-trip into partials (flat + one multi-account id).
+  #[test]
+  fn catalog_env_suffixes_apply_into_partial() {
+    for_each_catalog_field(
+      |field| {
+        let Some(suffix) = field.env_suffix() else {
+          return;
+        };
+        let sample = catalog_sample_value(suffix);
+        let p = from_env_map(&env_map(&[(suffix, sample.as_str())]));
+        let mut acc = p
+          .accounts
+          .get(ACCOUNT_FLAT)
+          .cloned()
+          .unwrap_or_else(|| panic!("{suffix}: no flat account"));
+        assert_eq!(
+          field.take(&mut acc).as_deref(),
+          Some(sample.as_str()),
+          "flat {suffix}"
+        );
+
+        let key = format!("ACCOUNT_main_{suffix}");
+        let p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
+        let mut acc = p
+          .accounts
+          .get("main")
+          .cloned()
+          .unwrap_or_else(|| panic!("{key}: no account"));
+        assert_eq!(
+          field.take(&mut acc).as_deref(),
+          Some(sample.as_str()),
+          "{key}"
+        );
+      },
+      |field| {
+        let suffix = field.env_suffix();
+        let sample = catalog_sample_value(suffix);
+        let p = from_env_map(&env_map(&[(suffix, sample.as_str())]));
+        let mut cs = p
+          .accounts
+          .get(ACCOUNT_FLAT)
+          .and_then(|a| a.custom_status.clone())
+          .unwrap_or_else(|| panic!("{suffix}: no custom_status"));
+        assert_eq!(
+          field.get_mut(&mut cs).as_deref(),
+          Some(sample.as_str()),
+          "{suffix}"
+        );
+      },
+      |field| {
+        let Some(suffix) = field.env_suffix() else {
+          return;
+        };
+        let sample = catalog_sample_value(suffix);
+        let key = format!("ACTIVITY_{suffix}");
+        let p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
+        let mut act = p
+          .accounts
+          .get(ACCOUNT_FLAT)
+          .and_then(|a| a.activities.get(ACTIVITY_SINGULAR).cloned())
+          .unwrap_or_else(|| panic!("{key}: no activity"));
+        assert_eq!(
+          field.get_mut(&mut act).as_deref(),
+          Some(sample.as_str()),
+          "{key}"
+        );
+      },
+    );
+  }
+
+  #[test]
+  fn catalog_defaults_env_keys_are_reachable() {
+    for_each_defaults_field(|profile, field| {
+      let key = format!("{}{}", profile.env_prefix(), field.env_suffix());
+      let path = parse_env_key(&key).unwrap_or_else(|| panic!("parse {key}"));
+      assert_eq!(path, ConfigPath::Defaults(profile, field), "{key}");
+      let sample = catalog_sample_value(field.env_suffix());
+      let mut p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
+      let props = profile.props_mut(&mut p.defaults);
+      assert_eq!(
+        field.get_mut(props).as_deref(),
+        Some(sample.as_str()),
+        "{key}"
+      );
+    });
   }
 }

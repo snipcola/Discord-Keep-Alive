@@ -8,7 +8,6 @@ use tokio::time::{Instant, MissedTickBehavior, interval, sleep};
 use tracing::trace;
 
 use crate::is_shutdown;
-use crate::reconnect::unit_f64;
 
 pub enum HeartbeatCmd {
   Send { seq: Value },
@@ -26,7 +25,7 @@ pub async fn heartbeat_loop(
   if is_shutdown(shutdown) {
     return;
   }
-  let jitter_ms = (interval_ms as f64 * unit_f64()) as u64;
+  let jitter_ms = (interval_ms as f64 * rand::random::<f64>()) as u64;
   tokio::select! {
     _ = sleep(Duration::from_millis(jitter_ms)) => {}
     changed = shutdown.changed() => {
