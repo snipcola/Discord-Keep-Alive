@@ -97,7 +97,7 @@ pub struct ActivityConfig {
   pub large_image: ImageAsset,
   pub small_image: ImageAsset,
   pub button: ActivityButton,
-  pub button2: ActivityButton,
+  pub button_2: ActivityButton,
   pub party: ActivityParty,
 }
 
@@ -114,7 +114,7 @@ impl Default for ActivityConfig {
       large_image: ImageAsset::default(),
       small_image: ImageAsset::default(),
       button: ActivityButton::default(),
-      button2: ActivityButton::default(),
+      button_2: ActivityButton::default(),
       party: ActivityParty::default(),
     }
   }
@@ -260,7 +260,7 @@ pub(crate) fn build_rich_presence(name: &str, cfg: &ActivityConfig) -> Value {
 
   let mut buttons = Vec::new();
   let mut button_urls = Vec::new();
-  for btn in [&cfg.button, &cfg.button2] {
+  for btn in [&cfg.button, &cfg.button_2] {
     match (&btn.name, &btn.url) {
       (Some(name), Some(url)) if !name.is_empty() && !url.is_empty() => {
         buttons.push(json!(name));
@@ -395,7 +395,7 @@ mod tests {
       name: Some("Join".into()),
       url: Some("https://example.com/a".into()),
     };
-    cfg.button2 = ActivityButton {
+    cfg.button_2 = ActivityButton {
       name: Some("Watch".into()),
       url: Some("https://example.com/b".into()),
     };

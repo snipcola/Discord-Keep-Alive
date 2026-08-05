@@ -569,19 +569,19 @@ string_fields! {
       cli_field: activity_button_url,
       help: "Button 1 URL.",
     },
-    Button2(button2) {
-      toml: "button2",
+    Button2(button_2) {
+      toml: "button_2",
       env_suffix: Some("BUTTON_2"),
       cli_long: Some("activity-button-2"),
-      set_suffix: "button2",
+      set_suffix: "button_2",
       cli_field: activity_button_2,
       help: "Button 2 label.",
     },
-    Button2Url(button2_url) {
-      toml: "button2_url",
+    Button2Url(button_2_url) {
+      toml: "button_2_url",
       env_suffix: Some("BUTTON_2_URL"),
       cli_long: Some("activity-button-2-url"),
-      set_suffix: "button2_url",
+      set_suffix: "button_2_url",
       cli_field: activity_button_2_url,
       help: "Button 2 URL.",
     },

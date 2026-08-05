@@ -294,7 +294,7 @@ fn parse_activity(
   activity.large_image = image_asset(raw.large_image, raw.large_image_text);
   activity.small_image = image_asset(raw.small_image, raw.small_image_text);
   activity.button = activity_button(raw.button, raw.button_url);
-  activity.button2 = activity_button(raw.button2, raw.button2_url);
+  activity.button_2 = activity_button(raw.button_2, raw.button_2_url);
   activity.party = ActivityParty {
     id: trim_owned(raw.party_id).unwrap_or_else(|| default_id.into()),
     current: parse_i64_field(account, "party_current", raw.party_current)?,
