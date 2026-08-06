@@ -7,7 +7,7 @@ use serde_json::json;
 use tokio::sync::watch;
 use tokio::time::Instant;
 use tokio_tungstenite::{
-  connect_async,
+  connect_async_with_config,
   tungstenite::{
     Message,
     client::IntoClientRequest,
@@ -238,7 +238,7 @@ async fn connect_gateway(
     let value = HeaderValue::from_str(ua).context("invalid user-agent header value")?;
     request.headers_mut().insert(USER_AGENT, value);
   }
-  connect_async(request)
+  connect_async_with_config(request, None, true)
     .await
     .with_context(|| format!("websocket connect to {url}"))
 }
