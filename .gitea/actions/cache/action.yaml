@@ -36,7 +36,9 @@ runs:
 
         prefix=
         if [ "${INPUT_PLATFORM}" = "true" ]; then
-          prefix="${RUNNER_OS}-${RUNNER_ARCH}-"
+          os="${RUNNER_OS:-unknown}"
+          arch="${RUNNER_ARCH:-unknown}"
+          prefix="${os}-${arch}-"
         fi
 
         {

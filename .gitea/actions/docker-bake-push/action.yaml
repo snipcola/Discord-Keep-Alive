@@ -1,0 +1,88 @@
+name: Docker Bake Push
+description: Bake per platform, push digests, create multi-arch tags
+
+inputs:
+  bake_image:
+    required: false
+    default: docker/bake-action@v7.3.0
+  context:
+    required: false
+    default: "."
+  file:
+    required: false
+    default: "./Dockerfile"
+  targets:
+    description: <platform>=<target>, separated by line
+    required: true
+  version:
+    required: true
+  revision:
+    required: true
+  package:
+    required: true
+  refs:
+    description: Image name bases, one per line (no tag)
+    required: true
+  cache-from:
+    required: false
+    default: ""
+  cache-to:
+    required: false
+    default: ""
+  also_latest:
+    description: Also tag image :latest (in addition to :version)
+    required: false
+    default: "true"
+  provenance:
+    required: false
+    default: "false"
+  sbom:
+    required: false
+    default: "false"
+
+outputs:
+  bake_file:
+    value: ${{ steps.plan.outputs.bake_file }}
+  platforms:
+    value: ${{ steps.plan.outputs.platforms }}
+  rust_targets:
+    value: ${{ steps.plan.outputs.rust_targets }}
+  target_names:
+    value: ${{ steps.plan.outputs.target_names }}
+  metadata:
+    value: ${{ steps.bake.outputs.metadata }}
+
+runs:
+  using: composite
+  steps:
+    - id: plan
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+        CONTEXT: ${{ inputs.context }}
+        DOCKERFILE: ${{ inputs.file }}
+        VERSION: ${{ inputs.version }}
+        REVISION: ${{ inputs.revision }}
+        PACKAGE: ${{ inputs.package }}
+        REFS: ${{ inputs.refs }}
+        CACHE_FROM: ${{ inputs.cache-from }}
+        CACHE_TO: ${{ inputs.cache-to }}
+        BAKE_FILE: ${{ runner.temp }}/docker-bake.json
+      run: bash "${{ github.workspace }}/.gitea/scripts/docker-bake-plan.sh"
+
+    - id: bake
+      uses: ${{ inputs.bake_image }}
+      with:
+        files: ${{ steps.plan.outputs.bake_file }}
+        push: true
+        provenance: ${{ inputs.provenance }}
+        sbom: ${{ inputs.sbom }}
+
+    - name: Create multi-arch manifests
+      shell: bash
+      env:
+        METADATA: ${{ steps.bake.outputs.metadata }}
+        REFS: ${{ inputs.refs }}
+        VERSION: ${{ inputs.version }}
+        ALSO_LATEST: ${{ inputs.also_latest }}
+      run: bash "${{ github.workspace }}/.gitea/scripts/docker-manifest.sh"

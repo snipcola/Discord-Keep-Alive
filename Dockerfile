@@ -16,47 +16,42 @@ WORKDIR /app
 COPY rust-toolchain.toml ./
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=cargo-chef-target,target=/tmp/cargo-chef-target,sharing=locked \
     rustup show active-toolchain \
- && cargo install cargo-chef --locked --version "${CARGO_CHEF_VERSION}"
+ && CARGO_TARGET_DIR=/tmp/cargo-chef-target \
+    cargo install cargo-chef --locked --version "${CARGO_CHEF_VERSION}"
 
 FROM chef AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
-ARG TARGETPLATFORM
-ARG TARGETARCH
+ARG RUST_TARGET
 ARG PACKAGE
 
-RUN case "${TARGETPLATFORM}" in \
-      linux/amd64) rust_target=x86_64-unknown-linux-musl ;; \
-      linux/arm64) rust_target=aarch64-unknown-linux-musl ;; \
-      *) echo "Unsupported platform: ${TARGETPLATFORM}" >&2; exit 1 ;; \
-    esac \
- && printf '%s\n' "${rust_target}" >/tmp/rust-target \
+RUN test -n "${RUST_TARGET}" || { echo "RUST_TARGET build-arg is required" >&2; exit 1; } \
  && rustup show active-toolchain \
- && rustup target add "${rust_target}"
+ && rustup target add "${RUST_TARGET}"
 
 COPY --from=planner /app/recipe.json recipe.json
+# id=cargo-target-${RUST_TARGET} must match cache-map (docker-targets.sh).
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=cargo-target-${TARGETARCH},target=/app/target,sharing=locked \
-    rust_target="$(cat /tmp/rust-target)" \
- && cargo chef cook \
+    --mount=type=cache,id=cargo-target-${RUST_TARGET},target=/app/target,sharing=locked \
+    cargo chef cook \
       --release \
       --locked \
       --zigbuild \
       --recipe-path recipe.json \
-      --target "${rust_target}" \
+      --target "${RUST_TARGET}" \
       -p "${PACKAGE}"
 
 COPY . .
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=cargo-target-${TARGETARCH},target=/app/target,sharing=locked \
-    rust_target="$(cat /tmp/rust-target)" \
- && cargo zigbuild --release --locked --target "${rust_target}" -p "${PACKAGE}" \
- && cp "/app/target/${rust_target}/release/${PACKAGE}" /out
+    --mount=type=cache,id=cargo-target-${RUST_TARGET},target=/app/target,sharing=locked \
+    cargo zigbuild --release --locked --target "${RUST_TARGET}" -p "${PACKAGE}" \
+ && cp "/app/target/${RUST_TARGET}/release/${PACKAGE}" /out
 
 FROM scratch
 
@@ -72,7 +67,7 @@ LABEL org.opencontainers.image.source="${IMAGE_SOURCE}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.licenses="${IMAGE_LICENSE}"
 
-COPY --from=builder --chown=65532:65532 /out /app
+COPY --from=builder --chown=65532:65532 --chmod=755 /out /app
 
 USER 65532:65532
 

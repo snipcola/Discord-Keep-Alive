@@ -16,7 +16,8 @@ on:
       image_name:
         type: string
         required: true
-      platforms:
+      targets:
+        description: <platform>=<target>, separated by line
         type: string
         required: true
       local_registry:
@@ -69,18 +70,32 @@ on:
         required: false
         default: true
       registry_cache:
+        description: Opt-in local-registry Buildx cache (GHA remains primary)
         type: boolean
         required: false
         default: false
       registry_cache_tag:
+        description: Prefix for scoped registry cache tags (branch/os/arch appended)
         type: string
         required: false
-        default: cache
+        default: buildcache
+      registry_cache_base_branch:
+        description: Branch used as warm registry-cache import (and export when export=base)
+        type: string
+        required: false
+        default: main
+      registry_cache_export:
+        description: Registry cache export policy (always|base|never)
+        type: string
+        required: false
+        default: always
       create_tag:
+        description: Create git version tag after successful publish
         type: boolean
         required: false
         default: true
       create_latest_tag:
+        description: Tag image :latest; also git latest when create_tag is true
         type: boolean
         required: false
         default: true
@@ -160,13 +175,17 @@ jobs:
           PUBLISH_DOCKERHUB: ${{ inputs.publish_dockerhub }}
           REGISTRY_CACHE: ${{ inputs.registry_cache }}
           REGISTRY_CACHE_TAG: ${{ inputs.registry_cache_tag }}
+          REGISTRY_CACHE_BASE_BRANCH: ${{ inputs.registry_cache_base_branch }}
+          REGISTRY_CACHE_EXPORT: ${{ inputs.registry_cache_export }}
           LOCAL_REF: ${{ steps.meta.outputs.local }}
           GHCR_REF: ${{ steps.meta.outputs.ghcr }}
           DOCKER_REF: ${{ steps.meta.outputs.docker }}
-          VERSION: ${{ steps.meta.outputs.version }}
           DOCKER_NETWORK: ${{ steps.reg.outputs.docker_network }}
           IMAGE_NAME: ${{ inputs.image_name }}
-        run: bash .gitea/scripts/publish-plan.sh
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: bash "${{ github.workspace }}/.gitea/scripts/publish-plan.sh"
 
       - name: Setup Buildx
         id: buildx
@@ -181,6 +200,7 @@ jobs:
         with:
           builder: ${{ steps.buildx.outputs.name }}
           dockerfile: ${{ inputs.dockerfile }}
+          targets: ${{ inputs.targets }}
 
       - name: Login (local)
         if: steps.meta.outputs.changed == 'true' && inputs.publish_local
@@ -206,20 +226,20 @@ jobs:
           username: ${{ inputs.dh_user }}
           password: ${{ secrets.dockerhub_password }}
 
-      - name: Build & push
+      - name: Bake & push
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
-        uses: ./.gitea/actions/docker-build-push
+        uses: ./.gitea/actions/docker-bake-push
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
-          platforms: ${{ inputs.platforms }}
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
-            REVISION=${{ github.sha }}
-            PACKAGE=${{ inputs.package_name }}
-          tags: ${{ steps.plan.outputs.tags }}
+          targets: ${{ inputs.targets }}
+          version: ${{ steps.meta.outputs.version }}
+          revision: ${{ github.sha }}
+          package: ${{ inputs.package_name }}
+          refs: ${{ steps.plan.outputs.refs }}
           cache-from: ${{ steps.plan.outputs.cache_from }}
           cache-to: ${{ steps.plan.outputs.cache_to }}
+          also_latest: ${{ inputs.create_latest_tag }}
 
       - name: Tag
         if: >-

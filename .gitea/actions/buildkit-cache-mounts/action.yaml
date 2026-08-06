@@ -18,31 +18,46 @@ inputs:
     default: ""
   restore-keys:
     required: false
-    default: cargo-mounts-
+    default: ""
   cache-map:
     required: false
     default: |
       {
         "cargo-registry": { "target": "/usr/local/cargo/registry", "id": "cargo-registry" },
         "cargo-git": { "target": "/usr/local/cargo/git", "id": "cargo-git" },
-        "cargo-target-amd64": { "target": "/app/target", "id": "cargo-target-amd64" },
-        "cargo-target-arm64": { "target": "/app/target", "id": "cargo-target-arm64" }
+        "cargo-chef-target": { "target": "/tmp/cargo-chef-target", "id": "cargo-chef-target" }
       }
+  targets:
+    description: <platform>=<target>, separated by line
+    required: true
 
 runs:
   using: composite
   steps:
+    - id: map
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+        CACHE_MAP: ${{ inputs.cache-map }}
+      run: |
+        set -euo pipefail
+        bash "${{ github.workspace }}/.gitea/scripts/docker-targets.sh"
+        {
+          echo "targets_fp=$(printf '%s' "${TARGETS}" | sha256sum | cut -c1-16)"
+        } >> "${GITHUB_OUTPUT}"
+
     - id: cache
       uses: ./.gitea/actions/cache
       with:
         path: ${{ inputs.cache-dir }}
-        key: ${{ inputs.key || format('cargo-mounts-{0}', hashFiles('**/Cargo.lock', 'rust-toolchain.toml')) }}
-        restore-keys: ${{ inputs.restore-keys }}
+        key: ${{ inputs.key || format('cargo-mounts-{0}-{1}-{2}', hashFiles('**/Cargo.lock', 'rust-toolchain.toml'), hashFiles(inputs.dockerfile), steps.map.outputs.targets_fp) }}
+        restore-keys: ${{ inputs.restore-keys || format('cargo-mounts-{0}-', hashFiles('**/Cargo.lock', 'rust-toolchain.toml')) }}
+        platform: "true"
 
     - uses: ${{ inputs.image }}
       with:
         builder: ${{ inputs.builder }}
-        cache-map: ${{ inputs.cache-map }}
+        cache-map: ${{ steps.map.outputs.cache_map }}
         cache-dir: ${{ inputs.cache-dir }}
         dockerfile: ${{ inputs.dockerfile }}
         skip-extraction: ${{ steps.cache.outputs.cache-hit }}

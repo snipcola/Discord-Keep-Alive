@@ -32,7 +32,9 @@ jobs:
       checkout: *checkout
       package_name: discord-keep-alive
       image_name: discord-keep-alive
-      platforms: linux/amd64,linux/arm64
+      targets: |
+        linux/amd64=x86_64-unknown-linux-musl
+        linux/arm64=aarch64-unknown-linux-musl
       local_user: ${{ vars.USERNAME }}
       gh_user: ${{ vars.GH_USERNAME }}
       dh_user: ${{ vars.DH_USERNAME }}
