@@ -5,6 +5,9 @@ inputs:
   image:
     required: false
     default: reproducible-containers/buildkit-cache-dance@v3.4.0
+  name:
+    description: Package/image name for cache key namespace
+    required: true
   builder:
     required: true
   dockerfile:
@@ -50,9 +53,9 @@ runs:
       uses: ./.gitea/actions/cache
       with:
         path: ${{ inputs.cache-dir }}
+        prefix: ${{ inputs.name }}
         key: ${{ inputs.key || format('cargo-mounts-{0}-{1}-{2}', hashFiles('**/Cargo.lock', 'rust-toolchain.toml'), hashFiles(inputs.dockerfile), steps.map.outputs.targets_fp) }}
         restore-keys: ${{ inputs.restore-keys || format('cargo-mounts-{0}-', hashFiles('**/Cargo.lock', 'rust-toolchain.toml')) }}
-        platform: "true"
 
     - uses: ${{ inputs.image }}
       with:

@@ -21,7 +21,7 @@ use crate::heartbeat::{HeartbeatCmd, heartbeat_loop};
 use crate::is_shutdown;
 use crate::payload::{GatewayEnvelope, GatewayPayload, OP_HEARTBEAT, OP_RESUME};
 
-use super::dispatch::handle_payload;
+use super::dispatch::{DispatchCtx, handle_payload};
 use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_for_hello};
 use super::inbound::decode_inbound;
 use super::{SessionEnd, SessionParams, SessionState, WsStream, send_json};
@@ -60,6 +60,7 @@ pub(super) async fn connect_and_run(
       result = &mut connect => break result?,
     }
   };
+  debug!("connected");
   let (mut write, mut read) = ws.split();
   let mut decomp = TransportDecompress::new()?;
 
@@ -108,13 +109,14 @@ pub(super) async fn connect_and_run(
       ),
     )
     .await?;
-    debug!("resume sent");
+    debug!(seq, "resume sent");
   } else {
     send_identify(&mut write, params).await?;
     debug!("identify sent");
   }
 
   let mut presence_applied = false;
+  let mut last_heartbeat_sent = None;
   let end: SessionEnd;
 
   loop {
@@ -141,13 +143,19 @@ pub(super) async fn connect_and_run(
               &GatewayPayload::new(OP_HEARTBEAT, json!(seq)),
             )
             .await?;
+            last_heartbeat_sent = Some(Instant::now());
             debug!(seq = %seq, "heartbeat sent");
           }
-          other => {
-            if matches!(other, Some(HeartbeatCmd::Zombie)) {
-              warn!("heartbeat ack timed out");
-            }
-            end = SessionEnd::reconnect(true);
+          Some(HeartbeatCmd::Zombie {
+            interval_ms,
+            since_ack_ms,
+          }) => {
+            warn!(interval_ms, since_ack_ms, "heartbeat ack timed out");
+            end = SessionEnd::reconnect(true, "zombie");
+            break;
+          }
+          None => {
+            end = SessionEnd::reconnect(true, "heartbeat");
             break;
           }
         }
@@ -170,7 +178,7 @@ pub(super) async fn connect_and_run(
             } else {
               let resume = resume_after_close(code);
               debug!(code, reason = %reason, resume, "connection closed");
-              end = SessionEnd::reconnect(resume);
+              end = SessionEnd::reconnect(resume, "close");
             }
             break;
           }
@@ -182,10 +190,13 @@ pub(super) async fn connect_and_run(
                 params,
                 state,
                 &payload,
-                &seq_cell,
-                &ack_tx,
-                &mut write,
-                &mut presence_applied,
+                &mut DispatchCtx {
+                  seq_cell: &seq_cell,
+                  ack_tx: &ack_tx,
+                  last_heartbeat_sent: &mut last_heartbeat_sent,
+                  write: &mut write,
+                  presence_applied: &mut presence_applied,
+                },
               )
               .await?
             } else {
@@ -202,7 +213,7 @@ pub(super) async fn connect_and_run(
             return Err(err.into());
           }
           None => {
-            end = SessionEnd::reconnect(true);
+            end = SessionEnd::reconnect(true, "eof");
             break;
           }
         }

@@ -30,42 +30,63 @@ cache_from_json="$(docker_json_lines "${cache_from[@]+"${cache_from[@]}"}")"
 cache_to_json="$(docker_json_lines "${cache_to[@]+"${cache_to[@]}"}")"
 refs_csv="$(IFS=,; echo "${DOCKER_REFS[*]}")"
 
-# Digests only; tags in docker-manifest.sh. One name= list → all registries, no tag races.
-output_entry="type=image,name=${refs_csv},push-by-digest=true,name-canonical=true,push=true"
-
+# Digests only; tags in docker-manifest.sh.
 jq -nc \
   --arg context "${CONTEXT}" \
   --arg dockerfile "${DOCKERFILE}" \
   --arg version "${VERSION}" \
   --arg revision "${REVISION}" \
   --arg package "${PACKAGE}" \
-  --arg output "${output_entry}" \
+  --arg refs_csv "${refs_csv}" \
   --argjson platforms "${platforms_json}" \
   --argjson rust "${rust_json}" \
   --argjson names "${names_json}" \
   --argjson cache_from "${cache_from_json}" \
   --argjson cache_to "${cache_to_json}" \
   '
+    def pin_gha_scope($platform):
+      ("-platform-" + $platform) as $tail
+      | map(
+          if (split(",") | any(. == "type=gha" or startswith("type=gha"))) then
+            (split(",")
+              | map(
+                  if startswith("scope=") then
+                    "scope=" + (.[6:] | if endswith($tail) then . else . + $tail end)
+                  else . end
+                )
+              | join(","))
+          else . end
+        );
+
     [range(0; $platforms | length)] as $idx
     | (
         $idx
-        | map({
-            key: ("image-" + $names[.]),
-            value: {
-              context: $context,
-              dockerfile: $dockerfile,
-              platforms: [$platforms[.]],
-              args: {
-                RUST_TARGET: $rust[.],
-                VERSION: $version,
-                REVISION: $revision,
-                PACKAGE: $package
-              },
-              "cache-from": $cache_from,
-              "cache-to": $cache_to,
-              output: [$output]
-            }
-          })
+        | map(
+            . as $i
+            | {
+                key: ("image-" + $names[$i]),
+                value: {
+                  context: $context,
+                  dockerfile: $dockerfile,
+                  platforms: [$platforms[$i]],
+                  args: {
+                    RUST_TARGET: $rust[$i],
+                    VERSION: $version,
+                    REVISION: $revision,
+                    PACKAGE: $package
+                  },
+                  "cache-from": ($cache_from | pin_gha_scope($names[$i])),
+                  "cache-to": ($cache_to | pin_gha_scope($names[$i])),
+                  output: [{
+                    type: "image",
+                    name: $refs_csv,
+                    "push-by-digest": "true",
+                    "name-canonical": "true",
+                    push: "true"
+                  }]
+                }
+              }
+          )
         | from_entries
       ) as $targets
     | {

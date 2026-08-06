@@ -42,6 +42,8 @@ pub(super) async fn graceful_disconnect(
       debug!(error = %err, "failed to send offline presence");
     } else {
       trace!("sent offline presence");
+      // Give Discord time to apply presence before the session is closed.
+      sleep(Duration::from_millis(250)).await;
     }
   }
 

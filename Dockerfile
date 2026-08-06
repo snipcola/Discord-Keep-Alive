@@ -34,7 +34,6 @@ RUN test -n "${RUST_TARGET}" || { echo "RUST_TARGET build-arg is required" >&2; 
  && rustup target add "${RUST_TARGET}"
 
 COPY --from=planner /app/recipe.json recipe.json
-# id=cargo-target-${RUST_TARGET} must match cache-map (docker-targets.sh).
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=cargo-target-${RUST_TARGET},target=/app/target,sharing=locked \

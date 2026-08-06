@@ -15,33 +15,49 @@ use crate::payload::{
 
 use super::{SessionEnd, SessionParams, SessionState, WsWrite, send_json};
 
+pub(super) struct DispatchCtx<'a> {
+  pub seq_cell: &'a Arc<AtomicI64>,
+  pub ack_tx: &'a watch::Sender<Instant>,
+  pub last_heartbeat_sent: &'a mut Option<Instant>,
+  pub write: &'a mut WsWrite,
+  pub presence_applied: &'a mut bool,
+}
+
 pub(super) async fn handle_payload(
   params: &SessionParams,
   state: &mut SessionState,
   payload: &GatewayEnvelope<'_>,
-  seq_cell: &Arc<AtomicI64>,
-  ack_tx: &watch::Sender<Instant>,
-  write: &mut WsWrite,
-  presence_applied: &mut bool,
+  ctx: &mut DispatchCtx<'_>,
 ) -> Result<Option<SessionEnd>> {
   if let Some(s) = payload.s {
     state.seq = Some(s);
-    seq_cell.store(s, Ordering::Relaxed);
+    ctx.seq_cell.store(s, Ordering::Relaxed);
   }
 
   Ok(match payload.op {
     OP_HELLO => None,
     OP_HEARTBEAT_ACK => {
-      let _ = ack_tx.send(Instant::now());
+      if let Some(sent) = ctx.last_heartbeat_sent.take() {
+        let latency_ms = sent.elapsed().as_millis() as u64;
+        trace!(latency_ms, "heartbeat ack");
+      } else {
+        trace!("heartbeat ack");
+      }
+      let _ = ctx.ack_tx.send(Instant::now());
       None
     }
     OP_HEARTBEAT => {
-      send_json(write, &GatewayPayload::new(OP_HEARTBEAT, json!(state.seq))).await?;
+      send_json(
+        ctx.write,
+        &GatewayPayload::new(OP_HEARTBEAT, json!(state.seq)),
+      )
+      .await?;
+      debug!("server requested heartbeat");
       None
     }
     OP_RECONNECT => {
       warn!("server requested reconnect");
-      Some(SessionEnd::reconnect(true))
+      Some(SessionEnd::reconnect(true, "reconnect"))
     }
     OP_INVALID_SESSION => {
       let resumable = payload
@@ -55,6 +71,7 @@ pub(super) async fn handle_payload(
       Some(SessionEnd::reconnect_after(
         resumable,
         Duration::from_secs(2),
+        "invalid_session",
       ))
     }
     OP_DISPATCH => {
@@ -67,17 +84,18 @@ pub(super) async fn handle_payload(
             state.set_healthy(true);
             info!("logged in as {}", info.display_name());
           } else {
+            debug!("ready payload incomplete");
             state.set_healthy(true);
             info!("logged in");
           }
-          apply_presence(params, write, presence_applied).await?;
+          apply_presence(params, ctx).await?;
           None
         }
         "RESUMED" => {
           state.set_healthy(true);
           info!("session resumed");
-          if !*presence_applied {
-            apply_presence(params, write, presence_applied).await?;
+          if !*ctx.presence_applied {
+            apply_presence(params, ctx).await?;
           }
           None
         }
@@ -94,16 +112,13 @@ pub(super) async fn handle_payload(
   })
 }
 
-async fn apply_presence(
-  params: &SessionParams,
-  write: &mut WsWrite,
-  presence_applied: &mut bool,
-) -> Result<()> {
+async fn apply_presence(params: &SessionParams, ctx: &mut DispatchCtx<'_>) -> Result<()> {
   send_json(
-    write,
+    ctx.write,
     &GatewayPayload::new(OP_PRESENCE_UPDATE, params.presence.clone()),
   )
   .await?;
-  *presence_applied = true;
+  *ctx.presence_applied = true;
+  debug!("presence update sent");
   Ok(())
 }

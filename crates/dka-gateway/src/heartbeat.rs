@@ -11,7 +11,7 @@ use crate::is_shutdown;
 
 pub enum HeartbeatCmd {
   Send { seq: Value },
-  Zombie,
+  Zombie { interval_ms: u64, since_ack_ms: u64 },
 }
 
 pub async fn heartbeat_loop(
@@ -57,7 +57,11 @@ pub async fn heartbeat_loop(
       }
       _ = ticker.tick() => {
         if waiting_ack {
-          let _ = tx.send(HeartbeatCmd::Zombie);
+          let since_ack_ms = ack_rx.borrow().elapsed().as_millis() as u64;
+          let _ = tx.send(HeartbeatCmd::Zombie {
+            interval_ms,
+            since_ack_ms,
+          });
           return;
         }
         let raw = seq_cell.load(Ordering::Relaxed);

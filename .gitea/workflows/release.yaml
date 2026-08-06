@@ -69,26 +69,6 @@ on:
         type: boolean
         required: false
         default: true
-      registry_cache:
-        description: Opt-in local-registry Buildx cache (GHA remains primary)
-        type: boolean
-        required: false
-        default: false
-      registry_cache_tag:
-        description: Prefix for scoped registry cache tags (branch/os/arch appended)
-        type: string
-        required: false
-        default: buildcache
-      registry_cache_base_branch:
-        description: Branch used as warm registry-cache import (and export when export=base)
-        type: string
-        required: false
-        default: main
-      registry_cache_export:
-        description: Registry cache export policy (always|base|never)
-        type: string
-        required: false
-        default: always
       create_tag:
         description: Create git version tag after successful publish
         type: boolean
@@ -173,16 +153,11 @@ jobs:
           PUBLISH_LOCAL: ${{ inputs.publish_local }}
           PUBLISH_GHCR: ${{ inputs.publish_ghcr }}
           PUBLISH_DOCKERHUB: ${{ inputs.publish_dockerhub }}
-          REGISTRY_CACHE: ${{ inputs.registry_cache }}
-          REGISTRY_CACHE_TAG: ${{ inputs.registry_cache_tag }}
-          REGISTRY_CACHE_BASE_BRANCH: ${{ inputs.registry_cache_base_branch }}
-          REGISTRY_CACHE_EXPORT: ${{ inputs.registry_cache_export }}
           LOCAL_REF: ${{ steps.meta.outputs.local }}
           GHCR_REF: ${{ steps.meta.outputs.ghcr }}
           DOCKER_REF: ${{ steps.meta.outputs.docker }}
           DOCKER_NETWORK: ${{ steps.reg.outputs.docker_network }}
           IMAGE_NAME: ${{ inputs.image_name }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
           RUNNER_OS: ${{ runner.os }}
           RUNNER_ARCH: ${{ runner.arch }}
         run: bash "${{ github.workspace }}/.gitea/scripts/publish-plan.sh"
@@ -198,6 +173,7 @@ jobs:
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
         uses: ./.gitea/actions/buildkit-cache-mounts
         with:
+          name: ${{ inputs.image_name }}
           builder: ${{ steps.buildx.outputs.name }}
           dockerfile: ${{ inputs.dockerfile }}
           targets: ${{ inputs.targets }}

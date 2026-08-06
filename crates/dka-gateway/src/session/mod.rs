@@ -81,6 +81,7 @@ enum SessionEnd {
     resume: bool,
     // Optional extra wait (for example 2s after INVALID_SESSION).
     extra_delay: Option<Duration>,
+    cause: &'static str,
   },
   Fatal {
     code: u16,
@@ -89,17 +90,19 @@ enum SessionEnd {
 }
 
 impl SessionEnd {
-  fn reconnect(resume: bool) -> Self {
+  fn reconnect(resume: bool, cause: &'static str) -> Self {
     Self::Reconnect {
       resume,
       extra_delay: None,
+      cause,
     }
   }
 
-  fn reconnect_after(resume: bool, delay: Duration) -> Self {
+  fn reconnect_after(resume: bool, delay: Duration, cause: &'static str) -> Self {
     Self::Reconnect {
       resume,
       extra_delay: Some(delay),
+      cause,
     }
   }
 }
@@ -136,6 +139,7 @@ pub async fn run_session(
       Ok(SessionEnd::Reconnect {
         resume,
         extra_delay,
+        cause,
       }) => {
         if schedule_reconnect(
           &mut state,
@@ -143,6 +147,7 @@ pub async fn run_session(
           !resume,
           resume,
           extra_delay,
+          cause,
           &mut shutdown,
         )
         .await
@@ -152,7 +157,17 @@ pub async fn run_session(
       }
       Err(err) => {
         error!(error = %err, "session failed");
-        if schedule_reconnect(&mut state, &mut attempt, true, false, None, &mut shutdown).await {
+        if schedule_reconnect(
+          &mut state,
+          &mut attempt,
+          true,
+          false,
+          None,
+          "error",
+          &mut shutdown,
+        )
+        .await
+        {
           return Ok(());
         }
       }
@@ -172,6 +187,7 @@ async fn schedule_reconnect(
   clear_session: bool,
   resume: bool,
   extra_delay: Option<Duration>,
+  cause: &str,
   shutdown: &mut watch::Receiver<bool>,
 ) -> bool {
   let was_healthy = state.session_healthy;
@@ -190,7 +206,7 @@ async fn schedule_reconnect(
   }
   let n = *attempt;
   info!(
-    "reconnecting in {} (attempt {n}, resume={resume})",
+    "reconnecting in {} (attempt {n}, resume={resume}, cause={cause})",
     format_delay(delay)
   );
   if wait_or_shutdown(delay, shutdown).await {

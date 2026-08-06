@@ -1,7 +1,7 @@
 [alias]
 t = "test --workspace --locked --all-features"
 c = "clippy --workspace --all-targets --all-features --locked -- -D warnings"
-f = "fmt --all --check"
+f = "fmt --all"
 ck = "check --workspace --locked --all-features --all-targets"
 b = "build --locked"
 br = "build --release --locked"

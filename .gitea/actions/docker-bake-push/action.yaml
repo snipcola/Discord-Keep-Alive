@@ -73,7 +73,9 @@ runs:
     - id: bake
       uses: ${{ inputs.bake_image }}
       with:
+        source: .
         files: ${{ steps.plan.outputs.bake_file }}
+        targets: default
         push: true
         provenance: ${{ inputs.provenance }}
         sbom: ${{ inputs.sbom }}
