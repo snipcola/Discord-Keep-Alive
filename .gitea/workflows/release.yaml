@@ -6,6 +6,10 @@ on:
       checkout:
         type: string
         required: true
+      ref:
+        type: string
+        required: false
+        default: ""
       package_name:
         description: Defaults to the workspace default-member package
         type: string
@@ -114,6 +118,7 @@ jobs:
       - name: Checkout
         uses: ${{ inputs.checkout }}
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 2 # HEAD + first parent for version compare.
 
       - name: Setup Rust
@@ -198,6 +203,7 @@ jobs:
           file: ${{ inputs.dockerfile }}
           targets: ${{ inputs.targets }}
           version: ${{ steps.meta.outputs.version }}
+          revision: ${{ inputs.ref }}
           package: ${{ steps.meta.outputs.package_name }}
           license: ${{ steps.meta.outputs.license }}
           refs: ${{ steps.plan.outputs.refs }}
@@ -211,6 +217,7 @@ jobs:
         uses: ./.gitea/actions/gitea-tag
         with:
           version: ${{ steps.meta.outputs.version }}
+          target: ${{ inputs.ref }}
           prefix: ${{ inputs.tag_prefix }}
           message: ${{ inputs.tag_message }}
           conflict: ${{ inputs.tag_conflict }}

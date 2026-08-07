@@ -6,6 +6,10 @@ on:
       checkout:
         type: string
         required: true
+      ref:
+        type: string
+        required: false
+        default: ""
       runs_on:
         type: string
         required: false
@@ -19,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: ${{ inputs.checkout }}
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Setup Rust
         uses: ./.gitea/actions/setup-rust
