@@ -52,15 +52,23 @@ resolve_package_name() {
   printf '%s\n' "${name}"
 }
 
-package_version() {
-  local meta="$1" name="$2" version
-  version="$(
-    printf '%s\n' "${meta}" | jq -r --arg name "${name}" '
-      .packages[] | select(.name == $name) | .version
+package_field() {
+  local meta="$1" name="$2" field="$3" value
+  value="$(
+    printf '%s\n' "${meta}" | jq -r --arg name "${name}" --arg field "${field}" '
+      .packages[] | select(.name == $name) | .[$field] // empty
     ' | head -n 1
   )"
+  if [ -z "${value}" ] || [ "${value}" = "null" ]; then
+    value=""
+  fi
+  printf '%s\n' "${value}"
+}
 
-  if [ -z "${version}" ] || [ "${version}" = "null" ]; then
+package_version() {
+  local meta="$1" name="$2" version
+  version="$(package_field "${meta}" "${name}" version)"
+  if [ -z "${version}" ]; then
     echo "Package ${name} not found in ${MANIFEST_PATH}." >&2
     return 1
   fi
@@ -101,14 +109,8 @@ version="$(package_version "${meta}" "${package_name}")" || {
   echo "Could not resolve ${package_name} version from HEAD; refusing to publish." >&2
   exit 1
 }
-license="$(
-  printf '%s\n' "${meta}" | jq -r --arg name "${package_name}" '
-    .packages[] | select(.name == $name) | .license // empty
-  ' | head -n 1
-)"
-if [ -z "${license}" ] || [ "${license}" = "null" ]; then
-  license=""
-fi
+license="$(package_field "${meta}" "${package_name}" license)"
+repository="$(package_field "${meta}" "${package_name}" repository)"
 
 reason=""
 prev=""
@@ -179,6 +181,7 @@ docker_ref="docker.io/${DH_USER}/${image_name}"
   echo "reason=${reason}"
   echo "image_name=${image_name}"
   echo "license=${license}"
+  echo "repository=${repository}"
   echo "local_registry=${local_registry}"
   echo "local_user=${local_user}"
   echo "local=${local_ref}"

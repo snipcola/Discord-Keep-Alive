@@ -59,6 +59,8 @@ outputs:
     value: ${{ steps.meta.outputs.docker }}
   license:
     value: ${{ steps.meta.outputs.license }}
+  repository:
+    value: ${{ steps.meta.outputs.repository }}
 
 runs:
   using: composite
@@ -71,7 +73,7 @@ runs:
         MANIFEST_PATH: ${{ inputs.manifest_path }}
         IMAGE_NAME: ${{ inputs.image_name }}
         RELEASE_MARKER: ${{ inputs.release_marker }}
-        LOCAL_REGISTRY: ${{ inputs.local_registry }}
+        LOCAL_REGISTRY: ${{ inputs.local_registry || env.EXTERNAL_SERVER_DOMAIN }}
         SERVER_URL: ${{ gitea.server_url }}
         LOCAL_USER: ${{ inputs.local_user || gitea.repository_owner }}
         GH_USER: ${{ inputs.gh_user }}

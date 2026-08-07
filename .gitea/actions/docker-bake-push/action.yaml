@@ -71,7 +71,7 @@ runs:
         VERSION: ${{ inputs.version }}
         REVISION: ${{ inputs.revision || gitea.sha }}
         PACKAGE: ${{ inputs.package }}
-        SOURCE: ${{ inputs.source || gitea.repositoryUrl }}
+        SOURCE: ${{ inputs.source }}
         LICENSE: ${{ inputs.license }}
         REFS: ${{ inputs.refs }}
         CACHE_FROM: ${{ inputs.cache-from }}

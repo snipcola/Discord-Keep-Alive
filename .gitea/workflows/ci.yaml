@@ -16,32 +16,151 @@ on:
         type: boolean
         required: false
         default: false
+      latest_ci:
+        description: Overlay .gitea from this workflow run (use latest CI with an older product ref)
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: ${{ gitea.workflow }}-${{ gitea.event.pull_request.number || gitea.ref }}
   cancel-in-progress: ${{ gitea.event_name == 'pull_request' }}
 
 jobs:
-  check:
-    uses: ./.gitea/workflows/check.yaml
-    with:
-      checkout: &checkout actions/checkout@v7.0.1
-      ref: &ref ${{ (gitea.event_name == 'workflow_dispatch' && inputs.commit) || gitea.sha }}
+  ci:
+    name: CI
+    runs-on: ubuntu
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.commit) || gitea.sha }}
+          fetch-depth: 2 # HEAD + first parent for version compare.
 
-  release:
-    needs: check
-    if: >-
-      (gitea.event_name == 'push' && gitea.ref_name == 'main') || gitea.event_name == 'workflow_dispatch'
-    uses: ./.gitea/workflows/release.yaml
-    with:
-      checkout: *checkout
-      ref: *ref
-      targets: |
-        linux/amd64=x86_64-unknown-linux-musl
-        linux/arm64=aarch64-unknown-linux-musl
-      gh_user: ${{ vars.GH_USERNAME }}
-      dh_user: ${{ vars.DH_USERNAME }}
-      force_release: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.release) || false }}
-    secrets:
-      ghcr_password: ${{ secrets.GH_AUTH }}
-      dockerhub_password: ${{ secrets.DH_AUTH }}
+      - name: Get latest CI
+        if: gitea.event_name == 'workflow_dispatch' && inputs.latest_ci
+        env:
+          WORKFLOW_SHA: ${{ gitea.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin "${WORKFLOW_SHA}"
+          git checkout "${WORKFLOW_SHA}" -- .gitea
+
+      - name: Setup Rust
+        uses: ./.gitea/actions/setup-rust
+
+      - name: Setup cargo-deny
+        uses: ./.gitea/actions/setup-cargo-deny
+
+      - name: Setup cargo-shear
+        uses: ./.gitea/actions/setup-cargo-shear
+
+      - name: Deny
+        run: cargo deny check -D warnings --hide-inclusion-graph
+
+      - name: Shear
+        run: cargo shear --locked --deny-warnings
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked --all-features
+
+      - name: Version & publish decision
+        id: meta
+        if: >-
+          (gitea.event_name == 'push' && gitea.ref_name == 'main') || gitea.event_name == 'workflow_dispatch'
+        uses: ./.gitea/actions/cargo-publish-meta
+        with:
+          force_release: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.release) || false }}
+          gh_user: ${{ vars.GH_USERNAME }}
+          dh_user: ${{ vars.DH_USERNAME }}
+
+      - name: Publish plan
+        id: plan
+        if: steps.meta.outputs.changed == 'true'
+        env:
+          PUBLISH_LOCAL: true
+          PUBLISH_GHCR: true
+          PUBLISH_DOCKERHUB: true
+          LOCAL_REF: ${{ steps.meta.outputs.local }}
+          GHCR_REF: ${{ steps.meta.outputs.ghcr }}
+          DOCKER_REF: ${{ steps.meta.outputs.docker }}
+          IMAGE_NAME: ${{ steps.meta.outputs.image_name }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/publish-plan.sh"
+
+      - name: Setup Buildx
+        id: buildx
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
+        uses: ./.gitea/actions/docker-buildx
+        with:
+          driver-opts: ${{ steps.plan.outputs.driver_opts }}
+
+      - name: Cache mounts
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
+        uses: ./.gitea/actions/buildkit-cache-mounts
+        with:
+          name: ${{ steps.meta.outputs.image_name }}
+          builder: ${{ steps.buildx.outputs.name }}
+          dockerfile: ./Dockerfile
+          targets: |
+            linux/amd64=x86_64-unknown-linux-musl
+            linux/arm64=aarch64-unknown-linux-musl
+
+      - name: Login (local)
+        if: steps.meta.outputs.changed == 'true'
+        uses: ./.gitea/actions/docker-login
+        with:
+          registry: ${{ steps.meta.outputs.local_registry }}
+          username: ${{ steps.meta.outputs.local_user }}
+          password: ${{ secrets.AUTH || gitea.token }}
+
+      - name: Login (GHCR)
+        if: steps.meta.outputs.changed == 'true'
+        uses: ./.gitea/actions/docker-login
+        with:
+          registry: ghcr.io
+          username: ${{ vars.GH_USERNAME }}
+          password: ${{ secrets.GH_AUTH }}
+
+      - name: Login (Docker Hub)
+        if: steps.meta.outputs.changed == 'true'
+        uses: ./.gitea/actions/docker-login
+        with:
+          registry: docker.io
+          username: ${{ vars.DH_USERNAME }}
+          password: ${{ secrets.DH_AUTH }}
+
+      - name: Bake & push
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
+        uses: ./.gitea/actions/docker-bake-push
+        with:
+          context: .
+          file: ./Dockerfile
+          targets: |
+            linux/amd64=x86_64-unknown-linux-musl
+            linux/arm64=aarch64-unknown-linux-musl
+          version: ${{ steps.meta.outputs.version }}
+          revision: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.commit) || gitea.sha }}
+          package: ${{ steps.meta.outputs.package_name }}
+          source: ${{ steps.meta.outputs.repository }}
+          license: ${{ steps.meta.outputs.license }}
+          refs: ${{ steps.plan.outputs.refs }}
+          cache-from: ${{ steps.plan.outputs.cache_from }}
+          cache-to: ${{ steps.plan.outputs.cache_to }}
+
+      - name: Tag
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
+        uses: ./.gitea/actions/gitea-tag
+        with:
+          version: ${{ steps.meta.outputs.version }}
+          target: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.commit) || gitea.sha }}

@@ -13,8 +13,8 @@ source "${SCRIPT_DIR}/docker-targets.sh"
 : "${REVISION:?REVISION is required}"
 : "${PACKAGE:?PACKAGE is required}"
 : "${REFS:?REFS is required}"
-: "${SOURCE:?SOURCE is required}"
 : "${CREATED:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+: "${SOURCE:=}"
 : "${LICENSE:=}"
 
 docker_targets_parse "${TARGETS}"
@@ -66,6 +66,9 @@ jq -nc \
           else . end
         );
 
+    def opt_label($key; $val):
+      if $val == "" then {} else {($key): $val} end;
+
     [range(0; $platforms | length)] as $idx
     | (
         $idx
@@ -86,10 +89,10 @@ jq -nc \
                       "org.opencontainers.image.title": $package,
                       "org.opencontainers.image.version": $version,
                       "org.opencontainers.image.revision": $revision,
-                      "org.opencontainers.image.source": $source,
                       "org.opencontainers.image.created": $created
                     }
-                    + (if $license == "" then {} else {"org.opencontainers.image.licenses": $license} end)
+                    + opt_label("org.opencontainers.image.source"; $source)
+                    + opt_label("org.opencontainers.image.licenses"; $license)
                   ),
                   "cache-from": ($cache_from | pin_gha_scope($names[$i])),
                   "cache-to": ($cache_to | pin_gha_scope($names[$i])),
