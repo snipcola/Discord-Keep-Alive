@@ -81,6 +81,10 @@ runs:
 
     - id: bake
       uses: ${{ inputs.bake_image }}
+      env:
+        DOCKER_BUILD_SUMMARY: false
+        DOCKER_BUILD_RECORD_UPLOAD: false
+        DOCKER_BUILD_CHECKS_ANNOTATIONS: false
       with:
         source: .
         files: ${{ steps.plan.outputs.bake_file }}
