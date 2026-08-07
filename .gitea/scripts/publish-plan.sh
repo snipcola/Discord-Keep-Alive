@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish flags → refs, driver opts, cache-from/to.
+# Resolve publish refs and bake cache opts.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

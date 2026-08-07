@@ -6,7 +6,6 @@ inputs:
     required: false
     default: reproducible-containers/buildkit-cache-dance@v3.4.0
   name:
-    description: Package/image name for cache key namespace
     required: true
   builder:
     required: true
@@ -26,12 +25,12 @@ inputs:
     required: false
     default: |
       {
+        "rustup": { "target": "/usr/local/rustup", "id": "rustup" },
         "cargo-registry": { "target": "/usr/local/cargo/registry", "id": "cargo-registry" },
-        "cargo-git": { "target": "/usr/local/cargo/git", "id": "cargo-git" },
-        "cargo-chef-target": { "target": "/tmp/cargo-chef-target", "id": "cargo-chef-target" }
+        "cargo-git": { "target": "/usr/local/cargo/git", "id": "cargo-git" }
       }
   targets:
-    description: <platform>=<target>, separated by line
+    description: platform=rust-target lines for multi-arch builds
     required: true
 
 runs:

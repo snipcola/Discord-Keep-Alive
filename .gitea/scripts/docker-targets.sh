@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared docker target/ref helpers (sourceable; CLI emits cache_map).
+# Docker target/ref helpers (source or run to emit cache_map).
 set -euo pipefail
 
 DOCKER_TARGET_PLATFORMS=()
@@ -67,7 +67,7 @@ docker_targets_parse() {
   fi
 }
 
-# Prefix cache-map host keys with CACHE_DIR so actions/cache and dance share one tree.
+# Prefix cache-map host keys with CACHE_DIR so actions/cache and cache-dance share one tree.
 docker_targets_cache_map_json() {
   local base="${1:?cache-map base JSON is required}"
   local cache_dir rust_json
@@ -98,7 +98,7 @@ docker_targets_cache_map_json() {
     else
       reduce $rust[] as $t (
         $base;
-        . + {("cargo-target-" + $t): {target: "/app/target", id: ("cargo-target-" + $t)}}
+        . + {("cargo-target-" + $t): {target: "/cargo-target", id: ("cargo-target-" + $t)}}
       )
       | with_entries(.key |= under_dir)
     end
@@ -116,7 +116,6 @@ docker_read_lines() {
   done <<<"${raw}"
 }
 
-# Strip scheme/path from a registry host (or full URL).
 docker_map_normalize_host() {
   local host
   host="$(docker_trim "${1-}")"

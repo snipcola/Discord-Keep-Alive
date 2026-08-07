@@ -1,50 +1,28 @@
 # syntax=docker/dockerfile:1.26.0
 
 ARG ZIGBUILD_IMAGE=ghcr.io/rust-cross/cargo-zigbuild:0.23.0
-ARG CARGO_CHEF_VERSION=0.1.77
 
-FROM --platform=$BUILDPLATFORM ${ZIGBUILD_IMAGE} AS chef
-ARG CARGO_CHEF_VERSION
-WORKDIR /app
-COPY rust-toolchain.toml ./
-RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=cargo-chef-target,target=/tmp/cargo-chef-target,sharing=locked \
-    rustup show active-toolchain \
- && CARGO_TARGET_DIR=/tmp/cargo-chef-target \
-    cargo install cargo-chef --locked --version "${CARGO_CHEF_VERSION}"
-
-FROM chef AS planner
-COPY . .
-RUN cargo chef prepare --recipe-path recipe.json
-
-FROM chef AS builder
+FROM --platform=$BUILDPLATFORM ${ZIGBUILD_IMAGE} AS builder
 ARG RUST_TARGET
 ARG PACKAGE
 
-RUN test -n "${RUST_TARGET}" || { echo "RUST_TARGET build-arg is required" >&2; exit 1; } \
+WORKDIR /src
+
+RUN --mount=type=bind,source=rust-toolchain.toml,target=/src/rust-toolchain.toml,ro \
+    --mount=type=cache,id=rustup,target=/usr/local/rustup,sharing=locked \
+    test -n "${RUST_TARGET}" || { echo "RUST_TARGET build-arg is required" >&2; exit 1; } \
  && test -n "${PACKAGE}" || { echo "PACKAGE build-arg is required" >&2; exit 1; } \
  && rustup show active-toolchain \
  && rustup target add "${RUST_TARGET}"
 
-COPY --from=planner /app/recipe.json recipe.json
-RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+RUN --mount=type=bind,source=.,target=/src,ro \
+    --mount=type=cache,id=rustup,target=/usr/local/rustup,sharing=locked \
+    --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=cargo-target-${RUST_TARGET},target=/app/target,sharing=locked \
-    cargo chef cook \
-      --release \
-      --locked \
-      --zigbuild \
-      --recipe-path recipe.json \
-      --target "${RUST_TARGET}" \
-      -p "${PACKAGE}"
-
-COPY . .
-RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=cargo-target-${RUST_TARGET},target=/app/target,sharing=locked \
+    --mount=type=cache,id=cargo-target-${RUST_TARGET},target=/cargo-target,sharing=locked \
+    CARGO_TARGET_DIR=/cargo-target \
     cargo zigbuild --release --locked --target "${RUST_TARGET}" -p "${PACKAGE}" \
- && cp "/app/target/${RUST_TARGET}/release/${PACKAGE}" /out
+ && cp "/cargo-target/${RUST_TARGET}/release/${PACKAGE}" /out
 
 FROM scratch
 

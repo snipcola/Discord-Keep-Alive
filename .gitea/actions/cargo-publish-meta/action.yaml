@@ -13,11 +13,11 @@ inputs:
     required: false
     default: Cargo.toml
   force_release:
-    description: Publish even without version bump or release marker
+    description: Publish without a version bump or release marker
     required: false
     default: "false"
   release_marker:
-    description: Subject substring that forces a same-version publish
+    description: Commit subject substring that forces a same-version publish
     required: false
     default: "#release"
   local_registry:
@@ -31,7 +31,7 @@ inputs:
   dh_user:
     required: true
   publish_local:
-    description: Require local registry host/user after defaults
+    description: Require local registry host and user
     required: false
     default: "true"
 
@@ -49,7 +49,6 @@ outputs:
   local_registry:
     value: ${{ steps.meta.outputs.local_registry }}
   local_user:
-    description: Resolved local registry user (input or repository owner)
     value: ${{ steps.meta.outputs.local_user }}
   local:
     value: ${{ steps.meta.outputs.local }}

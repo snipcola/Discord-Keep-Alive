@@ -1,5 +1,5 @@
 name: Setup Rust
-description: Cache rustup and install the repo toolchain
+description: Cache rustup and install the pinned toolchain
 
 inputs:
   image:

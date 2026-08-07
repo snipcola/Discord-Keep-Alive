@@ -14,11 +14,11 @@ inputs:
     required: false
     default: ""
   conflict:
-    description: Skip, fail, or override if the tag exists on another commit
+    description: skip, fail, or override if the tag points elsewhere
     required: false
     default: override
   latest:
-    description: Also move floating tag latest to the same commit
+    description: Also move the floating latest tag
     required: false
     default: "true"
   token:

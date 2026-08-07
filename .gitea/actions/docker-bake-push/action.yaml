@@ -12,7 +12,7 @@ inputs:
     required: false
     default: "./Dockerfile"
   targets:
-    description: <platform>=<target>, separated by line
+    description: platform=rust-target lines for multi-arch builds
     required: true
   version:
     required: true
@@ -28,7 +28,7 @@ inputs:
     required: false
     default: ""
   refs:
-    description: Image name bases, one per line (no tag)
+    description: Image name bases without tags
     required: true
   cache-from:
     required: false
@@ -37,11 +37,11 @@ inputs:
     required: false
     default: ""
   push:
-    description: Push digests and create multi-arch tags (false = build/cache only)
+    description: Push digests and tags (false = build/cache only)
     required: false
     default: "true"
   also_latest:
-    description: Also tag image :latest (in addition to :version)
+    description: Also tag :latest in addition to :version
     required: false
     default: "true"
   provenance:

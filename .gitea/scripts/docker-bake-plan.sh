@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TARGETS + REFS → bake JSON (and optional GITEA_OUTPUT).
+# Build docker bake JSON from TARGETS + REFS.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,7 +40,7 @@ if [ "${PUSH}" = "true" ]; then
   push_json=true
 fi
 
-# Digests only when pushing; tags in docker-manifest.sh.
+# Emit digests when pushing; docker-manifest.sh applies version tags.
 jq -nc \
   --arg context "${CONTEXT}" \
   --arg dockerfile "${DOCKERFILE}" \

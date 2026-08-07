@@ -13,11 +13,11 @@ inputs:
     required: false
     default: "true"
   prefix:
-    description: Segment(s) before platform (and key), joined with '-'
+    description: Key segments before the platform segment
     required: false
     default: ""
   suffix:
-    description: Segment(s) after key, joined with '-'
+    description: Key segments after the key
     required: false
     default: ""
   restore-keys:

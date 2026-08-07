@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bake digests → multi-arch :VERSION (and optional :latest).
+# Create multi-arch tags from bake digests.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
