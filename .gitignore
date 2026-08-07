@@ -4,3 +4,6 @@
 # Secrets / Config
 .env*
 /config.toml
+
+# CI
+.buildkit-cache-mounts/

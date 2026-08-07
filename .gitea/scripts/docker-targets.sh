@@ -67,12 +67,32 @@ docker_targets_parse() {
   fi
 }
 
+# Prefix cache-map host keys with CACHE_DIR so actions/cache and dance share one tree.
 docker_targets_cache_map_json() {
   local base="${1:?cache-map base JSON is required}"
-  local rust_json
+  local cache_dir rust_json
+  cache_dir="$(docker_trim "${CACHE_DIR:-.buildkit-cache-mounts}")"
+  cache_dir="${cache_dir%/}"
+  if [ -z "${cache_dir}" ]; then
+    echo "CACHE_DIR resolved empty" >&2
+    return 1
+  fi
 
   rust_json="$(printf '%s\n' "${DOCKER_TARGET_RUST[@]}" | jq -R . | jq -s -c .)"
-  jq -nc --argjson base "${base}" --argjson rust "${rust_json}" '
+  jq -nc \
+    --argjson base "${base}" \
+    --argjson rust "${rust_json}" \
+    --arg dir "${cache_dir}" '
+    def under_dir:
+      if (type != "string") or (. == "") then
+        error("cache-map keys must be non-empty strings")
+      elif startswith("/") or startswith($dir + "/") or . == $dir then .
+      elif contains("/") then
+        error("cache-map key \(. ) must be a basename or already under \($dir)")
+      else
+        $dir + "/" + .
+      end;
+
     if ($base | type) != "object" then
       error("cache-map base must be a JSON object")
     else
@@ -80,6 +100,7 @@ docker_targets_cache_map_json() {
         $base;
         . + {("cargo-target-" + $t): {target: "/app/target", id: ("cargo-target-" + $t)}}
       )
+      | with_entries(.key |= under_dir)
     end
   '
 }
