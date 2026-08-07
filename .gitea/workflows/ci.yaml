@@ -16,6 +16,11 @@ on:
         type: boolean
         required: false
         default: false
+      dry_run:
+        description: Run the image build/cache path without pushing images or creating tags
+        type: boolean
+        required: false
+        default: false
       latest_ci:
         description: Overlay .gitea from this workflow run (use latest CI with an older product ref)
         type: boolean
@@ -37,11 +42,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.commit) || gitea.sha }}
+          ref: ${{ inputs.commit || gitea.sha }}
           fetch-depth: 2 # HEAD + first parent for version compare.
 
       - name: Get latest CI
-        if: gitea.event_name == 'workflow_dispatch' && inputs.latest_ci
+        if: inputs.latest_ci
         env:
           WORKFLOW_SHA: ${{ gitea.sha }}
         run: |
@@ -79,7 +84,7 @@ jobs:
           (gitea.event_name == 'push' && gitea.ref_name == 'main') || gitea.event_name == 'workflow_dispatch'
         uses: ./.gitea/actions/cargo-publish-meta
         with:
-          force_release: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.release) || false }}
+          force_release: ${{ inputs.release || inputs.dry_run }}
           gh_user: ${{ vars.GH_USERNAME }}
           dh_user: ${{ vars.DH_USERNAME }}
 
@@ -117,7 +122,7 @@ jobs:
             linux/arm64=aarch64-unknown-linux-musl
 
       - name: Login (local)
-        if: steps.meta.outputs.changed == 'true'
+        if: steps.meta.outputs.changed == 'true' && !inputs.dry_run
         uses: ./.gitea/actions/docker-login
         with:
           registry: ${{ steps.meta.outputs.local_registry }}
@@ -125,7 +130,7 @@ jobs:
           password: ${{ secrets.AUTH || gitea.token }}
 
       - name: Login (GHCR)
-        if: steps.meta.outputs.changed == 'true'
+        if: steps.meta.outputs.changed == 'true' && !inputs.dry_run
         uses: ./.gitea/actions/docker-login
         with:
           registry: ghcr.io
@@ -133,7 +138,7 @@ jobs:
           password: ${{ secrets.GH_AUTH }}
 
       - name: Login (Docker Hub)
-        if: steps.meta.outputs.changed == 'true'
+        if: steps.meta.outputs.changed == 'true' && !inputs.dry_run
         uses: ./.gitea/actions/docker-login
         with:
           registry: docker.io
@@ -150,17 +155,18 @@ jobs:
             linux/amd64=x86_64-unknown-linux-musl
             linux/arm64=aarch64-unknown-linux-musl
           version: ${{ steps.meta.outputs.version }}
-          revision: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.commit) || gitea.sha }}
+          revision: ${{ inputs.commit || gitea.sha }}
           package: ${{ steps.meta.outputs.package_name }}
           source: ${{ steps.meta.outputs.repository }}
           license: ${{ steps.meta.outputs.license }}
           refs: ${{ steps.plan.outputs.refs }}
           cache-from: ${{ steps.plan.outputs.cache_from }}
           cache-to: ${{ steps.plan.outputs.cache_to }}
+          push: ${{ !inputs.dry_run }}
 
       - name: Tag
-        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
         uses: ./.gitea/actions/gitea-tag
         with:
           version: ${{ steps.meta.outputs.version }}
-          target: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.commit) || gitea.sha }}
+          target: ${{ inputs.commit || gitea.sha }}

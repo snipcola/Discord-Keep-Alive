@@ -36,6 +36,10 @@ inputs:
   cache-to:
     required: false
     default: ""
+  push:
+    description: Push digests and create multi-arch tags (false = build/cache only)
+    required: false
+    default: "true"
   also_latest:
     description: Also tag image :latest (in addition to :version)
     required: false
@@ -76,6 +80,7 @@ runs:
         REFS: ${{ inputs.refs }}
         CACHE_FROM: ${{ inputs.cache-from }}
         CACHE_TO: ${{ inputs.cache-to }}
+        PUSH: ${{ inputs.push }}
         BAKE_FILE: ${{ runner.temp }}/docker-bake.json
       run: bash "${{ gitea.workspace }}/.gitea/scripts/docker-bake-plan.sh"
 
@@ -89,11 +94,12 @@ runs:
         source: .
         files: ${{ steps.plan.outputs.bake_file }}
         targets: default
-        push: true
+        push: ${{ inputs.push }}
         provenance: ${{ inputs.provenance }}
         sbom: ${{ inputs.sbom }}
 
     - name: Create multi-arch manifests
+      if: inputs.push == 'true'
       shell: bash
       env:
         METADATA: ${{ steps.bake.outputs.metadata }}

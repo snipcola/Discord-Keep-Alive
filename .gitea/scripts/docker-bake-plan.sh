@@ -16,6 +16,7 @@ source "${SCRIPT_DIR}/docker-targets.sh"
 : "${CREATED:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 : "${SOURCE:=}"
 : "${LICENSE:=}"
+: "${PUSH:=true}"
 
 docker_targets_parse "${TARGETS}"
 docker_refs_parse "${REFS}"
@@ -34,8 +35,12 @@ refs_csv="$(
   IFS=,
   echo "${DOCKER_REFS[*]}"
 )"
+push_json=false
+if [ "${PUSH}" = "true" ]; then
+  push_json=true
+fi
 
-# Digests only; tags in docker-manifest.sh.
+# Digests only when pushing; tags in docker-manifest.sh.
 jq -nc \
   --arg context "${CONTEXT}" \
   --arg dockerfile "${DOCKERFILE}" \
@@ -46,6 +51,7 @@ jq -nc \
   --arg created "${CREATED}" \
   --arg license "${LICENSE}" \
   --arg refs_csv "${refs_csv}" \
+  --argjson push "${push_json}" \
   --argjson platforms "${platforms_json}" \
   --argjson rust "${rust_json}" \
   --argjson names "${names_json}" \
@@ -68,6 +74,19 @@ jq -nc \
 
     def opt_label($key; $val):
       if $val == "" then {} else {($key): $val} end;
+
+    def target_output:
+      if $push then
+        [{
+          type: "image",
+          name: $refs_csv,
+          "push-by-digest": "true",
+          "name-canonical": "true",
+          push: "true"
+        }]
+      else
+        [{ type: "cacheonly" }]
+      end;
 
     [range(0; $platforms | length)] as $idx
     | (
@@ -96,13 +115,7 @@ jq -nc \
                   ),
                   "cache-from": ($cache_from | pin_gha_scope($names[$i])),
                   "cache-to": ($cache_to | pin_gha_scope($names[$i])),
-                  output: [{
-                    type: "image",
-                    name: $refs_csv,
-                    "push-by-digest": "true",
-                    "name-canonical": "true",
-                    push: "true"
-                  }]
+                  output: target_output
                 }
               }
           )
