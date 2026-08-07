@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# TARGETS + REFS → bake JSON (and optional GITHUB_OUTPUT).
+# TARGETS + REFS → bake JSON (and optional GITEA_OUTPUT).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=docker-targets.sh
 source "${SCRIPT_DIR}/docker-targets.sh"
 
 : "${TARGETS:?TARGETS is required}"
@@ -14,6 +13,9 @@ source "${SCRIPT_DIR}/docker-targets.sh"
 : "${REVISION:?REVISION is required}"
 : "${PACKAGE:?PACKAGE is required}"
 : "${REFS:?REFS is required}"
+: "${SOURCE:?SOURCE is required}"
+: "${CREATED:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+: "${LICENSE:=}"
 
 docker_targets_parse "${TARGETS}"
 docker_refs_parse "${REFS}"
@@ -28,7 +30,10 @@ rust_json="$(docker_json_lines "${DOCKER_TARGET_RUST[@]}")"
 names_json="$(docker_json_lines "${DOCKER_TARGET_NAMES[@]}")"
 cache_from_json="$(docker_json_lines "${cache_from[@]+"${cache_from[@]}"}")"
 cache_to_json="$(docker_json_lines "${cache_to[@]+"${cache_to[@]}"}")"
-refs_csv="$(IFS=,; echo "${DOCKER_REFS[*]}")"
+refs_csv="$(
+  IFS=,
+  echo "${DOCKER_REFS[*]}"
+)"
 
 # Digests only; tags in docker-manifest.sh.
 jq -nc \
@@ -37,6 +42,9 @@ jq -nc \
   --arg version "${VERSION}" \
   --arg revision "${REVISION}" \
   --arg package "${PACKAGE}" \
+  --arg source "${SOURCE}" \
+  --arg created "${CREATED}" \
+  --arg license "${LICENSE}" \
   --arg refs_csv "${refs_csv}" \
   --argjson platforms "${platforms_json}" \
   --argjson rust "${rust_json}" \
@@ -71,10 +79,18 @@ jq -nc \
                   platforms: [$platforms[$i]],
                   args: {
                     RUST_TARGET: $rust[$i],
-                    VERSION: $version,
-                    REVISION: $revision,
                     PACKAGE: $package
                   },
+                  labels: (
+                    {
+                      "org.opencontainers.image.title": $package,
+                      "org.opencontainers.image.version": $version,
+                      "org.opencontainers.image.revision": $revision,
+                      "org.opencontainers.image.source": $source,
+                      "org.opencontainers.image.created": $created
+                    }
+                    + (if $license == "" then {} else {"org.opencontainers.image.licenses": $license} end)
+                  ),
                   "cache-from": ($cache_from | pin_gha_scope($names[$i])),
                   "cache-to": ($cache_to | pin_gha_scope($names[$i])),
                   output: [{
@@ -93,15 +109,24 @@ jq -nc \
         group: { default: { targets: ($idx | map("image-" + $names[.])) } },
         target: $targets
       }
-  ' > "${BAKE_FILE}"
+  ' >"${BAKE_FILE}"
 
-if [ -n "${GITHUB_OUTPUT-}" ]; then
+if [ -n "${GITEA_OUTPUT-}" ]; then
   {
     echo "bake_file=${BAKE_FILE}"
-    echo "platforms=$(IFS=,; echo "${DOCKER_TARGET_PLATFORMS[*]}")"
-    echo "rust_targets=$(IFS=,; echo "${DOCKER_TARGET_RUST[*]}")"
-    echo "target_names=$(IFS=,; echo "${DOCKER_TARGET_NAMES[*]}")"
-  } >> "${GITHUB_OUTPUT}"
+    echo "platforms=$(
+      IFS=,
+      echo "${DOCKER_TARGET_PLATFORMS[*]}"
+    )"
+    echo "rust_targets=$(
+      IFS=,
+      echo "${DOCKER_TARGET_RUST[*]}"
+    )"
+    echo "target_names=$(
+      IFS=,
+      echo "${DOCKER_TARGET_NAMES[*]}"
+    )"
+  } >>"${GITEA_OUTPUT}"
 fi
 
 echo "Bake plan: ${#DOCKER_TARGET_PLATFORMS[@]} target(s) -> ${BAKE_FILE}"

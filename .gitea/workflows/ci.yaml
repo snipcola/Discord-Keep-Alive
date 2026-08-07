@@ -13,8 +13,8 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # PRs only: never cancel a main/manual publish mid-run.
+  group: ${{ gitea.workflow }}-${{ gitea.event.pull_request.number || gitea.ref }}
+  cancel-in-progress: ${{ gitea.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -25,22 +25,16 @@ jobs:
   release:
     needs: check
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-      || github.event_name == 'workflow_dispatch'
+      (gitea.event_name == 'push' && gitea.ref_name == 'main') || gitea.event_name == 'workflow_dispatch'
     uses: ./.gitea/workflows/release.yaml
     with:
       checkout: *checkout
-      package_name: discord-keep-alive
-      image_name: discord-keep-alive
       targets: |
         linux/amd64=x86_64-unknown-linux-musl
         linux/arm64=aarch64-unknown-linux-musl
-      local_user: ${{ vars.USERNAME }}
       gh_user: ${{ vars.GH_USERNAME }}
       dh_user: ${{ vars.DH_USERNAME }}
-      force_release: ${{ (github.event_name == 'workflow_dispatch' && inputs.release) || false }}
+      force_release: ${{ (gitea.event_name == 'workflow_dispatch' && inputs.release) || false }}
     secrets:
-      local_password: ${{ secrets.AUTH }}
       ghcr_password: ${{ secrets.GH_AUTH }}
       dockerhub_password: ${{ secrets.DH_AUTH }}
-      gitea_token: ${{ secrets.AUTH }}

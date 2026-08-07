@@ -2,13 +2,6 @@
 
 ARG ZIGBUILD_IMAGE=ghcr.io/rust-cross/cargo-zigbuild:0.23.0
 ARG CARGO_CHEF_VERSION=0.1.77
-ARG PACKAGE=discord-keep-alive
-
-ARG IMAGE_TITLE=discord-keep-alive
-ARG IMAGE_SOURCE=https://code.snipcola.st/snipcola/Discord-Keep-Alive
-ARG IMAGE_LICENSE=ISC
-ARG VERSION=0.0.0-dev
-ARG REVISION=unknown
 
 FROM --platform=$BUILDPLATFORM ${ZIGBUILD_IMAGE} AS chef
 ARG CARGO_CHEF_VERSION
@@ -30,6 +23,7 @@ ARG RUST_TARGET
 ARG PACKAGE
 
 RUN test -n "${RUST_TARGET}" || { echo "RUST_TARGET build-arg is required" >&2; exit 1; } \
+ && test -n "${PACKAGE}" || { echo "PACKAGE build-arg is required" >&2; exit 1; } \
  && rustup show active-toolchain \
  && rustup target add "${RUST_TARGET}"
 
@@ -53,18 +47,6 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharin
  && cp "/app/target/${RUST_TARGET}/release/${PACKAGE}" /out
 
 FROM scratch
-
-ARG IMAGE_TITLE
-ARG IMAGE_SOURCE
-ARG IMAGE_LICENSE
-ARG VERSION
-ARG REVISION
-
-LABEL org.opencontainers.image.source="${IMAGE_SOURCE}" \
-      org.opencontainers.image.title="${IMAGE_TITLE}" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${REVISION}" \
-      org.opencontainers.image.licenses="${IMAGE_LICENSE}"
 
 COPY --from=builder --chown=65532:65532 --chmod=755 /out /app
 

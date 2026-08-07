@@ -3,14 +3,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=docker-targets.sh
 source "${SCRIPT_DIR}/docker-targets.sh"
 
 : "${PUBLISH_LOCAL:?PUBLISH_LOCAL is required}"
 : "${PUBLISH_GHCR:?PUBLISH_GHCR is required}"
 : "${PUBLISH_DOCKERHUB:?PUBLISH_DOCKERHUB is required}"
 : "${IMAGE_NAME:?IMAGE_NAME is required}"
-: "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
+: "${GITEA_OUTPUT:?GITEA_OUTPUT is required}"
 
 any=false
 refs=()
@@ -39,6 +38,7 @@ if [ "${PUBLISH_DOCKERHUB}" = "true" ]; then
   add_dest "${DOCKER_REF-}"
 fi
 
+DOCKER_NETWORK="${INPUT_DOCKER_NETWORK:-${DOCKER_NETWORK-}}"
 driver_opts="${DOCKER_NETWORK:+network=${DOCKER_NETWORK}}"
 
 gha_scope="${IMAGE_NAME}"
@@ -62,4 +62,4 @@ cache_to=("type=gha,mode=max,scope=${gha_scope}")
   echo "cache_to<<EOF"
   printf '%s\n' "${cache_to[@]}"
   echo "EOF"
-} >> "${GITHUB_OUTPUT}"
+} >>"${GITEA_OUTPUT}"

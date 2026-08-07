@@ -7,15 +7,18 @@ on:
         type: string
         required: true
       package_name:
+        description: Defaults to the workspace default-member package
         type: string
-        required: true
+        required: false
+        default: ""
       manifest_path:
         type: string
         required: false
         default: Cargo.toml
       image_name:
         type: string
-        required: true
+        required: false
+        default: ""
       targets:
         description: <platform>=<target>, separated by line
         type: string
@@ -26,7 +29,8 @@ on:
         default: ""
       local_user:
         type: string
-        required: true
+        required: false
+        default: ""
       gh_user:
         type: string
         required: true
@@ -91,10 +95,6 @@ on:
         type: string
         required: false
         default: override
-      server_url:
-        type: string
-        required: false
-        default: ""
     secrets:
       local_password:
         required: false
@@ -102,14 +102,14 @@ on:
         required: false
       dockerhub_password:
         required: false
-      gitea_token:
-        required: false
 
 jobs:
   release:
     name: Build & Push
     runs-on: ${{ inputs.runs_on }}
-
+    permissions:
+      contents: write
+      packages: write
     steps:
       - name: Checkout
         uses: ${{ inputs.checkout }}
@@ -119,32 +119,20 @@ jobs:
       - name: Setup Rust
         uses: ./.gitea/actions/setup-rust
 
-      - name: Resolve registry env
-        id: reg
-        env:
-          INPUT_LOCAL_REGISTRY: ${{ inputs.local_registry }}
-          INPUT_DOCKER_NETWORK: ${{ inputs.docker_network }}
-        run: |
-          set -euo pipefail
-
-          {
-            echo "local_registry=${INPUT_LOCAL_REGISTRY:-${EXTERNAL_SERVER_DOMAIN:-}}"
-            echo "docker_network=${INPUT_DOCKER_NETWORK:-${DOCKER_NETWORK:-}}"
-          } >> "${GITHUB_OUTPUT}"
-
       - name: Version & publish decision
         id: meta
         uses: ./.gitea/actions/cargo-publish-meta
         with:
           package_name: ${{ inputs.package_name }}
-          manifest_path: ${{ inputs.manifest_path }}
           image_name: ${{ inputs.image_name }}
+          manifest_path: ${{ inputs.manifest_path }}
           force_release: ${{ inputs.force_release }}
           release_marker: ${{ inputs.release_marker }}
-          local_registry: ${{ steps.reg.outputs.local_registry }}
+          local_registry: ${{ inputs.local_registry }}
           local_user: ${{ inputs.local_user }}
           gh_user: ${{ inputs.gh_user }}
           dh_user: ${{ inputs.dh_user }}
+          publish_local: ${{ inputs.publish_local }}
 
       - name: Publish plan
         id: plan
@@ -156,11 +144,11 @@ jobs:
           LOCAL_REF: ${{ steps.meta.outputs.local }}
           GHCR_REF: ${{ steps.meta.outputs.ghcr }}
           DOCKER_REF: ${{ steps.meta.outputs.docker }}
-          DOCKER_NETWORK: ${{ steps.reg.outputs.docker_network }}
-          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_NAME: ${{ steps.meta.outputs.image_name }}
+          INPUT_DOCKER_NETWORK: ${{ inputs.docker_network }}
           RUNNER_OS: ${{ runner.os }}
           RUNNER_ARCH: ${{ runner.arch }}
-        run: bash "${{ github.workspace }}/.gitea/scripts/publish-plan.sh"
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/publish-plan.sh"
 
       - name: Setup Buildx
         id: buildx
@@ -173,7 +161,7 @@ jobs:
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
         uses: ./.gitea/actions/buildkit-cache-mounts
         with:
-          name: ${{ inputs.image_name }}
+          name: ${{ steps.meta.outputs.image_name }}
           builder: ${{ steps.buildx.outputs.name }}
           dockerfile: ${{ inputs.dockerfile }}
           targets: ${{ inputs.targets }}
@@ -182,9 +170,9 @@ jobs:
         if: steps.meta.outputs.changed == 'true' && inputs.publish_local
         uses: ./.gitea/actions/docker-login
         with:
-          registry: ${{ steps.reg.outputs.local_registry }}
-          username: ${{ inputs.local_user }}
-          password: ${{ secrets.local_password }}
+          registry: ${{ steps.meta.outputs.local_registry }}
+          username: ${{ steps.meta.outputs.local_user }}
+          password: ${{ secrets.local_password || gitea.token }}
 
       - name: Login (GHCR)
         if: steps.meta.outputs.changed == 'true' && inputs.publish_ghcr
@@ -210,8 +198,8 @@ jobs:
           file: ${{ inputs.dockerfile }}
           targets: ${{ inputs.targets }}
           version: ${{ steps.meta.outputs.version }}
-          revision: ${{ github.sha }}
-          package: ${{ inputs.package_name }}
+          package: ${{ steps.meta.outputs.package_name }}
+          license: ${{ steps.meta.outputs.license }}
           refs: ${{ steps.plan.outputs.refs }}
           cache-from: ${{ steps.plan.outputs.cache_from }}
           cache-to: ${{ steps.plan.outputs.cache_to }}
@@ -219,9 +207,7 @@ jobs:
 
       - name: Tag
         if: >-
-          inputs.create_tag
-          && steps.meta.outputs.changed == 'true'
-          && steps.plan.outputs.any == 'true'
+          inputs.create_tag && steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
         uses: ./.gitea/actions/gitea-tag
         with:
           version: ${{ steps.meta.outputs.version }}
@@ -229,5 +215,3 @@ jobs:
           message: ${{ inputs.tag_message }}
           conflict: ${{ inputs.tag_conflict }}
           latest: ${{ inputs.create_latest_tag }}
-          token: ${{ secrets.gitea_token }}
-          server_url: ${{ inputs.server_url || env.INTERNAL_SERVER_URL }}

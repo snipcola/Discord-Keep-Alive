@@ -93,7 +93,7 @@ runs:
             printf '%s\n' "$(join_segments "${prefix}" "${platform_seg}" "${line}" "${suffix}")"
           done <<< "${INPUT_RESTORE_KEYS}"
           echo "EOF"
-        } >> "${GITHUB_OUTPUT}"
+        } >> "${GITEA_OUTPUT}"
 
     - id: cache
       uses: ${{ inputs.image }}

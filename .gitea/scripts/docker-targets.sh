@@ -28,7 +28,7 @@ docker_targets_parse() {
     line="$(docker_trim "${line%%#*}")"
     [ -n "${line}" ] || continue
 
-    if [[ "${line}" != *=* ]]; then
+    if [[ ${line} != *=* ]]; then
       echo "Invalid target (expected platform=target): ${line}" >&2
       return 1
     fi
@@ -40,11 +40,11 @@ docker_targets_parse() {
       echo "Invalid target (empty platform or Rust target): ${line}" >&2
       return 1
     fi
-    if [[ "${platform}" != */* ]]; then
+    if [[ ${platform} != */* ]]; then
       echo "Invalid Docker platform (expected os/arch): ${platform}" >&2
       return 1
     fi
-    if [[ ! "${rust}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    if [[ ! ${rust} =~ ^[A-Za-z0-9._-]+$ ]]; then
       echo "Invalid Rust target: ${rust}" >&2
       return 1
     fi
@@ -59,7 +59,7 @@ docker_targets_parse() {
     DOCKER_TARGET_PLATFORMS+=("${platform}")
     DOCKER_TARGET_RUST+=("${rust}")
     DOCKER_TARGET_NAMES+=("${platform//\//-}")
-  done <<< "${raw}"
+  done <<<"${raw}"
 
   if [ "${#DOCKER_TARGET_PLATFORMS[@]}" -eq 0 ]; then
     echo "No docker targets provided (expected platform=target lines)." >&2
@@ -92,15 +92,27 @@ docker_read_lines() {
     line="$(docker_trim "${line}")"
     [ -n "${line}" ] || continue
     _docker_lines_out+=("${line}")
-  done <<< "${raw}"
+  done <<<"${raw}"
 }
+
+# Strip scheme/path from a registry host (or full URL).
+docker_map_normalize_host() {
+  local host
+  host="$(docker_trim "${1-}")"
+  if [[ ${host} == *://* ]]; then
+    host="${host#*://}"
+  fi
+  host="${host%%/*}"
+  docker_trim "${host}"
+}
+
 
 docker_ref_is_base() {
   local ref="${1-}" last
   [ -n "${ref}" ] || return 1
-  [[ "${ref}" != *@* ]] || return 1
+  [[ ${ref} != *@* ]] || return 1
   last="${ref##*/}"
-  [[ "${last}" != *:* ]]
+  [[ ${last} != *:* ]]
 }
 
 docker_refs_parse() {
@@ -135,17 +147,17 @@ docker_targets_main() {
   docker_targets_parse "${TARGETS}"
   map="$(docker_targets_cache_map_json "${CACHE_MAP}")"
 
-  if [ -n "${GITHUB_OUTPUT-}" ]; then
+  if [ -n "${GITEA_OUTPUT-}" ]; then
     {
       echo "cache_map<<EOF"
       printf '%s\n' "${map}"
       echo "EOF"
-    } >> "${GITHUB_OUTPUT}"
+    } >>"${GITEA_OUTPUT}"
   else
     printf '%s\n' "${map}"
   fi
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ ${BASH_SOURCE[0]} == "${0}" ]]; then
   docker_targets_main
 fi

@@ -22,8 +22,9 @@ inputs:
     required: false
     default: "true"
   token:
-    required: true
-  server_url:
+    required: false
+    default: ""
+  api_url:
     required: false
     default: ""
   repository:
@@ -45,10 +46,10 @@ runs:
         VERSION: ${{ inputs.version }}
         PREFIX: ${{ inputs.prefix }}
         MESSAGE: ${{ inputs.message }}
-        TARGET: ${{ inputs.target }}
+        TARGET: ${{ inputs.target || gitea.sha }}
         CONFLICT: ${{ inputs.conflict }}
         LATEST: ${{ inputs.latest }}
-        TOKEN: ${{ inputs.token }}
-        SERVER_URL: ${{ inputs.server_url }}
-        REPOSITORY: ${{ inputs.repository }}
-      run: bash "${{ github.action_path }}/run.sh"
+        TOKEN: ${{ inputs.token || gitea.token }}
+        API_URL: ${{ inputs.api_url || gitea.api_url }}
+        REPOSITORY: ${{ inputs.repository || gitea.repository }}
+      run: bash "${{ gitea.action_path }}/run.sh"

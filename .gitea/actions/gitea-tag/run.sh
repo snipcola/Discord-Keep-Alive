@@ -10,31 +10,29 @@ require() {
 
 require Version "${VERSION}"
 require Token "${TOKEN}"
+require Repository "${REPOSITORY}"
+require "API URL" "${API_URL}"
+
+target="${TARGET-}"
+require "Target commit" "${target}"
 
 case "${CONFLICT}" in
-  skip|fail|override) ;;
-  *)
-    echo "Conflict must be skip, fail, or override (got ${CONFLICT})." >&2
-    exit 1
-    ;;
+skip | fail | override) ;;
+*)
+  echo "Conflict must be skip, fail, or override (got ${CONFLICT})." >&2
+  exit 1
+  ;;
 esac
 
-server_url="${SERVER_URL:-${GITHUB_SERVER_URL:-}}"
-server_url="${server_url%/}"
-require "Server URL" "${server_url}"
-
-repository="${REPOSITORY:-${GITHUB_REPOSITORY:-}}"
-if [ -z "${repository}" ] || [[ "${repository}" != */* ]]; then
+if [[ ${REPOSITORY} != */* ]]; then
   echo "Repository must be owner/repo." >&2
   exit 1
 fi
 
-target="${TARGET:-${GITHUB_SHA:-}}"
-require "Target commit" "${target}"
+owner="${REPOSITORY%%/*}"
+repo="${REPOSITORY#*/}"
+api="${API_URL%/}/repos/${owner}/${repo}"
 
-owner="${repository%%/*}"
-repo="${repository#*/}"
-api="${server_url}/api/v1/repos/${owner}/${repo}"
 body="$(mktemp)"
 trap 'rm -f "${body}"' EXIT
 auth_hdr=(-H "Authorization: token ${TOKEN}" -H "Content-Type: application/json")
@@ -60,23 +58,24 @@ ensure_tag() {
   local tag="$1"
   local message="${2:-${tag}}"
   local tag_conflict="${3:-${CONFLICT}}"
-  local tag_url="${api}/tags/$(printf '%s' "${tag}" | jq -sRr @uri)"
+  local tag_url
+  tag_url="${api}/tags/$(printf '%s' "${tag}" | jq -sRr @uri)"
   local created=false
 
   tag_commit() {
     request GET "${tag_url}" || return 1
     case "${http_code}" in
-      200) jq -er '.commit.sha' "${body}" ;;
-      404) return 2 ;;
-      *) fail_http "Failed to fetch tag ${tag}" ;;
+    200) jq -er '.commit.sha' "${body}" ;;
+    404) return 2 ;;
+    *) fail_http "Failed to fetch tag ${tag}" ;;
     esac
   }
 
   delete_tag() {
     request DELETE "${tag_url}" || return 1
     case "${http_code}" in
-      200|204|404) ;;
-      *) fail_http "Failed to delete tag ${tag}" ;;
+    200 | 204 | 404) ;;
+    *) fail_http "Failed to delete tag ${tag}" ;;
     esac
   }
 
@@ -91,9 +90,9 @@ ensure_tag() {
     )"
     request POST "${api}/tags" -d "${payload}" || return 1
     case "${http_code}" in
-      201) return 0 ;;
-      409) return 2 ;;
-      *) fail_http "Failed to create tag ${tag}" ;;
+    201) return 0 ;;
+    409) return 2 ;;
+    *) fail_http "Failed to create tag ${tag}" ;;
     esac
   }
 
@@ -123,16 +122,16 @@ ensure_tag() {
     fi
 
     case "${tag_conflict}" in
-      fail)
-        echo "Tag ${tag} already points at ${existing}, not ${target}." >&2
-        return 1
-        ;;
-      skip)
-        echo "Tag ${tag} already points at ${existing}, not ${target}. Skipping."
-        ;;
-      override)
-        place_tag "${existing}"
-        ;;
+    fail)
+      echo "Tag ${tag} already points at ${existing}, not ${target}." >&2
+      return 1
+      ;;
+    skip)
+      echo "Tag ${tag} already points at ${existing}, not ${target}. Skipping."
+      ;;
+    override)
+      place_tag "${existing}"
+      ;;
     esac
   }
 
@@ -181,4 +180,4 @@ fi
 {
   echo "tag=${version_tag}"
   echo "created=${created}"
-} >> "${GITHUB_OUTPUT}"
+} >>"${GITEA_OUTPUT}"

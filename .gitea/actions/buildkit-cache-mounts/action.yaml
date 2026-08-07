@@ -44,10 +44,10 @@ runs:
         CACHE_MAP: ${{ inputs.cache-map }}
       run: |
         set -euo pipefail
-        bash "${{ github.workspace }}/.gitea/scripts/docker-targets.sh"
+        bash "${{ gitea.workspace }}/.gitea/scripts/docker-targets.sh"
         {
           echo "targets_fp=$(printf '%s' "${TARGETS}" | sha256sum | cut -c1-16)"
-        } >> "${GITHUB_OUTPUT}"
+        } >> "${GITEA_OUTPUT}"
 
     - id: cache
       uses: ./.gitea/actions/cache

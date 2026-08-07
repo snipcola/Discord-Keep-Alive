@@ -3,9 +3,12 @@ description: Package version, publish decision, and image base refs
 
 inputs:
   package_name:
-    required: true
+    description: Defaults to the workspace default-member package
+    required: false
+    default: ""
   image_name:
-    required: true
+    required: false
+    default: ""
   manifest_path:
     required: false
     default: Cargo.toml
@@ -18,27 +21,44 @@ inputs:
     required: false
     default: "#release"
   local_registry:
-    required: true
+    required: false
+    default: ""
   local_user:
-    required: true
+    required: false
+    default: ""
   gh_user:
     required: true
   dh_user:
     required: true
+  publish_local:
+    description: Require local registry host/user after defaults
+    required: false
+    default: "true"
 
 outputs:
+  package_name:
+    value: ${{ steps.meta.outputs.package_name }}
   version:
     value: ${{ steps.meta.outputs.version }}
   changed:
     value: ${{ steps.meta.outputs.changed }}
   reason:
     value: ${{ steps.meta.outputs.reason }}
+  image_name:
+    value: ${{ steps.meta.outputs.image_name }}
+  local_registry:
+    value: ${{ steps.meta.outputs.local_registry }}
+  local_user:
+    description: Resolved local registry user (input or repository owner)
+    value: ${{ steps.meta.outputs.local_user }}
   local:
     value: ${{ steps.meta.outputs.local }}
   ghcr:
     value: ${{ steps.meta.outputs.ghcr }}
   docker:
     value: ${{ steps.meta.outputs.docker }}
+  license:
+    value: ${{ steps.meta.outputs.license }}
 
 runs:
   using: composite
@@ -52,7 +72,9 @@ runs:
         IMAGE_NAME: ${{ inputs.image_name }}
         RELEASE_MARKER: ${{ inputs.release_marker }}
         LOCAL_REGISTRY: ${{ inputs.local_registry }}
-        LOCAL_USER: ${{ inputs.local_user }}
+        SERVER_URL: ${{ gitea.server_url }}
+        LOCAL_USER: ${{ inputs.local_user || gitea.repository_owner }}
         GH_USER: ${{ inputs.gh_user }}
         DH_USER: ${{ inputs.dh_user }}
-      run: bash "${{ github.action_path }}/run.sh"
+        PUBLISH_LOCAL: ${{ inputs.publish_local }}
+      run: bash "${{ gitea.action_path }}/run.sh"

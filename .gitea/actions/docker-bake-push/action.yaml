@@ -17,9 +17,16 @@ inputs:
   version:
     required: true
   revision:
-    required: true
+    required: false
+    default: ""
   package:
     required: true
+  source:
+    required: false
+    default: ""
+  license:
+    required: false
+    default: ""
   refs:
     description: Image name bases, one per line (no tag)
     required: true
@@ -62,13 +69,15 @@ runs:
         CONTEXT: ${{ inputs.context }}
         DOCKERFILE: ${{ inputs.file }}
         VERSION: ${{ inputs.version }}
-        REVISION: ${{ inputs.revision }}
+        REVISION: ${{ inputs.revision || gitea.sha }}
         PACKAGE: ${{ inputs.package }}
+        SOURCE: ${{ inputs.source || gitea.repositoryUrl }}
+        LICENSE: ${{ inputs.license }}
         REFS: ${{ inputs.refs }}
         CACHE_FROM: ${{ inputs.cache-from }}
         CACHE_TO: ${{ inputs.cache-to }}
         BAKE_FILE: ${{ runner.temp }}/docker-bake.json
-      run: bash "${{ github.workspace }}/.gitea/scripts/docker-bake-plan.sh"
+      run: bash "${{ gitea.workspace }}/.gitea/scripts/docker-bake-plan.sh"
 
     - id: bake
       uses: ${{ inputs.bake_image }}
@@ -87,4 +96,4 @@ runs:
         REFS: ${{ inputs.refs }}
         VERSION: ${{ inputs.version }}
         ALSO_LATEST: ${{ inputs.also_latest }}
-      run: bash "${{ github.workspace }}/.gitea/scripts/docker-manifest.sh"
+      run: bash "${{ gitea.workspace }}/.gitea/scripts/docker-manifest.sh"

@@ -3,7 +3,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=docker-targets.sh
 source "${SCRIPT_DIR}/docker-targets.sh"
 
 : "${METADATA:?METADATA is required}"
@@ -33,7 +32,7 @@ if [ "${#digests[@]}" -eq 0 ]; then
 fi
 
 for digest in "${digests[@]}"; do
-  if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  if [[ ! ${digest} =~ ^sha256:[0-9a-f]{64}$ ]]; then
     echo "Unexpected containerimage.digest: ${digest}" >&2
     exit 1
   fi
