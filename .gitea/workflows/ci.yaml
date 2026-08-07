@@ -7,22 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: Commit, branch, or tag to build and tag (empty = run ref)
+        description: Git commit, branch, or tag
         type: string
         required: false
         default: ""
       release:
-        description: Force image publish even without version bump or release marker
+        description: Force release
         type: boolean
         required: false
         default: false
       dry_run:
-        description: Run the image build/cache path without pushing images or creating tags
+        description: Dry run
         type: boolean
         required: false
         default: false
       latest_ci:
-        description: Overlay .gitea from this workflow run (use latest CI with an older product ref)
+        description: Use current CI
         type: boolean
         required: false
         default: false
