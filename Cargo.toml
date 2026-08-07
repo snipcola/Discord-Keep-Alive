@@ -28,7 +28,7 @@ rustls = { version = "0.23.43", default-features = false, features = ["std", "tl
 futures-util = { version = "0.3.33", default-features = false, features = ["sink", "std"] }
 zstd = { version = "0.13.3", default-features = false }
 
-clap = { version = "4.6.5", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+clap = { version = "4.6.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 figment = { version = "0.10.19", features = ["toml"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "ansi", "time", "local-time"] }
