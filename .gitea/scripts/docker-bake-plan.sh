@@ -58,19 +58,42 @@ jq -nc \
   --argjson cache_from "${cache_from_json}" \
   --argjson cache_to "${cache_to_json}" \
   '
+    def is_gha:
+      split(",") | any(. == "type=gha" or startswith("type=gha"));
+
+    def strip_platform_suffix:
+      reduce $names[] as $n (
+        .;
+        ("-platform-" + $n) as $tail
+        | if endswith($tail) then .[0:length - ($tail | length)] else . end
+      );
+
     def pin_gha_scope($platform):
-      ("-platform-" + $platform) as $tail
-      | map(
-          if (split(",") | any(. == "type=gha" or startswith("type=gha"))) then
-            (split(",")
-              | map(
-                  if startswith("scope=") then
-                    "scope=" + (.[6:] | if endswith($tail) then . else . + $tail end)
-                  else . end
-                )
-              | join(","))
-          else . end
-        );
+      if is_gha then
+        ("-platform-" + $platform) as $tail
+        | split(",")
+        | map(
+            if startswith("scope=") then
+              "scope=" + (.[6:] | strip_platform_suffix + $tail)
+            else . end
+          )
+        | join(",")
+      else . end;
+
+    def expand_gha_scopes:
+      map(
+        if is_gha then
+          . as $entry
+          | [$names[] as $n | ($entry | pin_gha_scope($n))]
+        else
+          [.]
+        end
+      ) | add // [];
+
+    def gha_ignore_error:
+      if is_gha and (split(",") | any(. == "ignore-error" or startswith("ignore-error=")) | not) then
+        . + ",ignore-error=true"
+      else . end;
 
     def opt_label($key; $val):
       if $val == "" then {} else {($key): $val} end;
@@ -89,6 +112,7 @@ jq -nc \
       end;
 
     [range(0; $platforms | length)] as $idx
+    | ($cache_from | expand_gha_scopes) as $from_all
     | (
         $idx
         | map(
@@ -113,8 +137,8 @@ jq -nc \
                     + opt_label("org.opencontainers.image.source"; $source)
                     + opt_label("org.opencontainers.image.licenses"; $license)
                   ),
-                  "cache-from": ($cache_from | pin_gha_scope($names[$i])),
-                  "cache-to": ($cache_to | pin_gha_scope($names[$i])),
+                  "cache-from": $from_all,
+                  "cache-to": ($cache_to | map(pin_gha_scope($names[$i]) | gha_ignore_error)),
                   output: target_output
                 }
               }
