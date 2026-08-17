@@ -20,12 +20,12 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["raw_value"] }
 
 anyhow = "1.0.104"
-thiserror = "2.0.19"
+thiserror = "2.0.20"
 
 tokio = { version = "1.53.1", default-features = false, features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util"] }
 tokio-tungstenite = { version = "0.30.0", features = ["connect", "rustls-tls-webpki-roots"] }
 rustls = { version = "0.23.43", default-features = false, features = ["std", "tls12", "ring"] }
-futures-util = { version = "0.3.33", default-features = false, features = ["sink", "std"] }
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 zstd = { version = "0.13.3", default-features = false }
 
 clap = { version = "4.6.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
