@@ -4,7 +4,7 @@ description: Bake per platform, push digests, create multi-arch tags
 inputs:
   bake_image:
     required: false
-    default: docker/bake-action@v7.3.0
+    default: https://github.com/docker/bake-action@v7.3.0
   context:
     required: false
     default: "."

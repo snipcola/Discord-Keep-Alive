@@ -1,6 +1,4 @@
-# syntax=docker/dockerfile:1.26.0
-
-ARG ZIGBUILD_IMAGE=ghcr.io/rust-cross/cargo-zigbuild:0.23.0
+ARG ZIGBUILD_IMAGE=ghcr.io/rust-cross/cargo-zigbuild:0.23.0@sha256:b8364c2c60cdcc9b95c402d17654bff517410926a35678bd89dd924b8158d6ae
 
 FROM --platform=$BUILDPLATFORM ${ZIGBUILD_IMAGE} AS builder
 ARG RUST_TARGET

@@ -4,7 +4,7 @@ description: Persist Dockerfile cache mounts across CI runs
 inputs:
   image:
     required: false
-    default: reproducible-containers/buildkit-cache-dance@v3.4.0
+    default: https://github.com/reproducible-containers/buildkit-cache-dance@v3.4.0
   name:
     required: true
   builder:
