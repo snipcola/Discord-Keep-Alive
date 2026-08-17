@@ -4,7 +4,7 @@ description: Restore and save a cache
 inputs:
   image:
     required: false
-    default: https://github.com/actions/cache@v6.1.0
+    default: https://github.com/actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
   path:
     required: true
   key:
