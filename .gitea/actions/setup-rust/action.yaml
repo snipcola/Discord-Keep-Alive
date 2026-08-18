@@ -5,15 +5,30 @@ inputs:
   image:
     required: false
     default: https://github.com/actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+  targets:
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
+    # Commas are not permitted in cache keys.
+    - id: fp
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+      run: echo "targets=$(printf '%s' "${TARGETS}" | sha256sum | cut -c1-16)" >>"${GITEA_OUTPUT}"
+
     - uses: ./.gitea/actions/cache
       with:
         path: ~/.rustup
-        key: rustup-toolchain-${{ hashFiles('rust-toolchain.toml') }}
+        key: rustup-toolchain-${{ hashFiles('rust-toolchain.toml') }}-${{ steps.fp.outputs.targets }}
 
+    # rust-cache never rewrites an entry restored on an exact key match, so
+    # bins and targets are cached separately to avoid pinning stale contents.
     - uses: ${{ inputs.image }}
       with:
+        target: ${{ inputs.targets }}
+        cache-bin: "false"
+        cache-targets: "false"
         cache-directories: ~/.cargo/advisory-dbs

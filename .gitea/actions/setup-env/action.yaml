@@ -1,0 +1,63 @@
+name: Setup environment
+description: Pinned Rust toolchain and the tools a job asks for
+
+inputs:
+  image:
+    required: false
+    default: https://github.com/taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
+  rust:
+    description: Set false when the toolchain is already set up in this job
+    required: false
+    default: "true"
+  targets:
+    required: false
+    default: ""
+  tools:
+    description: Names from supported-tools (whitespace or comma separated)
+    required: false
+    default: ""
+  supported-tools:
+    description: name=version lines
+    required: false
+    default: |
+      cargo-deny=0.20.2
+      cargo-shear=1.13.4
+      cargo-zigbuild=0.23.0
+  zig-version:
+    description: Version bundled by the matching cargo-zigbuild release
+    required: false
+    default: "0.16.0"
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+        TOOLS: ${{ inputs.tools }}
+        SUPPORTED: ${{ inputs.supported-tools }}
+      run: bash "${{ gitea.action_path }}/resolve.sh"
+
+    - if: inputs.rust == 'true'
+      uses: ./.gitea/actions/setup-rust
+      with:
+        targets: ${{ steps.resolve.outputs.rust_targets }}
+
+    - id: cache
+      if: steps.resolve.outputs.specs != ''
+      uses: ./.gitea/actions/cache
+      with:
+        path: ${{ steps.resolve.outputs.paths }}
+        key: cargo-tools-${{ steps.resolve.outputs.fingerprint }}
+
+    - if: steps.resolve.outputs.zig == 'true'
+      uses: ./.gitea/actions/setup-zig
+      with:
+        version: ${{ inputs.zig-version }}
+
+    - if: steps.resolve.outputs.specs != '' && steps.cache.outputs.cache-hit != 'true'
+      uses: ${{ inputs.image }}
+      with:
+        tool: ${{ steps.resolve.outputs.specs }}
+        fallback: none

@@ -1,30 +1,9 @@
-ARG ZIGBUILD_IMAGE=ghcr.io/rust-cross/cargo-zigbuild:0.23.0@sha256:b8364c2c60cdcc9b95c402d17654bff517410926a35678bd89dd924b8158d6ae
-
-FROM --platform=$BUILDPLATFORM ${ZIGBUILD_IMAGE} AS builder
+FROM scratch
 ARG RUST_TARGET
 ARG PACKAGE
+ARG DIST_DIR=dist
 
-WORKDIR /src
-
-RUN --mount=type=bind,source=rust-toolchain.toml,target=/src/rust-toolchain.toml,ro \
-    --mount=type=cache,id=rustup,target=/usr/local/rustup,sharing=locked \
-    test -n "${RUST_TARGET}" || { echo "RUST_TARGET build-arg is required" >&2; exit 1; } \
- && test -n "${PACKAGE}" || { echo "PACKAGE build-arg is required" >&2; exit 1; } \
- && rustup show active-toolchain \
- && rustup target add "${RUST_TARGET}"
-
-RUN --mount=type=bind,source=.,target=/src,ro \
-    --mount=type=cache,id=rustup,target=/usr/local/rustup,sharing=locked \
-    --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=cargo-target-${RUST_TARGET},target=/cargo-target,sharing=locked \
-    CARGO_TARGET_DIR=/cargo-target \
-    cargo zigbuild --release --locked --target "${RUST_TARGET}" -p "${PACKAGE}" \
- && cp "/cargo-target/${RUST_TARGET}/release/${PACKAGE}" /out
-
-FROM scratch
-
-COPY --from=builder --chown=65532:65532 --chmod=755 /out /app
+COPY --chown=65532:65532 --chmod=755 ${DIST_DIR}/${RUST_TARGET}/${PACKAGE} /app
 
 USER 65532:65532
 

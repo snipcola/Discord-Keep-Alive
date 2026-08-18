@@ -1,0 +1,76 @@
+name: Gitea Release
+description: Create a release and upload binary assets via the Gitea API
+
+inputs:
+  version:
+    required: true
+  tag:
+    required: true
+  package:
+    required: true
+  dist_dir:
+    required: false
+    default: dist
+  targets:
+    description: platform=rust-target lines matching the built binaries
+    required: true
+  body:
+    description: Release notes; generated from the commit log when empty
+    required: false
+    default: ""
+  repo_url:
+    description: Public repository URL used for changelog links
+    required: false
+    default: ""
+  draft:
+    required: false
+    default: "false"
+  prerelease:
+    required: false
+    default: "false"
+  token:
+    required: false
+    default: ""
+  api_url:
+    required: false
+    default: ""
+  repository:
+    required: false
+    default: ""
+
+outputs:
+  release_id:
+    value: ${{ steps.release.outputs.release_id }}
+
+runs:
+  using: composite
+  steps:
+    - id: notes
+      if: inputs.body == ''
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        REPO_URL: ${{ inputs.repo_url || format('{0}/{1}', gitea.server_url, gitea.repository) }}
+      run: |
+        set -euo pipefail
+        {
+          echo "body<<CHANGELOG_EOF"
+          bash "${{ gitea.workspace }}/.gitea/scripts/changelog.sh"
+          echo "CHANGELOG_EOF"
+        } >>"${GITEA_OUTPUT}"
+
+    - id: release
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        TAG: ${{ inputs.tag }}
+        PACKAGE: ${{ inputs.package }}
+        DIST_DIR: ${{ inputs.dist_dir }}
+        TARGETS: ${{ inputs.targets }}
+        BODY: ${{ inputs.body || steps.notes.outputs.body }}
+        DRAFT: ${{ inputs.draft }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        TOKEN: ${{ inputs.token || gitea.token }}
+        API_URL: ${{ inputs.api_url || gitea.api_url }}
+        REPOSITORY: ${{ inputs.repository || gitea.repository }}
+      run: bash "${{ gitea.action_path }}/run.sh"

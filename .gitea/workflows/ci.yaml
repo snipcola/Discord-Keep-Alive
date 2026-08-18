@@ -1,4 +1,5 @@
 name: CI
+run-name: ${{ gitea.event_name == 'workflow_dispatch' && format('Manual{0}{1}{2}', inputs.dry_run && ' (dry run)' || '', inputs.release && ' (forced)' || '', inputs.commit && format(' @ {0}', inputs.commit) || '') || '' }}
 
 on:
   push:
@@ -39,9 +40,10 @@ jobs:
       contents: write
       packages: write
     env:
-      DOCKER_TARGETS: |
+      TARGETS: |
         linux/amd64=x86_64-unknown-linux-musl
         linux/arm64=aarch64-unknown-linux-musl
+      DIST_DIR: dist
     steps:
       - name: Checkout
         uses: https://github.com/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,14 +60,17 @@ jobs:
           git fetch --depth=1 origin "${WORKFLOW_SHA}"
           git checkout "${WORKFLOW_SHA}" -- .gitea
 
-      - name: Setup Rust
-        uses: ./.gitea/actions/setup-rust
+      - name: Setup environment
+        uses: ./.gitea/actions/setup-env
+        with:
+          targets: ${{ env.TARGETS }}
+          tools: cargo-deny, cargo-shear
 
-      - name: Setup cargo-deny
-        uses: ./.gitea/actions/setup-cargo-deny
-
-      - name: Setup cargo-shear
-        uses: ./.gitea/actions/setup-cargo-shear
+      - name: Cache host target
+        uses: ./.gitea/actions/cargo-target-cache
+        with:
+          targets: ""
+          key: host
 
       - name: Deny
         run: cargo deny check -D warnings --hide-inclusion-graph
@@ -107,21 +112,33 @@ jobs:
           RUNNER_ARCH: ${{ runner.arch }}
         run: bash "${{ gitea.workspace }}/.gitea/scripts/publish-plan.sh"
 
+      - name: Setup build tools
+        if: steps.meta.outputs.changed == 'true'
+        uses: ./.gitea/actions/setup-env
+        with:
+          rust: "false"
+          tools: cargo-zigbuild
+
+      # Gated so only runs that build these ever write the entry.
+      - name: Cache release targets
+        if: steps.meta.outputs.changed == 'true'
+        uses: ./.gitea/actions/cargo-target-cache
+        with:
+          targets: ${{ env.TARGETS }}
+          key: release
+
+      - name: Build binaries
+        if: steps.meta.outputs.changed == 'true'
+        env:
+          PACKAGE: ${{ steps.meta.outputs.package_name }}
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/build-binaries.sh"
+
       - name: Setup Buildx
         id: buildx
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
         uses: ./.gitea/actions/docker-buildx
         with:
           driver-opts: ${{ steps.plan.outputs.driver_opts }}
-
-      - name: Cache mounts
-        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
-        uses: ./.gitea/actions/buildkit-cache-mounts
-        with:
-          name: ${{ steps.meta.outputs.image_name }}
-          builder: ${{ steps.buildx.outputs.name }}
-          dockerfile: ./Dockerfile
-          targets: ${{ env.DOCKER_TARGETS }}
 
       - name: Login (local)
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
@@ -153,7 +170,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          targets: ${{ env.DOCKER_TARGETS }}
+          targets: ${{ env.TARGETS }}
           version: ${{ steps.meta.outputs.version }}
           revision: ${{ inputs.commit || gitea.sha }}
           package: ${{ steps.meta.outputs.package_name }}
@@ -165,8 +182,34 @@ jobs:
           push: ${{ !inputs.dry_run }}
 
       - name: Tag
+        id: tag
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
         uses: ./.gitea/actions/gitea-tag
         with:
           version: ${{ steps.meta.outputs.version }}
           target: ${{ inputs.commit || gitea.sha }}
+
+      - name: Release
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
+        uses: ./.gitea/actions/gitea-release
+        with:
+          version: ${{ steps.meta.outputs.version }}
+          tag: ${{ steps.tag.outputs.tag }}
+          package: ${{ steps.meta.outputs.package_name }}
+          dist_dir: ${{ env.DIST_DIR }}
+          targets: ${{ env.TARGETS }}
+          repo_url: ${{ steps.meta.outputs.repository }}
+
+      - name: Summary
+        if: always() && steps.meta.conclusion == 'success'
+        env:
+          PACKAGE: ${{ steps.meta.outputs.package_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CHANGED: ${{ steps.meta.outputs.changed }}
+          REASON: ${{ steps.meta.outputs.reason }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          REVISION: ${{ inputs.commit || gitea.sha }}
+          REFS: ${{ steps.plan.outputs.refs }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          FAILED: ${{ contains(job.status, 'failure') }}
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/summary.sh"

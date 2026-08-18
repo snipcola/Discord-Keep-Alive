@@ -1,9 +1,7 @@
 # Build
 /target
+/dist
 
 # Secrets / Config
 .env*
 /config.toml
-
-# CI
-.buildkit-cache-mounts/

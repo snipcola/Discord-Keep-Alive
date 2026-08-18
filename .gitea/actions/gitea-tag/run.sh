@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-require() {
-  if [ -z "${2}" ]; then
-    echo "${1} is required." >&2
-    exit 1
-  fi
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../../scripts/common.sh"
 
 require Version "${VERSION}"
 require Token "${TOKEN}"
@@ -59,7 +55,7 @@ ensure_tag() {
   local message="${2:-${tag}}"
   local tag_conflict="${3:-${CONFLICT}}"
   local tag_url
-  tag_url="${api}/tags/$(printf '%s' "${tag}" | jq -sRr @uri)"
+  tag_url="${api}/tags/$(uri "${tag}")"
   local created=false
 
   tag_commit() {
@@ -71,12 +67,38 @@ ensure_tag() {
     esac
   }
 
-  delete_tag() {
-    request DELETE "${tag_url}" || return 1
+  delete_release() {
+    local release_id
+    request GET "${api}/releases/tags/$(uri "${tag}")" || return 1
     case "${http_code}" in
-    200 | 204 | 404) ;;
-    *) fail_http "Failed to delete tag ${tag}" ;;
+    404) return 0 ;;
+    200) release_id="$(jq -er '.id' "${body}")" || return 1 ;;
+    *) fail_http "Failed to fetch release ${tag}" ;;
     esac
+
+    request DELETE "${api}/releases/${release_id}" || return 1
+    case "${http_code}" in
+    200 | 204 | 404) echo "Removed release ${tag} so its tag can move." ;;
+    *) fail_http "Failed to delete release ${tag}" ;;
+    esac
+  }
+
+  # 409 means a release still points at the tag; drop it and retry once.
+  delete_tag() {
+    local attempt
+    for attempt in 1 2; do
+      request DELETE "${tag_url}" || return 1
+      case "${http_code}" in
+      200 | 204 | 404) return 0 ;;
+      409)
+        if [ "${attempt}" -eq 2 ]; then
+          fail_http "Failed to delete tag ${tag}"
+        fi
+        delete_release || return 1
+        ;;
+      *) fail_http "Failed to delete tag ${tag}" ;;
+      esac
+    done
   }
 
   create_tag() {

@@ -25,6 +25,13 @@ docker run --rm \
 
 Compose example: [`docker-compose.example.yaml`](./docker-compose.example.yaml).
 
+### From a release
+
+Check the [latest release](https://code.snipcola.st/snipcola/Discord-Keep-Alive/releases/latest) for a prebuilt binary matching your platform.
+
+> [!NOTE]
+> Not every platform has a binary; build from source if yours is missing.
+
 ### From source
 
 ```bash

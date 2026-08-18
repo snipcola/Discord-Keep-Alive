@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/docker-targets.sh"
+source "${SCRIPT_DIR}/common.sh"
 
 : "${TARGETS:?TARGETS is required}"
 : "${BAKE_FILE:?BAKE_FILE is required}"
@@ -18,22 +18,22 @@ source "${SCRIPT_DIR}/docker-targets.sh"
 : "${LICENSE:=}"
 : "${PUSH:=true}"
 
-docker_targets_parse "${TARGETS}"
-docker_refs_parse "${REFS}"
+targets_parse "${TARGETS}"
+refs_parse "${REFS}"
 
 cache_from=()
 cache_to=()
-docker_read_lines cache_from "${CACHE_FROM-}"
-docker_read_lines cache_to "${CACHE_TO-}"
+read_lines cache_from "${CACHE_FROM-}"
+read_lines cache_to "${CACHE_TO-}"
 
-platforms_json="$(docker_json_lines "${DOCKER_TARGET_PLATFORMS[@]}")"
-rust_json="$(docker_json_lines "${DOCKER_TARGET_RUST[@]}")"
-names_json="$(docker_json_lines "${DOCKER_TARGET_NAMES[@]}")"
-cache_from_json="$(docker_json_lines "${cache_from[@]+"${cache_from[@]}"}")"
-cache_to_json="$(docker_json_lines "${cache_to[@]+"${cache_to[@]}"}")"
+platforms_json="$(json_lines "${TARGET_PLATFORMS[@]}")"
+rust_json="$(json_lines "${TARGET_RUST[@]}")"
+names_json="$(json_lines "${TARGET_NAMES[@]}")"
+cache_from_json="$(json_lines "${cache_from[@]+"${cache_from[@]}"}")"
+cache_to_json="$(json_lines "${cache_to[@]+"${cache_to[@]}"}")"
 refs_csv="$(
   IFS=,
-  echo "${DOCKER_REFS[*]}"
+  echo "${REFS_LIST[*]}"
 )"
 push_json=false
 if [ "${PUSH}" = "true" ]; then
@@ -152,24 +152,11 @@ jq -nc \
   ' >"${BAKE_FILE}"
 
 if [ -n "${GITEA_OUTPUT-}" ]; then
-  {
-    echo "bake_file=${BAKE_FILE}"
-    echo "platforms=$(
-      IFS=,
-      echo "${DOCKER_TARGET_PLATFORMS[*]}"
-    )"
-    echo "rust_targets=$(
-      IFS=,
-      echo "${DOCKER_TARGET_RUST[*]}"
-    )"
-    echo "target_names=$(
-      IFS=,
-      echo "${DOCKER_TARGET_NAMES[*]}"
-    )"
-  } >>"${GITEA_OUTPUT}"
+  echo "bake_file=${BAKE_FILE}" >>"${GITEA_OUTPUT}"
+  targets_emit_outputs "${GITEA_OUTPUT}"
 fi
 
-echo "Bake plan: ${#DOCKER_TARGET_PLATFORMS[@]} target(s) -> ${BAKE_FILE}"
-for i in "${!DOCKER_TARGET_PLATFORMS[@]}"; do
-  echo "  ${DOCKER_TARGET_PLATFORMS[$i]} => ${DOCKER_TARGET_RUST[$i]}"
+echo "Bake plan: ${#TARGET_PLATFORMS[@]} target(s) -> ${BAKE_FILE}"
+for i in "${!TARGET_PLATFORMS[@]}"; do
+  echo "  ${TARGET_PLATFORMS[$i]} => ${TARGET_RUST[$i]}"
 done

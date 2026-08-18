@@ -1,0 +1,41 @@
+name: Cargo target cache
+description: Cache target directories for the host or the given Rust targets
+
+inputs:
+  targets:
+    description: platform=rust-target lines; omit to cache the host target dir
+    required: true
+  key:
+    description: Key segment identifying this set of targets
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: paths
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+      run: |
+        set -euo pipefail
+        source "${{ gitea.workspace }}/.gitea/scripts/common.sh"
+
+        dir="${CARGO_TARGET_DIR:-target}"
+        subdirs=(debug)
+        if [ -n "$(trim "${TARGETS}")" ]; then
+          targets_parse "${TARGETS}"
+          # Host build scripts and proc macros land in release/.
+          subdirs=(release "${TARGET_RUST[@]}")
+        fi
+
+        {
+          echo "paths<<EOF"
+          printf "%s\n" "${subdirs[@]/#/${dir}/}"
+          echo "EOF"
+        } >>"${GITEA_OUTPUT}"
+
+    - uses: ./.gitea/actions/cache
+      with:
+        path: ${{ steps.paths.outputs.paths }}
+        key: cargo-target-${{ inputs.key }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+        restore-keys: cargo-target-${{ inputs.key }}-

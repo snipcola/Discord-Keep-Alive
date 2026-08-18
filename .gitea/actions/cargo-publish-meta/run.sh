@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../scripts/docker-targets.sh"
+source "${SCRIPT_DIR}/../../scripts/common.sh"
 
 : "${MANIFEST_PATH:=Cargo.toml}"
 
@@ -153,7 +153,7 @@ local_registry="${LOCAL_REGISTRY:-}"
 if [ -z "${local_registry}" ] && [ -n "${SERVER_URL-}" ]; then
   local_registry="${SERVER_URL}"
 fi
-local_registry="$(docker_map_normalize_host "${local_registry}")"
+local_registry="$(normalize_host "${local_registry}")"
 
 local_ref=""
 if [ -n "${local_registry}" ] && [ -n "${local_user}" ]; then

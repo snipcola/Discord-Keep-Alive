@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/docker-targets.sh"
+source "${SCRIPT_DIR}/common.sh"
 
 : "${PUBLISH_LOCAL:?PUBLISH_LOCAL is required}"
 : "${PUBLISH_GHCR:?PUBLISH_GHCR is required}"
@@ -20,7 +20,7 @@ add_dest() {
     echo "Ref is empty for an enabled publish destination." >&2
     exit 1
   fi
-  if ! docker_ref_is_base "${ref}"; then
+  if ! ref_is_base "${ref}"; then
     echo "Ref must be an image name base (no tag/digest): ${ref}" >&2
     exit 1
   fi

@@ -3,14 +3,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/docker-targets.sh"
+source "${SCRIPT_DIR}/common.sh"
 
 : "${METADATA:?METADATA is required}"
 : "${REFS:?REFS is required}"
 : "${VERSION:?VERSION is required}"
 : "${ALSO_LATEST:=true}"
 
-docker_refs_parse "${REFS}"
+refs_parse "${REFS}"
 
 mapfile -t digests < <(
   printf '%s' "${METADATA}" | jq -r '
@@ -38,9 +38,9 @@ for digest in "${digests[@]}"; do
   fi
 done
 
-echo "Creating manifests from ${#digests[@]} platform digest(s) for ${#DOCKER_REFS[@]} ref(s)."
+echo "Creating manifests from ${#digests[@]} platform digest(s) for ${#REFS_LIST[@]} ref(s)."
 
-for ref in "${DOCKER_REFS[@]}"; do
+for ref in "${REFS_LIST[@]}"; do
   sources=()
   for digest in "${digests[@]}"; do
     sources+=("${ref}@${digest}")
