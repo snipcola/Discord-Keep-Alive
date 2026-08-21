@@ -8,6 +8,9 @@ authors.workspace = true
 repository.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 dka-config.workspace = true
 dka-presence.workspace = true

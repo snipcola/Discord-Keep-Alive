@@ -56,7 +56,7 @@ mod tests {
 
   #[test]
   fn resume_url_appends_query() {
-    let query = crate::gateway_query();
+    let query = gateway_query();
     assert_eq!(
       resume_ws_url("wss://gateway-us-east1-b.discord.gg"),
       format!("wss://gateway-us-east1-b.discord.gg/?{query}")

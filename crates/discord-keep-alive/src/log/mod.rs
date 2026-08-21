@@ -43,10 +43,9 @@ mod util {
   use tracing::field::{Field, Visit};
 
   pub(super) fn strip_debug_string(value: String) -> String {
-    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
-      value[1..value.len() - 1].to_string()
-    } else {
-      value
+    match value.strip_circumfix('"', '"') {
+      Some(inner) => inner.to_string(),
+      None => value,
     }
   }
 

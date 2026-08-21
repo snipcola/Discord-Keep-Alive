@@ -9,7 +9,7 @@ pub(super) enum InboundText<'a> {
   Decompressed(&'a str),
 }
 
-impl<'a> InboundText<'a> {
+impl InboundText<'_> {
   pub fn as_str(&self) -> &str {
     match self {
       Self::Text(s) => s.as_ref(),
