@@ -11,7 +11,10 @@ use futures_util::stream::{SplitSink, SplitStream};
 use serde_json::Value;
 use tokio::sync::watch;
 use tokio::time::sleep;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{
+  Message,
+  protocol::{CloseFrame, frame::coding::CloseCode},
+};
 use tracing::{debug, error, info};
 
 use crate::payload::GatewayPayload;
@@ -62,6 +65,12 @@ impl SessionState {
     self.session_id.is_some() && self.seq.is_some()
   }
 
+  // Only resume a session that reached READY/RESUMED; a resume that died earlier
+  // would just be retried against a session the gateway already rejected.
+  fn can_resume_after_error(&self) -> bool {
+    self.session_healthy && self.can_resume()
+  }
+
   fn clear_session(&mut self) {
     self.session_id = None;
     self.resume_url = None;
@@ -74,6 +83,8 @@ impl SessionState {
     (self.on_live)(healthy);
   }
 }
+
+const RECONNECT_CLOSE_CODE: u16 = 4000;
 
 enum SessionEnd {
   Shutdown,
@@ -105,6 +116,17 @@ impl SessionEnd {
       cause,
     }
   }
+
+  // 1000/1001 invalidate the session server-side; any other code keeps it resumable.
+  fn close_frame(&self) -> Option<CloseFrame> {
+    match self {
+      Self::Reconnect { .. } => Some(CloseFrame {
+        code: CloseCode::from(RECONNECT_CLOSE_CODE),
+        reason: "reconnecting".into(),
+      }),
+      Self::Shutdown | Self::Fatal { .. } => None,
+    }
+  }
 }
 
 pub async fn run_session(
@@ -129,48 +151,36 @@ pub async fn run_session(
     debug!("connecting to {}", display_ws_url(&connect_url));
     state.set_healthy(false);
 
-    match connect_and_run(&params, &mut state, &connect_url, &mut shutdown).await {
-      Ok(SessionEnd::Shutdown) => return finish_disconnect(&mut state),
-      Ok(SessionEnd::Fatal { code, reason }) => {
-        state.set_healthy(false);
-        error!(code, reason = %reason, "session stopped (fatal close)");
-        return Ok(());
-      }
-      Ok(SessionEnd::Reconnect {
-        resume,
-        extra_delay,
-        cause,
-      }) => {
-        if schedule_reconnect(
-          &mut state,
-          &mut attempt,
-          !resume,
+    let (resume, extra_delay, cause) =
+      match connect_and_run(&params, &mut state, &connect_url, &mut shutdown).await {
+        Ok(SessionEnd::Shutdown) => return finish_disconnect(&mut state),
+        Ok(SessionEnd::Fatal { code, reason }) => {
+          state.set_healthy(false);
+          error!(code, reason = %reason, "session stopped (fatal close)");
+          return Ok(());
+        }
+        Ok(SessionEnd::Reconnect {
           resume,
           extra_delay,
           cause,
-          &mut shutdown,
-        )
-        .await
-        {
-          return Ok(());
+        }) => (resume, extra_delay, cause),
+        Err(err) => {
+          error!(error = %err, "session failed");
+          (state.can_resume_after_error(), None, "error")
         }
-      }
-      Err(err) => {
-        error!(error = %err, "session failed");
-        if schedule_reconnect(
-          &mut state,
-          &mut attempt,
-          true,
-          false,
-          None,
-          "error",
-          &mut shutdown,
-        )
-        .await
-        {
-          return Ok(());
-        }
-      }
+      };
+
+    if schedule_reconnect(
+      &mut state,
+      &mut attempt,
+      resume,
+      extra_delay,
+      cause,
+      &mut shutdown,
+    )
+    .await
+    {
+      return Ok(());
     }
   }
 }
@@ -184,17 +194,16 @@ fn finish_disconnect(state: &mut SessionState) -> Result<()> {
 async fn schedule_reconnect(
   state: &mut SessionState,
   attempt: &mut u32,
-  clear_session: bool,
   resume: bool,
   extra_delay: Option<Duration>,
   cause: &str,
   shutdown: &mut watch::Receiver<bool>,
 ) -> bool {
   let was_healthy = state.session_healthy;
-  if clear_session {
-    state.clear_session();
-  } else {
+  if resume {
     state.set_healthy(false);
+  } else {
+    state.clear_session();
   }
   if was_healthy {
     *attempt = 0;
@@ -250,4 +259,45 @@ async fn send_json(write: &mut WsWrite, payload: &GatewayPayload) -> Result<()> 
     .await
     .context("send websocket text")?;
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn state(healthy: bool, session: bool) -> SessionState {
+    let mut state = SessionState::new(Box::new(|_| {}));
+    if session {
+      state.session_id = Some("abc".into());
+      state.seq = Some(7);
+    }
+    state.session_healthy = healthy;
+    state
+  }
+
+  #[test]
+  fn error_resumes_only_once_session_is_established() {
+    assert!(state(true, true).can_resume_after_error());
+    assert!(!state(false, true).can_resume_after_error());
+    assert!(!state(true, false).can_resume_after_error());
+  }
+
+  #[test]
+  fn only_reconnect_closes_and_keeps_session_resumable() {
+    let frame = SessionEnd::reconnect(true, "reconnect")
+      .close_frame()
+      .expect("reconnect sends a close frame");
+    assert!(!matches!(u16::from(frame.code), 1000 | 1001));
+    assert!(frame.code.is_allowed());
+
+    assert!(SessionEnd::Shutdown.close_frame().is_none());
+    assert!(
+      SessionEnd::Fatal {
+        code: 4004,
+        reason: "auth".into(),
+      }
+      .close_frame()
+      .is_none()
+    );
+  }
 }

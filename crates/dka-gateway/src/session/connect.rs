@@ -227,7 +227,10 @@ pub(super) async fn connect_and_run(
     SessionEnd::Shutdown => {
       graceful_disconnect(&mut write, &mut read, presence_applied, params.kind).await;
     }
-    SessionEnd::Reconnect { .. } | SessionEnd::Fatal { .. } => {
+    end => {
+      if let Some(frame) = end.close_frame() {
+        let _ = write.send(Message::Close(Some(frame))).await;
+      }
       let _ = write.close().await;
     }
   }
