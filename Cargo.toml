@@ -25,6 +25,19 @@ unused_macro_rules = "deny"
 unused_must_use = "deny"
 unused_qualifications = "deny"
 
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+dbg_macro = "deny"
+empty_enum_variants_with_brackets = "deny"
+exit = "deny"
+float_cmp = "deny"
+lossy_float_literal = "deny"
+mem_forget = "deny"
+rest_pat_in_fully_bound_structs = "deny"
+todo = "deny"
+unimplemented = "deny"
+verbose_file_reads = "deny"
+
 [workspace.dependencies]
 dka-presence = { path = "crates/dka-presence" }
 dka-gateway = { path = "crates/dka-gateway" }
