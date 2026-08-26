@@ -6,7 +6,7 @@ inputs:
     required: true
   prefix:
     required: false
-    default: "v"
+    default: ""
   message:
     required: false
     default: ""

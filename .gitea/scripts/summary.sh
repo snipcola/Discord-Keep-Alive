@@ -32,7 +32,7 @@ item() { printf -- '- `%s`%s\n' "$1" "${2:+ ($2)}"; }
 heading() { printf '\n#### %s\n\n' "$1"; }
 
 summary() {
-  echo "### ${PACKAGE}${VERSION:+ v${VERSION}}"
+  echo "### ${PACKAGE}${VERSION:+ ${VERSION}}"
   echo
   row Published "${published}"
   [ -z "${REASON-}" ] || row Reason "\`${REASON}\`"

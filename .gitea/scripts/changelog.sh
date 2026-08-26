@@ -18,7 +18,7 @@ else
   "${fetch[@]}" 2>/dev/null || true
 fi
 
-prev="$(git tag --list 'v*' --sort=-version:refname | grep -A1 -xF "${TAG}" | tail -n +2 | head -n 1 || true)"
+prev="$(git tag --list '[0-9]*' --sort=-version:refname | grep -A1 -xF "${TAG}" | tail -n +2 | head -n 1 || true)"
 
 if [ -n "${prev}" ]; then
   # A BREAKING CHANGE footer is equivalent to `!` on the type.
