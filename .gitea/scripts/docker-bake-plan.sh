@@ -13,6 +13,7 @@ source "${SCRIPT_DIR}/common.sh"
 : "${REVISION:?REVISION is required}"
 : "${PACKAGE:?PACKAGE is required}"
 : "${REFS:?REFS is required}"
+: "${ARTIFACT:=result}"
 : "${CREATED:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 : "${SOURCE:=}"
 : "${LICENSE:=}"
@@ -47,6 +48,7 @@ jq -nc \
   --arg version "${VERSION}" \
   --arg revision "${REVISION}" \
   --arg package "${PACKAGE}" \
+  --arg artifact "${ARTIFACT}" \
   --arg source "${SOURCE}" \
   --arg created "${CREATED}" \
   --arg license "${LICENSE}" \
@@ -125,7 +127,7 @@ jq -nc \
                   platforms: [$platforms[$i]],
                   args: {
                     RUST_TARGET: $rust[$i],
-                    PACKAGE: $package
+                    ARTIFACT: $artifact
                   },
                   labels: (
                     {

@@ -7,6 +7,7 @@ source "${SCRIPT_DIR}/common.sh"
 
 : "${GITEA_STEP_SUMMARY:?GITEA_STEP_SUMMARY is required}"
 : "${PACKAGE:?PACKAGE is required}"
+: "${ARTIFACT:=result}"
 : "${CHANGED:=false}"
 : "${DRY_RUN:=false}"
 
@@ -44,7 +45,7 @@ summary() {
     targets_parse "${TARGETS}"
     heading Binaries
     for target in "${TARGET_RUST[@]}"; do
-      bin="${DIST_DIR:-dist}/${target}/${PACKAGE}"
+      bin="${DIST_DIR:-dist}/${target}/${ARTIFACT}"
       if [ -f "${bin}" ]; then
         item "${target}" "$(du -h "${bin}" | cut -f1)"
       else

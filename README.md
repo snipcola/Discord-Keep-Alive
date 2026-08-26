@@ -32,6 +32,14 @@ Check the [latest release](https://code.snipcola.st/snipcola/Discord-Keep-Alive/
 > [!NOTE]
 > Not every platform has a binary; build from source if yours is missing.
 
+### With cargo
+
+```bash
+cargo install --git https://code.snipcola.st/snipcola/Discord-Keep-Alive --tag latest discord-keep-alive
+```
+
+Installs the `dka` binary.
+
 ### From source
 
 ```bash

@@ -11,6 +11,8 @@ require Token "${TOKEN}"
 require Repository "${REPOSITORY}"
 require "API URL" "${API_URL}"
 
+: "${ARTIFACT:=result}"
+
 if [[ ${REPOSITORY} != */* ]]; then
   echo "Repository must be owner/repo." >&2
   exit 1
@@ -112,7 +114,7 @@ else
 fi
 
 for target in "${TARGET_RUST[@]}"; do
-  file="${DIST_DIR}/${target}/${PACKAGE}"
+  file="${DIST_DIR}/${target}/${ARTIFACT}"
   if [ ! -f "${file}" ]; then
     echo "Missing binary for ${target}: ${file}" >&2
     exit 1

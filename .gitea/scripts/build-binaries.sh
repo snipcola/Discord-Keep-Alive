@@ -9,8 +9,16 @@ source "${SCRIPT_DIR}/common.sh"
 : "${PACKAGE:?PACKAGE is required}"
 : "${DIST_DIR:=dist}"
 : "${CARGO_TARGET_DIR:=target}"
+: "${ARTIFACT:=result}"
 
 targets_parse "${TARGETS}"
+
+# The binary is named by [[bin]], not by the package.
+binary="$(
+  cargo metadata --format-version 1 --no-deps |
+    jq -er --arg pkg "${PACKAGE}" \
+      'first(.packages[] | select(.name == $pkg) | .targets[] | select(.kind[] == "bin") | .name)'
+)"
 
 # One invocation: concurrent ones would serialise on the build directory lock.
 args=()
@@ -22,11 +30,11 @@ cargo zigbuild --release --locked -p "${PACKAGE}" "${args[@]}"
 
 rm -rf "${DIST_DIR}"
 for target in "${TARGET_RUST[@]}"; do
-  src="${CARGO_TARGET_DIR}/${target}/release/${PACKAGE}"
+  src="${CARGO_TARGET_DIR}/${target}/release/${binary}"
   if [ ! -f "${src}" ]; then
     echo "Expected binary not found: ${src}" >&2
     exit 1
   fi
-  install -Dm755 "${src}" "${DIST_DIR}/${target}/${PACKAGE}"
-  echo "${target} -> ${DIST_DIR}/${target}/${PACKAGE} ($(du -h "${src}" | cut -f1))"
+  install -Dm755 "${src}" "${DIST_DIR}/${target}/${ARTIFACT}"
+  echo "${target} -> ${DIST_DIR}/${target}/${ARTIFACT} ($(du -h "${src}" | cut -f1))"
 done
