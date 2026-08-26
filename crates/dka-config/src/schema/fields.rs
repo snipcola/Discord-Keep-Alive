@@ -283,36 +283,109 @@ string_fields! {
       cli_long: None,
       set_suffix: "user_agent",
     },
+    ClientVersion(client_version) {
+      toml: "client_version",
+      env_suffix: Some("CLIENT_VERSION"),
+      cli_long: None,
+      set_suffix: "client_version",
+    },
+    OsVersion(os_version) {
+      toml: "os_version",
+      env_suffix: Some("OS_VERSION"),
+      cli_long: None,
+      set_suffix: "os_version",
+    },
+    OsArch(os_arch) {
+      toml: "os_arch",
+      env_suffix: Some("OS_ARCH"),
+      cli_long: None,
+      set_suffix: "os_arch",
+    },
+    AppArch(app_arch) {
+      toml: "app_arch",
+      env_suffix: Some("APP_ARCH"),
+      cli_long: None,
+      set_suffix: "app_arch",
+    },
+    SystemLocale(system_locale) {
+      toml: "system_locale",
+      env_suffix: Some("SYSTEM_LOCALE"),
+      cli_long: None,
+      set_suffix: "system_locale",
+    },
+    ReleaseChannel(release_channel) {
+      toml: "release_channel",
+      env_suffix: Some("RELEASE_CHANNEL"),
+      cli_long: None,
+      set_suffix: "release_channel",
+    },
+    BrowserVersion(browser_version) {
+      toml: "browser_version",
+      env_suffix: Some("BROWSER_VERSION"),
+      cli_long: None,
+      set_suffix: "browser_version",
+    },
+    OsSdkVersion(os_sdk_version) {
+      toml: "os_sdk_version",
+      env_suffix: Some("OS_SDK_VERSION"),
+      cli_long: None,
+      set_suffix: "os_sdk_version",
+    },
+    ClientBuildNumber(client_build_number) {
+      toml: "client_build_number",
+      env_suffix: Some("CLIENT_BUILD_NUMBER"),
+      cli_long: None,
+      set_suffix: "client_build_number",
+    },
+    NativeBuildNumber(native_build_number) {
+      toml: "native_build_number",
+      env_suffix: Some("NATIVE_BUILD_NUMBER"),
+      cli_long: None,
+      set_suffix: "native_build_number",
+    },
   }
   env_req partial
+}
+
+fn empty_to_none(value: String) -> Option<String> {
+  if value.is_empty() { None } else { Some(value) }
 }
 
 impl ClientPropField {
   pub const fn empty_policy(self) -> ClientPropEmptyPolicy {
     match self {
       Self::Os => ClientPropEmptyPolicy::SkipEmpty,
-      Self::Browser | Self::UserAgent => ClientPropEmptyPolicy::EmptyToNone,
       Self::Device => ClientPropEmptyPolicy::AssignEvenEmpty,
+      _ => ClientPropEmptyPolicy::EmptyToNone,
     }
   }
 
   pub fn apply_override(self, dst: &mut dka_gateway::properties::ClientProperties, value: String) {
-    match (self, self.empty_policy()) {
-      (Self::Os, ClientPropEmptyPolicy::SkipEmpty) => {
+    match self.empty_policy() {
+      ClientPropEmptyPolicy::SkipEmpty => {
         if !value.is_empty() {
           dst.os = value;
         }
       }
-      (Self::Browser, ClientPropEmptyPolicy::EmptyToNone) => {
-        dst.browser = if value.is_empty() { None } else { Some(value) };
+      ClientPropEmptyPolicy::AssignEvenEmpty => dst.device = value,
+      ClientPropEmptyPolicy::EmptyToNone => {
+        let slot = match self {
+          Self::Os | Self::Device => unreachable!("empty_policy must match field"),
+          Self::Browser => &mut dst.browser,
+          Self::UserAgent => &mut dst.user_agent,
+          Self::ClientVersion => &mut dst.client_version,
+          Self::OsVersion => &mut dst.os_version,
+          Self::OsArch => &mut dst.os_arch,
+          Self::AppArch => &mut dst.app_arch,
+          Self::SystemLocale => &mut dst.system_locale,
+          Self::ReleaseChannel => &mut dst.release_channel,
+          Self::BrowserVersion => &mut dst.browser_version,
+          Self::OsSdkVersion => &mut dst.os_sdk_version,
+          Self::ClientBuildNumber => &mut dst.client_build_number,
+          Self::NativeBuildNumber => &mut dst.native_build_number,
+        };
+        *slot = empty_to_none(value);
       }
-      (Self::UserAgent, ClientPropEmptyPolicy::EmptyToNone) => {
-        dst.user_agent = if value.is_empty() { None } else { Some(value) };
-      }
-      (Self::Device, ClientPropEmptyPolicy::AssignEvenEmpty) => {
-        dst.device = value;
-      }
-      _ => unreachable!("empty_policy must match field"),
     }
   }
 }

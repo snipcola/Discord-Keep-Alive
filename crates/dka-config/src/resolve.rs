@@ -678,11 +678,17 @@ mod tests {
     partial.defaults.web.browser = Some(String::new());
     partial.defaults.web.device = Some(String::new());
     partial.defaults.web.user_agent = Some(String::new());
+    partial.defaults.web.system_locale = Some(String::new());
     let cfg = resolve_config(partial).unwrap();
     let product = product_defaults();
     assert_eq!(cfg.defaults.web.os, product.web.os);
     assert_eq!(cfg.defaults.web.browser, None);
     assert_eq!(cfg.defaults.web.user_agent, None);
     assert_eq!(cfg.defaults.web.device, "");
+    assert_eq!(cfg.defaults.web.system_locale, None);
+    assert_eq!(
+      cfg.defaults.desktop.system_locale,
+      product.desktop.system_locale
+    );
   }
 }

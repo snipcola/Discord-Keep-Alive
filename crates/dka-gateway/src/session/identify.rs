@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
-use serde_json::json;
+use serde_json::{Value, json};
 use tokio::sync::watch;
 use tokio::time::sleep;
 use tokio_tungstenite::tungstenite::{
@@ -83,20 +83,31 @@ pub(super) async fn graceful_disconnect(
   let _ = write.close().await;
 }
 
-pub(super) async fn send_identify(write: &mut WsWrite, params: &SessionParams) -> Result<()> {
+pub(super) fn identify_d(params: &SessionParams) -> Value {
   // Identify carries presence for the pre-READY window; READY/RESUMED re-apply it.
+  // Payload-level zlib off; transport already uses zstd-stream.
   let mut d = json!({
     "token": params.token,
-    "properties": identify_properties(&params.properties),
-    // Payload-level zlib off; transport already uses zstd-stream.
+    "properties": identify_properties(&params.properties, params.kind),
     "compress": false,
-    "large_threshold": 50,
     "presence": params.presence.clone(),
   });
   if params.kind == AccountKind::Bot {
+    d["large_threshold"] = json!(50);
     d["intents"] = json!(0);
+  } else {
+    d["large_threshold"] = json!(250);
+    d["capabilities"] = json!(1_734_653);
+    d["client_state"] = json!({
+      "guild_versions": {},
+      "api_code_version": 0,
+    });
   }
-  send_json(write, &GatewayPayload::new(OP_IDENTIFY, d)).await
+  d
+}
+
+pub(super) async fn send_identify(write: &mut WsWrite, params: &SessionParams) -> Result<()> {
+  send_json(write, &GatewayPayload::new(OP_IDENTIFY, identify_d(params))).await
 }
 
 pub(super) enum HelloWaitError {
@@ -168,5 +179,82 @@ pub(super) async fn wait_for_hello(
         }
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use dka_presence::AccountKind;
+  use serde_json::json;
+
+  use crate::properties::ClientProperties;
+  use crate::session::SessionParams;
+
+  use super::identify_d;
+
+  fn params(kind: AccountKind, properties: ClientProperties) -> SessionParams {
+    SessionParams {
+      name: "t".into(),
+      token: "tok".into(),
+      kind,
+      presence: json!({}),
+      properties,
+    }
+  }
+
+  #[test]
+  fn user_identify_envelope() {
+    let d = identify_d(&params(
+      AccountKind::User,
+      ClientProperties {
+        os: "Windows".into(),
+        browser: Some("Firefox".into()),
+        device: String::new(),
+        user_agent: Some("ua".into()),
+        os_version: Some("10".into()),
+        ..Default::default()
+      },
+    ));
+    assert_eq!(d["token"], "tok");
+    assert_eq!(d["compress"], false);
+    assert_eq!(d["large_threshold"], 250);
+    assert_eq!(d["presence"], json!({}));
+    assert_eq!(d["capabilities"], 1_734_653);
+    assert_eq!(
+      d["client_state"],
+      json!({"guild_versions": {}, "api_code_version": 0})
+    );
+    assert!(d.get("intents").is_none());
+    let props = &d["properties"];
+    assert_eq!(props["os"], "Windows");
+    assert_eq!(props["has_client_mods"], false);
+    assert!(props["client_event_source"].is_null());
+    assert_eq!(props["browser_user_agent"], "ua");
+    assert!(props.get("launch_signature").is_none());
+  }
+
+  #[test]
+  fn bot_identify_envelope() {
+    let d = identify_d(&params(
+      AccountKind::Bot,
+      ClientProperties {
+        os: "linux".into(),
+        browser: Some("discord-keep-alive".into()),
+        device: "discord-keep-alive".into(),
+        ..Default::default()
+      },
+    ));
+    assert_eq!(d["token"], "tok");
+    assert_eq!(d["compress"], false);
+    assert_eq!(d["large_threshold"], 50);
+    assert_eq!(d["intents"], 0);
+    assert_eq!(d["presence"], json!({}));
+    assert!(d.get("capabilities").is_none());
+    assert!(d.get("client_state").is_none());
+    let props = d["properties"].as_object().expect("properties");
+    assert_eq!(props.len(), 3);
+    assert_eq!(props["os"], "linux");
+    assert_eq!(props["browser"], "discord-keep-alive");
+    assert_eq!(props["device"], "discord-keep-alive");
   }
 }
