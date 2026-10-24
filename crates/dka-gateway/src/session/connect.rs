@@ -62,7 +62,7 @@ pub(super) async fn connect_and_run(
   };
   debug!("connected");
   let (mut write, mut read) = ws.split();
-  let mut decomp = TransportDecompress::new()?;
+  let mut decomp = TransportDecompress::new();
 
   if is_shutdown(shutdown) {
     graceful_disconnect(&mut write, &mut read, false, params.kind).await;
