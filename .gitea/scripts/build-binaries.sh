@@ -26,7 +26,7 @@ for target in "${TARGET_RUST[@]}"; do
   args+=(--target "${target}")
 done
 
-cargo zigbuild --release --locked -p "${PACKAGE}" "${args[@]}"
+cargo zbr -p "${PACKAGE}" "${args[@]}"
 
 rm -rf "${DIST_DIR}"
 for target in "${TARGET_RUST[@]}"; do

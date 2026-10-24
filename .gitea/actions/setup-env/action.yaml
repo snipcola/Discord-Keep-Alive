@@ -4,7 +4,7 @@ description: Pinned Rust toolchain and the tools a job asks for
 inputs:
   image:
     required: false
-    default: https://github.com/taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2.86.8
+    default: https://github.com/taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
   rust:
     description: Set false when the toolchain is already set up in this job
     required: false
@@ -21,12 +21,12 @@ inputs:
     required: false
     default: |
       cargo-deny=0.20.2
-      cargo-shear=1.13.4
-      cargo-zigbuild=0.23.2
+      cargo-shear=1.14.0
+      cargo-zigbuild=0.24.0
   zig-version:
     description: Version bundled by the matching cargo-zigbuild release
     required: false
-    default: "0.16.0"
+    default: "0.17.0"
 
 runs:
   using: composite

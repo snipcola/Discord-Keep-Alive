@@ -46,7 +46,7 @@ jobs:
       DIST_DIR: dist
     steps:
       - name: Checkout
-        uses: https://github.com/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: builtin:checkout
         with:
           ref: ${{ inputs.commit || gitea.sha }}
           fetch-depth: 2 # HEAD + first parent for version compare.
@@ -73,19 +73,19 @@ jobs:
           key: host
 
       - name: Deny
-        run: cargo deny check -D warnings --hide-inclusion-graph
+        run: cargo dn
 
       - name: Shear
-        run: cargo shear --locked --deny-warnings
+        run: cargo sh
 
       - name: Format
-        run: cargo fmt --all --check
+        run: cargo fc
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+        run: cargo c
 
       - name: Test
-        run: cargo test --workspace --locked --all-features
+        run: cargo t
 
       - name: Version & publish decision
         id: meta

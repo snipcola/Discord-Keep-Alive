@@ -13,9 +13,6 @@ workspace = true
 
 [dependencies]
 dka-gateway.workspace = true
-
 anyhow.workspace = true
-
 tokio.workspace = true
-
 tracing.workspace = true

@@ -13,16 +13,12 @@ workspace = true
 
 [dependencies]
 dka-presence.workspace = true
-
 serde.workspace = true
 serde_json.workspace = true
-
 anyhow.workspace = true
-
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 zstd.workspace = true
-
 tracing.workspace = true
 rand.workspace = true
