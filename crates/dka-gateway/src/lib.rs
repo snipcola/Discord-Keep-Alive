@@ -2,6 +2,7 @@ pub(crate) mod compress;
 pub(crate) mod heartbeat;
 pub(crate) mod payload;
 pub mod properties;
+pub(crate) mod qos;
 pub(crate) mod reconnect;
 pub mod session;
 

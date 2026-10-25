@@ -3,6 +3,7 @@ use crate::merge::ensure_id_in_order;
 use crate::model::partial::{PartialAccount, PartialConfig, PartialCustomStatus};
 use crate::schema::fields::{
   AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
+  GlobalDefaultField,
 };
 use crate::schema::id::{self, AccountId, ActivityId};
 
@@ -10,6 +11,7 @@ use crate::schema::id::{self, AccountId, ActivityId};
 pub enum ConfigPath {
   LogLevel,
   HealthSocket,
+  GlobalDefault(GlobalDefaultField),
   Defaults(DefaultsProfile, ClientPropField),
   Account(AccountId, AccountPath),
 }
@@ -28,6 +30,9 @@ pub fn apply_path(partial: &mut PartialConfig, path: &ConfigPath, value: String)
     }
     ConfigPath::HealthSocket => {
       partial.health_socket = Some(value);
+    }
+    ConfigPath::GlobalDefault(field) => {
+      *field.get_mut(&mut partial.defaults.global) = Some(value);
     }
     ConfigPath::Defaults(profile, field) => {
       let props = profile.props_mut(&mut partial.defaults);

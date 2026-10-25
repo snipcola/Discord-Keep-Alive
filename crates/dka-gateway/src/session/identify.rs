@@ -19,6 +19,7 @@ use crate::payload::{
   GatewayEnvelope, GatewayPayload, HelloData, OP_HELLO, OP_IDENTIFY, OP_PRESENCE_UPDATE,
 };
 use crate::properties::identify_properties;
+use crate::qos::{DerivedQos, identify_token};
 
 use super::inbound::decode_inbound;
 use super::{SessionParams, WsRead, WsWrite, send_json};
@@ -83,7 +84,7 @@ pub(super) async fn graceful_disconnect(
   let _ = write.close().await;
 }
 
-pub(super) fn identify_d(params: &SessionParams) -> Value {
+pub(super) fn identify_d(params: &SessionParams, qos: Option<&DerivedQos>) -> Value {
   // Identify carries presence for the pre-READY window; READY/RESUMED re-apply it.
   // Payload-level zlib off; transport already uses zstd-stream.
   let mut d = json!({
@@ -97,17 +98,28 @@ pub(super) fn identify_d(params: &SessionParams) -> Value {
     d["intents"] = json!(0);
   } else {
     d["large_threshold"] = json!(250);
-    d["capabilities"] = json!(1_734_653);
+    if let Some(capabilities) = params.user.capabilities {
+      d["capabilities"] = json!(capabilities);
+    }
     d["client_state"] = json!({
       "guild_versions": {},
       "api_code_version": 0,
     });
+    d["qos_token"] = json!(identify_token(qos));
   }
   d
 }
 
-pub(super) async fn send_identify(write: &mut WsWrite, params: &SessionParams) -> Result<()> {
-  send_json(write, &GatewayPayload::new(OP_IDENTIFY, identify_d(params))).await
+pub(super) async fn send_identify(
+  write: &mut WsWrite,
+  params: &SessionParams,
+  qos: Option<&DerivedQos>,
+) -> Result<()> {
+  send_json(
+    write,
+    &GatewayPayload::new(OP_IDENTIFY, identify_d(params, qos)),
+  )
+  .await
 }
 
 pub(super) enum HelloWaitError {
@@ -187,7 +199,7 @@ mod tests {
   use dka_presence::AccountKind;
   use serde_json::json;
 
-  use crate::properties::ClientProperties;
+  use crate::properties::{ClientProperties, UserOptions};
   use crate::session::SessionParams;
 
   use super::identify_d;
@@ -199,12 +211,13 @@ mod tests {
       kind,
       presence: json!({}),
       properties,
+      user: UserOptions::default(),
     }
   }
 
   #[test]
   fn user_identify_envelope() {
-    let d = identify_d(&params(
+    let user = params(
       AccountKind::User,
       ClientProperties {
         os: "Windows".into(),
@@ -214,16 +227,28 @@ mod tests {
         os_version: Some("10".into()),
         ..Default::default()
       },
-    ));
+    );
+    assert!(identify_d(&user, None).get("capabilities").is_none());
+    let d = identify_d(
+      &SessionParams {
+        user: UserOptions {
+          capabilities: Some(7),
+          ..Default::default()
+        },
+        ..user
+      },
+      None,
+    );
     assert_eq!(d["token"], "tok");
     assert_eq!(d["compress"], false);
     assert_eq!(d["large_threshold"], 250);
     assert_eq!(d["presence"], json!({}));
-    assert_eq!(d["capabilities"], 1_734_653);
+    assert_eq!(d["capabilities"], 7);
     assert_eq!(
       d["client_state"],
       json!({"guild_versions": {}, "api_code_version": 0})
     );
+    assert_eq!(d["qos_token"], "CgA=");
     assert!(d.get("intents").is_none());
     let props = &d["properties"];
     assert_eq!(props["os"], "Windows");
@@ -235,15 +260,18 @@ mod tests {
 
   #[test]
   fn bot_identify_envelope() {
-    let d = identify_d(&params(
-      AccountKind::Bot,
-      ClientProperties {
-        os: "linux".into(),
-        browser: Some("discord-keep-alive".into()),
-        device: "discord-keep-alive".into(),
-        ..Default::default()
-      },
-    ));
+    let d = identify_d(
+      &params(
+        AccountKind::Bot,
+        ClientProperties {
+          os: "linux".into(),
+          browser: Some("discord-keep-alive".into()),
+          device: "discord-keep-alive".into(),
+          ..Default::default()
+        },
+      ),
+      None,
+    );
     assert_eq!(d["token"], "tok");
     assert_eq!(d["compress"], false);
     assert_eq!(d["large_threshold"], 50);
@@ -251,6 +279,7 @@ mod tests {
     assert_eq!(d["presence"], json!({}));
     assert!(d.get("capabilities").is_none());
     assert!(d.get("client_state").is_none());
+    assert!(d.get("qos_token").is_none());
     let props = d["properties"].as_object().expect("properties");
     assert_eq!(props.len(), 3);
     assert_eq!(props["os"], "linux");

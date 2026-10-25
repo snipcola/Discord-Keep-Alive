@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use crate::model::partial::PartialConfig;
 use crate::schema::fields::{
   AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
+  GlobalDefaultField,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR, parse_user_id};
 use crate::schema::path::{
@@ -13,6 +14,7 @@ use crate::util::trim_nonempty;
 
 const ENV_LOG_LEVEL: &str = "LOG_LEVEL";
 const ENV_HEALTH_SOCKET: &str = "HEALTH_SOCKET";
+const ENV_DEFAULTS_PREFIX: &str = "DEFAULTS_";
 
 #[derive(Clone, Copy)]
 enum AccountEnvField {
@@ -111,6 +113,9 @@ fn probe_flat_keys() -> Vec<String> {
       keys.push(format!("{}{}", profile.env_prefix(), field.env_suffix()));
     }
   }
+  for &field in GlobalDefaultField::ALL {
+    keys.push(format!("{}{}", ENV_DEFAULTS_PREFIX, field.env_suffix()));
+  }
   keys
 }
 
@@ -147,7 +152,7 @@ fn parse_env_key(key: &str) -> Option<ConfigPath> {
     ENV_LOG_LEVEL => Some(ConfigPath::LogLevel),
     ENV_HEALTH_SOCKET => Some(ConfigPath::HealthSocket),
     "ACCOUNT" => Some(account_scalar_path(ACCOUNT_FLAT, AccountScalarField::Name)),
-    k if k.starts_with("DEFAULTS_") => parse_defaults_key(k),
+    k if k.starts_with(ENV_DEFAULTS_PREFIX) => parse_defaults_key(k),
     k if k.starts_with("ACTIVITY") => {
       let rest = &k["ACTIVITY".len()..];
       let (act_id, field) = parse_activity_token(rest)?;
@@ -171,6 +176,13 @@ fn parse_flat_account_env_key(key: &str) -> Option<ConfigPath> {
 }
 
 fn parse_defaults_key(key: &str) -> Option<ConfigPath> {
+  let global = key.strip_prefix(ENV_DEFAULTS_PREFIX)?;
+  if let Some(&field) = GlobalDefaultField::ALL
+    .iter()
+    .find(|f| f.env_suffix() == global)
+  {
+    return Some(ConfigPath::GlobalDefault(field));
+  }
   for &profile in DefaultsProfile::ALL {
     let Some(field_part) = key.strip_prefix(profile.env_prefix()) else {
       continue;
@@ -566,5 +578,24 @@ mod tests {
         "{key}"
       );
     });
+  }
+
+  #[test]
+  fn catalog_global_defaults_env_keys_are_reachable() {
+    for &field in GlobalDefaultField::ALL {
+      let key = format!("{}{}", ENV_DEFAULTS_PREFIX, field.env_suffix());
+      assert_eq!(
+        parse_env_key(&key),
+        Some(ConfigPath::GlobalDefault(field)),
+        "{key}"
+      );
+      let sample = catalog_sample_value(field.env_suffix());
+      let mut p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
+      assert_eq!(
+        field.get_mut(&mut p.defaults.global).as_deref(),
+        Some(sample.as_str()),
+        "{key}"
+      );
+    }
   }
 }

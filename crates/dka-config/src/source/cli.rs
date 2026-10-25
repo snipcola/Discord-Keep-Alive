@@ -6,8 +6,8 @@ use crate::error::ConfigError;
 use crate::model::partial::PartialConfig;
 use crate::schema::fields::{
   AccountScalarCliArgs, AccountScalarField, ActivityCliArgs, ActivityField, ClientPropField,
-  CustomStatusCliArgs, CustomStatusField, DefaultsProfile, apply_account_scalar_cli,
-  apply_activity_cli, apply_custom_status_cli,
+  CustomStatusCliArgs, CustomStatusField, DefaultsProfile, GlobalDefaultField,
+  apply_account_scalar_cli, apply_activity_cli, apply_custom_status_cli,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
 use crate::schema::path::{
@@ -150,6 +150,13 @@ pub fn parse_set_path(path: &str) -> Result<ConfigPath, ConfigError> {
   match segs.as_slice() {
     ["log_level"] => Ok(ConfigPath::LogLevel),
     ["health_socket"] => Ok(ConfigPath::HealthSocket),
+    ["defaults", field] => parse_by_set_suffix(
+      GlobalDefaultField::ALL,
+      field,
+      |f| f.spec().set_suffix,
+      || format!("defaults field '{field}'"),
+    )
+    .map(ConfigPath::GlobalDefault),
 
     ["defaults", profile, field] => {
       let p = parse_defaults_profile(profile)?;
@@ -577,6 +584,25 @@ mod tests {
         "{path}"
       );
     });
+  }
+
+  #[test]
+  fn catalog_global_defaults_set_paths_reachable() {
+    for &field in GlobalDefaultField::ALL {
+      let path = format!("defaults.{}", field.spec().set_suffix);
+      let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+      assert_eq!(got, ConfigPath::GlobalDefault(field), "{path}");
+      let sample = catalog_sample_value(field.spec().set_suffix);
+      let mut cli = empty_cli();
+      cli.set = vec![format!("{path}={sample}")];
+      let mut p = cli_partial(&cli).unwrap_or_else(|e| panic!("{path}: {e}"));
+      assert_eq!(
+        field.get_mut(&mut p.defaults.global).as_deref(),
+        Some(sample.as_str()),
+        "{path}"
+      );
+    }
+    assert!(parse_set_path("defaults.nope").is_err());
   }
 
   #[test]

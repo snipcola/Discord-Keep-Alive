@@ -347,7 +347,7 @@ string_fields! {
   env_req partial
 }
 
-fn empty_to_none(value: String) -> Option<String> {
+pub(crate) fn empty_to_none(value: String) -> Option<String> {
   if value.is_empty() { None } else { Some(value) }
 }
 
@@ -400,6 +400,38 @@ pub struct PartialDefaults {
   pub desktop: PartialClientProperties,
   #[serde(default)]
   pub mobile: PartialClientProperties,
+  #[serde(flatten)]
+  pub global: PartialGlobalDefaults,
+}
+
+string_fields! {
+  pub enum GlobalDefaultField => PartialGlobalDefaults {
+    HeartbeatVersion(heartbeat_version) {
+      toml: "heartbeat_version",
+      env_suffix: Some("HEARTBEAT_VERSION"),
+      cli_long: None,
+      set_suffix: "heartbeat_version",
+    },
+    Capabilities(capabilities) {
+      toml: "capabilities",
+      env_suffix: Some("CAPABILITIES"),
+      cli_long: None,
+      set_suffix: "capabilities",
+    },
+  }
+  env_req partial
+}
+
+impl GlobalDefaultField {
+  pub fn resolved_mut(
+    self,
+    defaults: &mut dka_gateway::properties::Defaults,
+  ) -> &mut Option<String> {
+    match self {
+      Self::HeartbeatVersion => &mut defaults.heartbeat_version,
+      Self::Capabilities => &mut defaults.capabilities,
+    }
+  }
 }
 
 // Manual: Token uses SecretString; Name uses bare ACCOUNT env and --account.

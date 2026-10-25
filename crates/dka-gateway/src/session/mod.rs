@@ -18,7 +18,8 @@ use tokio_tungstenite::tungstenite::{
 use tracing::{debug, error, info};
 
 use crate::payload::GatewayPayload;
-use crate::properties::ClientProperties;
+use crate::properties::{ClientProperties, UserOptions};
+use crate::qos::DerivedQos;
 use crate::reconnect::{backoff_with_jitter, resume_ws_url};
 use crate::{GATEWAY_HOST, gateway_url, is_shutdown};
 
@@ -37,6 +38,7 @@ pub struct SessionParams {
   pub kind: AccountKind,
   pub presence: Value,
   pub properties: ClientProperties,
+  pub user: UserOptions,
 }
 
 pub type LiveSink = Box<dyn FnMut(bool) + Send>;
@@ -48,6 +50,8 @@ struct SessionState {
   resume_url: Option<String>,
   // Set after READY/RESUMED. A healthy drop resets reconnect attempts.
   session_healthy: bool,
+  // Survives clear_session; reused on fresh identify.
+  qos: Option<DerivedQos>,
 }
 
 impl SessionState {
@@ -58,6 +62,7 @@ impl SessionState {
       session_id: None,
       resume_url: None,
       session_healthy: false,
+      qos: None,
     }
   }
 

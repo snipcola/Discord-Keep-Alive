@@ -27,9 +27,27 @@ pub struct Defaults {
   pub web: ClientProperties,
   pub desktop: ClientProperties,
   pub mobile: ClientProperties,
+  pub heartbeat_version: Option<String>,
+  pub capabilities: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UserOptions {
+  pub qos_heartbeat_version: Option<u64>,
+  pub capabilities: Option<u64>,
 }
 
 impl Defaults {
+  pub fn user_options(&self, kind: AccountKind) -> UserOptions {
+    match kind {
+      AccountKind::User => UserOptions {
+        qos_heartbeat_version: parse_u64(&self.heartbeat_version),
+        capabilities: parse_u64(&self.capabilities),
+      },
+      AccountKind::Bot => UserOptions::default(),
+    }
+  }
+
   pub fn client_properties(&self, kind: AccountKind, device: Option<Device>) -> &ClientProperties {
     match kind {
       AccountKind::Bot => &self.bot,
@@ -70,10 +88,12 @@ fn insert_nonempty(map: &mut Map<String, Value>, key: &str, value: &Option<Strin
   }
 }
 
+fn parse_u64(value: &Option<String>) -> Option<u64> {
+  value.as_deref()?.parse().ok()
+}
+
 fn insert_u64(map: &mut Map<String, Value>, key: &str, value: &Option<String>) {
-  if let Some(s) = value.as_deref().filter(|s| !s.is_empty())
-    && let Ok(n) = s.parse::<u64>()
-  {
+  if let Some(n) = parse_u64(value) {
     map.insert(key.into(), json!(n));
   }
 }
@@ -145,6 +165,8 @@ mod tests {
         user_agent: None,
         ..Default::default()
       },
+      heartbeat_version: None,
+      capabilities: None,
     }
   }
 
@@ -178,6 +200,30 @@ mod tests {
       Some(ua) => assert_eq!(props["browser_user_agent"], ua),
       None => assert!(props.get("browser_user_agent").is_none()),
     }
+  }
+
+  #[test]
+  fn user_options_are_user_only() {
+    let defaults = |v: Option<&str>| Defaults {
+      heartbeat_version: v.map(str::to_string),
+      capabilities: v.map(str::to_string),
+      ..sample_defaults()
+    };
+    assert_eq!(
+      defaults(Some("31")).user_options(AccountKind::User),
+      UserOptions {
+        qos_heartbeat_version: Some(31),
+        capabilities: Some(31),
+      }
+    );
+    assert_eq!(
+      defaults(Some("31")).user_options(AccountKind::Bot),
+      UserOptions::default()
+    );
+    assert_eq!(
+      defaults(None).user_options(AccountKind::User),
+      UserOptions::default()
+    );
   }
 
   #[test]

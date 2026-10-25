@@ -35,6 +35,7 @@ pub fn session_params(mut account: AccountConfig, defaults: &Defaults) -> Sessio
     kind: account.kind,
     presence,
     properties,
+    user: defaults.user_options(account.kind),
   }
 }
 

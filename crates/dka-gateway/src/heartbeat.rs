@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
-use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, MissedTickBehavior, interval, sleep};
 use tracing::trace;
@@ -10,7 +9,7 @@ use tracing::trace;
 use crate::is_shutdown;
 
 pub enum HeartbeatCmd {
-  Send { seq: Value },
+  Send { seq: Option<i64> },
   Zombie { interval_ms: u64, since_ack_ms: u64 },
 }
 
@@ -65,7 +64,7 @@ pub async fn heartbeat_loop(
           return;
         }
         let raw = seq_cell.load(Ordering::Relaxed);
-        let seq = if raw < 0 { Value::Null } else { json!(raw) };
+        let seq = (raw >= 0).then_some(raw);
         if tx.send(HeartbeatCmd::Send { seq }).is_err() {
           return;
         }

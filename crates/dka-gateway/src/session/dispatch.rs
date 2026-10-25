@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
-use serde_json::json;
 use tokio::sync::watch;
 use tokio::time::Instant;
 use tracing::{debug, info, trace, warn};
@@ -12,6 +11,7 @@ use crate::payload::{
   GatewayEnvelope, GatewayPayload, OP_DISPATCH, OP_HEARTBEAT, OP_HEARTBEAT_ACK, OP_HELLO,
   OP_INVALID_SESSION, OP_PRESENCE_UPDATE, OP_RECONNECT, ReadyInfo,
 };
+use crate::qos::DerivedQos;
 
 use super::{SessionEnd, SessionParams, SessionState, WsWrite, send_json};
 
@@ -49,7 +49,7 @@ pub(super) async fn handle_payload(
     OP_HEARTBEAT => {
       send_json(
         ctx.write,
-        &GatewayPayload::new(OP_HEARTBEAT, json!(state.seq)),
+        &GatewayPayload::heartbeat(state.seq, params.user.qos_heartbeat_version),
       )
       .await?;
       debug!("server requested heartbeat");
@@ -81,6 +81,12 @@ pub(super) async fn handle_payload(
           if let Some(info) = payload.d_str().and_then(ReadyInfo::from_ready_json) {
             state.session_id = Some(info.session_id.clone());
             state.resume_url = Some(info.resume_gateway_url.clone());
+            if let Some(raw) = info.qos_token.as_deref() {
+              match DerivedQos::from_ready(raw) {
+                Some(qos) => state.qos = Some(qos),
+                None => debug!("ignoring malformed qos token"),
+              }
+            }
             state.set_healthy(true);
             info!("logged in as {}", info.display_name());
           } else {

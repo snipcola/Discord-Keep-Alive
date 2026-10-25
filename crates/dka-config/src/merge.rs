@@ -6,6 +6,7 @@ use crate::model::partial::{
 };
 use crate::schema::fields::{
   AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
+  GlobalDefaultField,
 };
 
 fn merge_set_fields<F, T>(
@@ -45,7 +46,11 @@ pub(crate) fn merge_defaults(dst: &mut PartialDefaults, src: PartialDefaults) {
     web,
     desktop,
     mobile,
+    global,
   } = src;
+  merge_set_fields(&mut dst.global, global, GlobalDefaultField::ALL, |f, t| {
+    f.get_mut(t)
+  });
   for (profile, props) in [
     (DefaultsProfile::Bot, bot),
     (DefaultsProfile::Web, web),

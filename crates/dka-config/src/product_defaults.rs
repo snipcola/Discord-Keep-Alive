@@ -4,6 +4,8 @@ const LOCALE: &str = "en-US";
 const CHANNEL: &str = "stable";
 const ARCH: &str = "x64";
 const CLIENT_BUILD: &str = "649389";
+const QOS_HEARTBEAT_VERSION: &str = "31";
+const CAPABILITIES: &str = "1734653";
 const WINDOWS_UA_PLATFORM: &str = "Windows NT 10.0; Win64; x64";
 
 const BOT_OS: &str = "linux";
@@ -101,5 +103,7 @@ pub(crate) fn product_defaults() -> Defaults {
       release_channel: s(CHANNEL),
       ..props(MOBILE_OS, Some(MOBILE_BROWSER), MOBILE_DEVICE, None)
     },
+    heartbeat_version: s(QOS_HEARTBEAT_VERSION),
+    capabilities: s(CAPABILITIES),
   }
 }

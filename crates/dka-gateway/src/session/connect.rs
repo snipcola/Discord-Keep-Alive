@@ -19,7 +19,7 @@ use tracing::{Instrument, Span, debug, error, warn};
 use crate::compress::TransportDecompress;
 use crate::heartbeat::{HeartbeatCmd, heartbeat_loop};
 use crate::is_shutdown;
-use crate::payload::{GatewayEnvelope, GatewayPayload, OP_HEARTBEAT, OP_RESUME};
+use crate::payload::{GatewayEnvelope, GatewayPayload, OP_RESUME};
 
 use super::dispatch::{DispatchCtx, handle_payload};
 use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_for_hello};
@@ -111,7 +111,7 @@ pub(super) async fn connect_and_run(
     .await?;
     debug!(seq, "resume sent");
   } else {
-    send_identify(&mut write, params).await?;
+    send_identify(&mut write, params, state.qos.as_ref()).await?;
     debug!("identify sent");
   }
 
@@ -138,13 +138,9 @@ pub(super) async fn connect_and_run(
       cmd = hb_rx.recv() => {
         match cmd {
           Some(HeartbeatCmd::Send { seq }) => {
-            send_json(
-              &mut write,
-              &GatewayPayload::new(OP_HEARTBEAT, json!(seq)),
-            )
-            .await?;
+            send_json(&mut write, &GatewayPayload::heartbeat(seq, params.user.qos_heartbeat_version)).await?;
             last_heartbeat_sent = Some(Instant::now());
-            debug!(seq = %seq, "heartbeat sent");
+            debug!(?seq, "heartbeat sent");
           }
           Some(HeartbeatCmd::Zombie {
             interval_ms,

@@ -66,6 +66,10 @@ log_level = "info"
 # name = "Keep Alive"
 # type = "playing"
 
+# [defaults]
+# heartbeat_version = "30"                    # user QoS heartbeats; empty sends plain heartbeats
+# capabilities = "16000"                      # user identify capabilities; empty omits
+
 # [defaults.bot]                              # identify properties + gateway user-agent (optional)
 # os = "linux"
 # browser = "discord-keep-alive"

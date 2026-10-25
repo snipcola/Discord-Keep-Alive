@@ -253,4 +253,24 @@ type = "playing"
     );
     assert!(!flat.activities.contains_key("1"));
   }
+
+  #[test]
+  fn global_defaults_sit_beside_profiles() {
+    let partial = load_toml_str(
+      r#"
+[defaults]
+heartbeat_version = "32"
+capabilities = ""
+
+[defaults.web]
+os = "Linux"
+"#,
+    )
+    .unwrap();
+
+    let defaults = &partial.defaults;
+    assert_eq!(defaults.global.heartbeat_version.as_deref(), Some("32"));
+    assert_eq!(defaults.global.capabilities.as_deref(), Some(""));
+    assert_eq!(defaults.web.os.as_deref(), Some("Linux"));
+  }
 }

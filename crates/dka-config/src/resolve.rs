@@ -13,7 +13,7 @@ use crate::model::partial::{
 };
 use crate::model::resolved::{AccountConfig, AppConfig};
 use crate::product_defaults::product_defaults;
-use crate::schema::fields::DefaultsProfile;
+use crate::schema::fields::{DefaultsProfile, GlobalDefaultField, empty_to_none};
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
 use crate::source::defaults::DEFAULT_LOG_LEVEL;
 use crate::token::SecretString;
@@ -39,7 +39,13 @@ fn resolve_defaults(raw: PartialDefaults) -> Defaults {
     web,
     desktop,
     mobile,
+    mut global,
   } = raw;
+  for &field in GlobalDefaultField::ALL {
+    if let Some(value) = field.get_mut(&mut global).take() {
+      *field.resolved_mut(&mut defaults) = empty_to_none(value);
+    }
+  }
   for (profile, src) in [
     (DefaultsProfile::Bot, bot),
     (DefaultsProfile::Web, web),
@@ -690,5 +696,22 @@ mod tests {
       cfg.defaults.desktop.system_locale,
       product.desktop.system_locale
     );
+  }
+
+  #[test]
+  fn global_defaults_override_and_empty_disables() {
+    for &field in GlobalDefaultField::ALL {
+      let resolve = |v: Option<&str>| {
+        let mut partial = partial_flat(account_with_token("t"));
+        *field.get_mut(&mut partial.defaults.global) = v.map(str::to_string);
+        let mut defaults = resolve_config(partial).unwrap().defaults;
+        field.resolved_mut(&mut defaults).take()
+      };
+      let product = field.resolved_mut(&mut product_defaults()).take();
+      assert!(product.is_some(), "{field:?}");
+      assert_eq!(resolve(None), product, "{field:?}");
+      assert_eq!(resolve(Some("32")).as_deref(), Some("32"), "{field:?}");
+      assert_eq!(resolve(Some("")), None, "{field:?}");
+    }
   }
 }
