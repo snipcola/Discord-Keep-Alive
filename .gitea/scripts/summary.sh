@@ -28,6 +28,7 @@ if [ "${FAILED:-false}" = "true" ]; then
 fi
 
 row() { printf -- '- **%s:** %s\n' "$1" "$2"; }
+# shellcheck disable=SC2016
 item() { printf -- '- `%s`%s\n' "$1" "${2:+ ($2)}"; }
 heading() { printf '\n#### %s\n\n' "$1"; }
 
@@ -44,12 +45,13 @@ summary() {
   if [ -n "$(trim "${TARGETS-}")" ]; then
     targets_parse "${TARGETS}"
     heading Binaries
-    for target in "${TARGET_RUST[@]}"; do
-      bin="${DIST_DIR:-dist}/${target}/${ARTIFACT}"
+    for i in "${!TARGET_RUST[@]}"; do
+      asset="${PACKAGE}-${TARGET_ASSETS[$i]}"
+      bin="${DIST_DIR:-dist}/${TARGET_RUST[$i]}/${ARTIFACT}"
       if [ -f "${bin}" ]; then
-        item "${target}" "$(du -h "${bin}" | cut -f1)"
+        item "${asset}" "$(du -h "${bin}" | cut -f1)"
       else
-        item "${target}" missing
+        item "${asset}" missing
       fi
     done
   fi

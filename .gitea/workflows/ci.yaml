@@ -43,6 +43,10 @@ jobs:
       TARGETS: |
         linux/amd64=x86_64-unknown-linux-musl
         linux/arm64=aarch64-unknown-linux-musl
+        windows/amd64=x86_64-pc-windows-gnu
+        windows/arm64=aarch64-pc-windows-gnullvm
+        darwin/amd64=x86_64-apple-darwin
+        darwin/arm64=aarch64-apple-darwin
       DIST_DIR: dist
     steps:
       - name: Checkout

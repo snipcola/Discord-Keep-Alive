@@ -29,8 +29,9 @@ done
 cargo zbr -p "${PACKAGE}" "${args[@]}"
 
 rm -rf "${DIST_DIR}"
-for target in "${TARGET_RUST[@]}"; do
-  src="${CARGO_TARGET_DIR}/${target}/release/${binary}"
+for i in "${!TARGET_RUST[@]}"; do
+  target="${TARGET_RUST[$i]}"
+  src="${CARGO_TARGET_DIR}/${target}/release/${binary}${TARGET_EXTS[$i]}"
   if [ ! -f "${src}" ]; then
     echo "Expected binary not found: ${src}" >&2
     exit 1

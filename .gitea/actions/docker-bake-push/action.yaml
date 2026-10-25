@@ -12,7 +12,7 @@ inputs:
     required: false
     default: "./Dockerfile"
   targets:
-    description: platform=rust-target lines for multi-arch builds
+    description: platform=rust-target lines; only linux/* are baked
     required: true
   version:
     required: true

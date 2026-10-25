@@ -113,13 +113,14 @@ else
   echo "Reusing existing release ${TAG} (${release_id})."
 fi
 
-for target in "${TARGET_RUST[@]}"; do
+for i in "${!TARGET_RUST[@]}"; do
+  target="${TARGET_RUST[$i]}"
   file="${DIST_DIR}/${target}/${ARTIFACT}"
   if [ ! -f "${file}" ]; then
     echo "Missing binary for ${target}: ${file}" >&2
     exit 1
   fi
-  upload_asset "${release_id}" "${file}" "${PACKAGE}-${target}" || exit 1
+  upload_asset "${release_id}" "${file}" "${PACKAGE}-${TARGET_ASSETS[$i]}" || exit 1
 done
 
 echo "release_id=${release_id}" >>"${GITEA_OUTPUT}"

@@ -19,7 +19,7 @@ source "${SCRIPT_DIR}/common.sh"
 : "${LICENSE:=}"
 : "${PUSH:=true}"
 
-targets_parse "${TARGETS}"
+targets_parse "${TARGETS}" linux
 refs_parse "${REFS}"
 
 cache_from=()

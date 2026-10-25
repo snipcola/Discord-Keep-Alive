@@ -12,7 +12,7 @@ inputs:
     required: false
     default: dist
   targets:
-    description: platform=rust-target lines matching the built binaries
+    description: platform=rust-target lines; platforms name the assets
     required: true
   body:
     description: Release notes; generated from the commit log when empty

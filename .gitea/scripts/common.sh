@@ -5,7 +5,13 @@ set -euo pipefail
 TARGET_PLATFORMS=()
 TARGET_RUST=()
 TARGET_NAMES=()
+TARGET_EXTS=()
+TARGET_ASSETS=()
 REFS_LIST=()
+
+declare -gA ASSET_OS=([linux]=linux [windows]=windows [darwin]=macos)
+declare -gA ASSET_ARCH=([amd64]=x86_64 [arm64]=arm64)
+declare -gA ASSET_EXT=([windows]=.exe)
 
 trim() {
   local s="${1-}"
@@ -40,10 +46,12 @@ csv() {
 }
 
 targets_parse() {
-  local raw="${1-}" line platform rust i
+  local raw="${1-}" only_os="${2-}" line platform rust os arch ext i
   TARGET_PLATFORMS=()
   TARGET_RUST=()
   TARGET_NAMES=()
+  TARGET_EXTS=()
+  TARGET_ASSETS=()
 
   while IFS= read -r line || [ -n "${line}" ]; do
     line="$(trim "${line%%#*}")"
@@ -61,13 +69,25 @@ targets_parse() {
       echo "Invalid target (empty platform or Rust target): ${line}" >&2
       return 1
     fi
-    if [[ ${platform} != */* ]]; then
+    if [[ ${platform} != ?*/?* ]]; then
       echo "Invalid Docker platform (expected os/arch): ${platform}" >&2
       return 1
     fi
     if [[ ! ${rust} =~ ^[A-Za-z0-9._-]+$ ]]; then
       echo "Invalid Rust target: ${rust}" >&2
       return 1
+    fi
+
+    os="${platform%%/*}"
+    arch="${platform#*/}"
+
+    if [ -z "${ASSET_OS[${os}]-}" ] || [ -z "${ASSET_ARCH[${arch}]-}" ]; then
+      echo "Unsupported platform: ${platform}" >&2
+      return 1
+    fi
+
+    if [ -n "${only_os}" ] && [ "${os}" != "${only_os}" ]; then
+      continue
     fi
 
     for i in "${!TARGET_PLATFORMS[@]}"; do
@@ -77,9 +97,13 @@ targets_parse() {
       fi
     done
 
+    ext="${ASSET_EXT[${os}]-}"
+
     TARGET_PLATFORMS+=("${platform}")
     TARGET_RUST+=("${rust}")
     TARGET_NAMES+=("${platform//\//-}")
+    TARGET_EXTS+=("${ext}")
+    TARGET_ASSETS+=("${ASSET_OS[${os}]}-${ASSET_ARCH[${arch}]}${ext}")
   done <<<"${raw}"
 
   if [ "${#TARGET_PLATFORMS[@]}" -eq 0 ]; then
