@@ -1,8 +1,8 @@
 # Keep within deny.toml's list; order matters for "A OR B" crates.
 accepted = [
-  "Apache-2.0",
-  "MIT",
   "ISC",
+  "MIT",
+  "Apache-2.0",
   "BSD-3-Clause",
   "Unicode-3.0",
   "CDLA-Permissive-2.0"
