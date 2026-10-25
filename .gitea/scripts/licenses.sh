@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate third-party licence notices per target.
+# Generate third-party licence notices covering every target.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,13 +9,11 @@ source "${SCRIPT_DIR}/common.sh"
 
 targets_parse "${TARGETS}"
 
+args=()
+targets_cargo_args args
+
 # Must match the path licenses.rs embeds from.
-out=licenses
+out=licenses.md
 
-rm -rf "${out}"
-mkdir "${out}"
-
-for target in "${TARGET_RUST[@]}"; do
-  cargo ab --target "${target}" >"${out}/${target}.md"
-  echo "${target} -> ${out}/${target}.md"
-done
+cargo ab "${args[@]}" >"${out}"
+echo "${#TARGET_RUST[@]} target(s) -> ${out}"

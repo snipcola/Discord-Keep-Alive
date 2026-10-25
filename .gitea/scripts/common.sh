@@ -121,6 +121,15 @@ targets_emit_outputs() {
   } | if [ -n "${out}" ]; then cat >>"${out}"; else cat; fi
 }
 
+targets_cargo_args() {
+  local -n _args_out="$1"
+  local target
+  _args_out=()
+  for target in "${TARGET_RUST[@]}"; do
+    _args_out+=(--target "${target}")
+  done
+}
+
 require() {
   if [ -z "${2}" ]; then
     echo "${1} is required." >&2

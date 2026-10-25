@@ -22,10 +22,7 @@ binary="$(
 
 # One invocation: concurrent ones would serialise on the build directory lock.
 args=()
-for target in "${TARGET_RUST[@]}"; do
-  args+=(--target "${target}")
-done
-
+targets_cargo_args args
 cargo zbr -p "${PACKAGE}" "${args[@]}"
 
 rm -rf "${DIST_DIR}"

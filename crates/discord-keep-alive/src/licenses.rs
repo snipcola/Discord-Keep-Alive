@@ -9,7 +9,7 @@ macro_rules! workspace_file {
 const LICENSES: &str = concat!(
   workspace_file!("LICENSE"),
   "\n",
-  workspace_file!("licenses/", env!("DKA_TARGET"), ".md"),
+  workspace_file!("licenses.md"),
 );
 
 pub fn print() {
