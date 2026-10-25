@@ -10,7 +10,7 @@ TARGET_ASSETS=()
 REFS_LIST=()
 
 declare -gA ASSET_OS=([linux]=linux [windows]=windows [darwin]=macos)
-declare -gA ASSET_ARCH=([amd64]=x86_64 [arm64]=arm64)
+declare -gA ASSET_ARCH=([amd64]=x64 [arm64]=arm64)
 declare -gA ASSET_EXT=([windows]=.exe)
 
 trim() {
