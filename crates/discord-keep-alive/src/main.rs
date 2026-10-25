@@ -1,4 +1,6 @@
 mod adapt;
+#[cfg(dka_licenses)]
+mod licenses;
 mod log;
 
 use std::time::Duration;
@@ -15,13 +17,20 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(15);
 async fn main() {
   let cli = Cli::parse();
 
-  if let Some(Command::Health {
-    health_socket,
-    config,
-  }) = cli.command
-  {
-    let code = run_health_probe(health_socket.as_deref(), &config).await;
-    std::process::exit(code);
+  match cli.command {
+    Some(Command::Health {
+      health_socket,
+      config,
+    }) => {
+      let code = run_health_probe(health_socket.as_deref(), &config).await;
+      std::process::exit(code);
+    }
+    #[cfg(dka_licenses)]
+    Some(Command::Licenses) => {
+      licenses::print();
+      return;
+    }
+    None => {}
   }
 
   let (shutdown_tx, mut shutdown_rx) = watch::channel(false);

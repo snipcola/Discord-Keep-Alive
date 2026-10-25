@@ -1,6 +1,7 @@
 # Build
 /target
 /dist
+/licenses
 
 # Secrets / Config
 .env*

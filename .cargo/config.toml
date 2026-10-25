@@ -14,3 +14,7 @@ d = "doc --workspace --no-deps --open --locked"
 u = "upgrade --incompatible"
 sh = "shear --deny-warnings --locked"
 dn = "deny check -D warnings --hide-inclusion-graph"
+ab = "about generate --workspace --all-features --fail --locked about.hbs"
+
+[env]
+CARGO_WORKSPACE_DIR = { value = "", relative = true }

@@ -117,7 +117,16 @@ jobs:
         uses: ./.gitea/actions/setup-env
         with:
           rust: "false"
-          tools: cargo-zigbuild
+          tools: |
+            ${{ hashFiles('about.toml') != '' && 'cargo-about' || '' }}
+            cargo-zigbuild
+
+      - name: Licences
+        if: steps.meta.outputs.changed == 'true' && hashFiles('about.toml') != ''
+        run: |
+          set -euo pipefail
+          bash "${{ gitea.workspace }}/.gitea/scripts/licenses.sh"
+          echo "RUSTFLAGS=--cfg dka_licenses" >>"${GITEA_ENV}"
 
       # Gated so only runs that build these ever write the entry.
       - name: Cache release targets

@@ -13,13 +13,14 @@ inputs:
     required: false
     default: ""
   tools:
-    description: Names from supported-tools (whitespace or comma separated)
+    description: Names from supported-tools (comma or newline separated)
     required: false
     default: ""
   supported-tools:
     description: name=version lines
     required: false
     default: |
+      cargo-about=0.9.2
       cargo-deny=0.20.2
       cargo-shear=1.14.0
       cargo-zigbuild=0.24.0

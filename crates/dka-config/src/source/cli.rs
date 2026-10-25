@@ -70,6 +70,10 @@ pub enum Command {
     #[arg(long, short = 'c', default_value = DEFAULT_CONFIG_PATH)]
     config: PathBuf,
   },
+
+  /// Print licence and third-party notices.
+  #[cfg(dka_licenses)]
+  Licenses,
 }
 
 /// CLI partial. Apply order (last wins): flat flags → `--account-set` → `--set`.

@@ -4,7 +4,7 @@ unmaintained = "all"
 unsound = "all"
 
 [licenses]
-confidence-threshold = 0.8
+# Licences used by dependencies also go in about.toml.
 allow = [
   "ISC",
   "MIT",
@@ -13,6 +13,8 @@ allow = [
   "Unicode-3.0",
   "CDLA-Permissive-2.0",
 ]
+
+confidence-threshold = 0.8
 
 [bans]
 multiple-versions = "allow"
