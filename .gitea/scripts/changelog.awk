@@ -1,15 +1,15 @@
 # Group conventional commits into release note sections.
-# Input: git log --format=$'\x01%h\x02%s' --name-only
+# Input: git log --format=$'\x01%h\x02%s\x02<Release-Note trailer>' --name-only
 
 function emit(  type, scope, desc, bucket, head, is_breaking, breaking_footer) {
-  if (subject == "") return
+  if (subject == "" || tolower(note) == "none" || listed(BUMP_SHAS)) return
 
   is_breaking = 0
   scope = ""
   type = ""
   desc = subject
 
-  if (index(BREAKING_SHAS, " " hash " ")) breaking_footer = 1
+  if (listed(BREAKING_SHAS)) breaking_footer = 1
 
   if (match(subject, /^[a-zA-Z]+(\([^)]+\))?!?: /)) {
     head = substr(subject, 1, RLENGTH - 2)
@@ -24,12 +24,11 @@ function emit(  type, scope, desc, bucket, head, is_breaking, breaking_footer) {
     } else {
       type = head
     }
+    type = tolower(type)
   }
 
-  if (type == "chore" && scope == "release") return
-  if (desc ~ /^(bump version to|release) v?[0-9]+\.[0-9]+/) return
-
   sub(/ \(v?[0-9]+\.[0-9]+(\.[0-9]+)?\)$/, "", desc)
+  if (note != "") desc = note
 
   if (is_breaking || breaking_footer) bucket = "breaking"
   else if (scope == "deps") bucket = "deps"
@@ -42,27 +41,41 @@ function emit(  type, scope, desc, bucket, head, is_breaking, breaking_footer) {
   # Breaking changes stay visible even when they ship no code.
   if (!code && bucket != "breaking") bucket = "internal-" bucket
 
-  lines[bucket, ++count[bucket]] = sprintf("- %s%s ([`%s`](%s/commit/%s))", \
-    (bucket == "deps" || scope == "" ? "" : scope ": "), desc, hash, repo, hash)
+  lines[bucket, ++count[bucket]] = sprintf("- %s ([`%s`](%s/commit/%s))", \
+    escape((bucket == "deps" || scope == "" ? "" : scope ": ") desc), hash, repo, hash)
 }
 
-function flush(bucket, title,   i, tmp, swapped, sorted) {
+function listed(shas) {
+  return index(shas, " " hash " ")
+}
+
+function escape(s,   n, parts, seps, i, out) {
+  n = split(s, parts, "`", seps)
+  for (i = 1; i <= n; i++) {
+    if (i % 2 || (i == n && n % 2 == 0)) {
+      gsub(/&/, "\\&amp;", parts[i])
+      gsub(/</, "\\&lt;", parts[i])
+      gsub(/>/, "\\&gt;", parts[i])
+    }
+    out = out parts[i] seps[i]
+  }
+  return out
+}
+
+function by_lower(i1, v1, i2, v2) {
+  v1 = tolower(v1)
+  v2 = tolower(v2)
+  return v1 < v2 ? -1 : v1 > v2
+}
+
+function flush(bucket, title,   i, n, unsorted, sorted) {
   if (!(bucket in count)) return
 
-  for (i = 1; i <= count[bucket]; i++) sorted[i] = lines[bucket, i]
-  # Sorted in-place; asort() is a gawk extension.
-  do {
-    swapped = 0
-    for (i = 1; i < count[bucket]; i++) {
-      if (sorted[i] > sorted[i + 1]) {
-        tmp = sorted[i]; sorted[i] = sorted[i + 1]; sorted[i + 1] = tmp
-        swapped = 1
-      }
-    }
-  } while (swapped)
+  for (i = 1; i <= count[bucket]; i++) unsorted[i] = lines[bucket, i]
+  n = asort(unsorted, sorted, "by_lower")
 
   printf "%s %s\n\n", heading, title
-  for (i = 1; i <= count[bucket]; i++) print sorted[i]
+  for (i = 1; i <= n; i++) print sorted[i]
   printf "\n"
 }
 
@@ -84,9 +97,10 @@ function total(prefix,   b, n) {
 /^$/ { next }
 substr($0, 1, 1) == RS_MARK {
   emit()
-  split(substr($0, 2), parts, FS_MARK)
-  hash = parts[1]
-  subject = parts[2]
+  split(substr($0, 2), fields, FS_MARK)
+  hash = fields[1]
+  subject = fields[2]
+  note = fields[3]
   code = 0
   next
 }
@@ -94,6 +108,11 @@ substr($0, 1, 1) == RS_MARK {
 
 END {
   emit()
+
+  if (total("") == 0) {
+    printf "No notable changes.\n\n"
+    exit
+  }
 
   heading = "###"
   sections("")
