@@ -7,13 +7,12 @@ source "${SCRIPT_DIR}/common.sh"
 
 : "${TARGETS:?TARGETS is required}"
 : "${BAKE_FILE:?BAKE_FILE is required}"
-: "${CONTEXT:=.}"
+: "${BUILD_DIR:=build}"
 : "${DOCKERFILE:=./Dockerfile}"
 : "${VERSION:?VERSION is required}"
 : "${REVISION:?REVISION is required}"
 : "${PACKAGE:?PACKAGE is required}"
 : "${REFS:?REFS is required}"
-: "${ARTIFACT:=result}"
 : "${CREATED:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 : "${SOURCE:=}"
 : "${LICENSE:=}"
@@ -27,8 +26,16 @@ cache_to=()
 read_lines cache_from "${CACHE_FROM-}"
 read_lines cache_to "${CACHE_TO-}"
 
+# Bake resolves a relative dockerfile against each target's context.
+dockerfile="$(realpath "${DOCKERFILE}")"
+binary="$(binary_name)"
+contexts=()
+for i in "${!TARGET_ASSETS[@]}"; do
+  contexts+=("${BUILD_DIR}/$(stage_name "$i")")
+done
+
 platforms_json="$(json_lines "${TARGET_PLATFORMS[@]}")"
-rust_json="$(json_lines "${TARGET_RUST[@]}")"
+contexts_json="$(json_lines "${contexts[@]}")"
 names_json="$(json_lines "${TARGET_NAMES[@]}")"
 cache_from_json="$(json_lines "${cache_from[@]+"${cache_from[@]}"}")"
 cache_to_json="$(json_lines "${cache_to[@]+"${cache_to[@]}"}")"
@@ -43,19 +50,18 @@ fi
 
 # Emit digests when pushing; docker-manifest.sh applies version tags.
 jq -nc \
-  --arg context "${CONTEXT}" \
-  --arg dockerfile "${DOCKERFILE}" \
+  --arg dockerfile "${dockerfile}" \
+  --arg binary "${binary}" \
   --arg version "${VERSION}" \
   --arg revision "${REVISION}" \
   --arg package "${PACKAGE}" \
-  --arg artifact "${ARTIFACT}" \
   --arg source "${SOURCE}" \
   --arg created "${CREATED}" \
   --arg license "${LICENSE}" \
   --arg refs_csv "${refs_csv}" \
   --argjson push "${push_json}" \
   --argjson platforms "${platforms_json}" \
-  --argjson rust "${rust_json}" \
+  --argjson contexts "${contexts_json}" \
   --argjson names "${names_json}" \
   --argjson cache_from "${cache_from_json}" \
   --argjson cache_to "${cache_to_json}" \
@@ -122,13 +128,10 @@ jq -nc \
             | {
                 key: ("image-" + $names[$i]),
                 value: {
-                  context: $context,
+                  context: $contexts[$i],
                   dockerfile: $dockerfile,
                   platforms: [$platforms[$i]],
-                  args: {
-                    RUST_TARGET: $rust[$i],
-                    ARTIFACT: $artifact
-                  },
+                  args: { BINARY: $binary },
                   labels: (
                     {
                       "org.opencontainers.image.title": $package,

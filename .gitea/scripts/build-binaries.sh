@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-compile release binaries for every target into DIST_DIR.
+# Cross-compile release binaries for every target into its BUILD_DIR stage dir.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,25 +7,19 @@ source "${SCRIPT_DIR}/common.sh"
 
 : "${TARGETS:?TARGETS is required}"
 : "${PACKAGE:?PACKAGE is required}"
-: "${DIST_DIR:=dist}"
+: "${BUILD_DIR:=build}"
 : "${CARGO_TARGET_DIR:=target}"
-: "${ARTIFACT:=result}"
 
 targets_parse "${TARGETS}"
 
-# The binary is named by [[bin]], not by the package.
-binary="$(
-  cargo metadata --format-version 1 --no-deps |
-    jq -er --arg pkg "${PACKAGE}" \
-      'first(.packages[] | select(.name == $pkg) | .targets[] | select(.kind[] == "bin") | .name)'
-)"
+binary="$(binary_name)"
 
 # One invocation: concurrent ones would serialise on the build directory lock.
 args=()
 targets_cargo_args args
 cargo zbr -p "${PACKAGE}" "${args[@]}"
 
-rm -rf "${DIST_DIR}"
+rm -rf "${BUILD_DIR}"
 for i in "${!TARGET_RUST[@]}"; do
   target="${TARGET_RUST[$i]}"
   src="${CARGO_TARGET_DIR}/${target}/release/${binary}${TARGET_EXTS[$i]}"
@@ -33,6 +27,7 @@ for i in "${!TARGET_RUST[@]}"; do
     echo "Expected binary not found: ${src}" >&2
     exit 1
   fi
-  install -Dm755 "${src}" "${DIST_DIR}/${target}/${ARTIFACT}"
-  echo "${target} -> ${DIST_DIR}/${target}/${ARTIFACT} ($(du -h "${src}" | cut -f1))"
+  dest="${BUILD_DIR}/$(stage_name "$i")/${binary}${TARGET_EXTS[$i]}"
+  install -Dm755 "${src}" "${dest}"
+  echo "${target} -> ${dest} ($(du -h "${src}" | cut -f1))"
 done

@@ -47,7 +47,7 @@ jobs:
         windows/arm64=aarch64-pc-windows-gnullvm
         darwin/amd64=x86_64-apple-darwin
         darwin/arm64=aarch64-apple-darwin
-      DIST_DIR: dist
+      BUILD_DIR: build
     steps:
       - name: Checkout
         uses: builtin:checkout
@@ -121,16 +121,11 @@ jobs:
         uses: ./.gitea/actions/setup-env
         with:
           rust: "false"
-          tools: |
-            ${{ hashFiles('about.toml') != '' && 'cargo-about' || '' }}
-            cargo-zigbuild
+          tools: cargo-about, cargo-zigbuild
 
       - name: Licences
-        if: steps.meta.outputs.changed == 'true' && hashFiles('about.toml') != ''
-        run: |
-          set -euo pipefail
-          bash "${{ gitea.workspace }}/.gitea/scripts/licenses.sh"
-          echo "RUSTFLAGS=--cfg dka_licenses" >>"${GITEA_ENV}"
+        if: steps.meta.outputs.changed == 'true'
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/licenses.sh"
 
       # Gated so only runs that build these ever write the entry.
       - name: Cache release targets
@@ -145,6 +140,13 @@ jobs:
         env:
           PACKAGE: ${{ steps.meta.outputs.package_name }}
         run: bash "${{ gitea.workspace }}/.gitea/scripts/build-binaries.sh"
+
+      - name: Package
+        if: steps.meta.outputs.changed == 'true'
+        env:
+          PACKAGE: ${{ steps.meta.outputs.package_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/package.sh"
 
       - name: Setup Buildx
         id: buildx
@@ -181,7 +183,7 @@ jobs:
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
         uses: ./.gitea/actions/docker-bake-push
         with:
-          context: .
+          build_dir: ${{ env.BUILD_DIR }}
           file: ./Dockerfile
           targets: ${{ env.TARGETS }}
           version: ${{ steps.meta.outputs.version }}
@@ -209,7 +211,7 @@ jobs:
           version: ${{ steps.meta.outputs.version }}
           tag: ${{ steps.tag.outputs.tag }}
           package: ${{ steps.meta.outputs.package_name }}
-          dist_dir: ${{ env.DIST_DIR }}
+          build_dir: ${{ env.BUILD_DIR }}
           targets: ${{ env.TARGETS }}
           repo_url: ${{ steps.meta.outputs.repository }}
 

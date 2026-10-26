@@ -7,11 +7,13 @@ TARGET_RUST=()
 TARGET_NAMES=()
 TARGET_EXTS=()
 TARGET_ASSETS=()
+TARGET_ARCHIVES=()
 REFS_LIST=()
 
 declare -gA ASSET_OS=([linux]=linux [windows]=windows [darwin]=macos)
 declare -gA ASSET_ARCH=([amd64]=x64 [arm64]=arm64)
 declare -gA ASSET_EXT=([windows]=.exe)
+declare -gA ASSET_ARCHIVE=([linux]=.tar.xz [windows]=.zip [darwin]=.tar.gz)
 
 trim() {
   local s="${1-}"
@@ -52,6 +54,7 @@ targets_parse() {
   TARGET_NAMES=()
   TARGET_EXTS=()
   TARGET_ASSETS=()
+  TARGET_ARCHIVES=()
 
   while IFS= read -r line || [ -n "${line}" ]; do
     line="$(trim "${line%%#*}")"
@@ -103,13 +106,25 @@ targets_parse() {
     TARGET_RUST+=("${rust}")
     TARGET_NAMES+=("${platform//\//-}")
     TARGET_EXTS+=("${ext}")
-    TARGET_ASSETS+=("${ASSET_OS[${os}]}-${ASSET_ARCH[${arch}]}${ext}")
+    TARGET_ASSETS+=("${ASSET_OS[${os}]}-${ASSET_ARCH[${arch}]}")
+    TARGET_ARCHIVES+=("${ASSET_ARCHIVE[${os}]}")
   done <<<"${raw}"
 
   if [ "${#TARGET_PLATFORMS[@]}" -eq 0 ]; then
     echo "No targets provided (expected platform=target lines)." >&2
     return 1
   fi
+}
+
+stage_name() { printf '%s' "${PACKAGE}-${TARGET_ASSETS[$1]}"; }
+
+archive_name() { printf '%s' "${PACKAGE}${2:+-${2}}-${TARGET_ASSETS[$1]}${TARGET_ARCHIVES[$1]}"; }
+
+# The binary is named by [[bin]], not by the package.
+binary_name() {
+  cargo metadata --format-version 1 --no-deps |
+    jq -er --arg pkg "${PACKAGE}" \
+      'first(.packages[] | select(.name == $pkg) | .targets[] | select(.kind[] == "bin") | .name)'
 }
 
 targets_emit_outputs() {

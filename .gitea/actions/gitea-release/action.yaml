@@ -1,5 +1,5 @@
 name: Gitea Release
-description: Create a release and upload binary assets via the Gitea API
+description: Publish a release and a rolling `latest` release with their archives via the Gitea API
 
 inputs:
   version:
@@ -8,20 +8,25 @@ inputs:
     required: true
   package:
     required: true
-  dist_dir:
+  build_dir:
+    description: Directory whose archives/ holds the versioned archives
     required: false
-    default: dist
+    default: build
   targets:
-    description: platform=rust-target lines; platforms name the assets
+    description: platform=rust-target lines; platforms name the archives
     required: true
   body:
     description: Release notes; generated from the commit log when empty
     required: false
     default: ""
   repo_url:
-    description: Public repository URL used for changelog links
+    description: Public repository URL used for changelog and latest release links
     required: false
     default: ""
+  latest:
+    description: Also recreate the rolling latest release
+    required: false
+    default: "true"
   draft:
     required: false
     default: "false"
@@ -65,9 +70,11 @@ runs:
         VERSION: ${{ inputs.version }}
         TAG: ${{ inputs.tag }}
         PACKAGE: ${{ inputs.package }}
-        DIST_DIR: ${{ inputs.dist_dir }}
+        BUILD_DIR: ${{ inputs.build_dir }}
         TARGETS: ${{ inputs.targets }}
         BODY: ${{ inputs.body || steps.notes.outputs.body }}
+        REPO_URL: ${{ inputs.repo_url || format('{0}/{1}', gitea.server_url, gitea.repository) }}
+        LATEST: ${{ inputs.latest }}
         DRAFT: ${{ inputs.draft }}
         PRERELEASE: ${{ inputs.prerelease }}
         TOKEN: ${{ inputs.token || gitea.token }}

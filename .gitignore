@@ -1,7 +1,7 @@
 # Build
 /target
-/dist
-/licenses.md
+/build
+/NOTICE
 
 # Secrets / Config
 .env*

@@ -5,9 +5,9 @@ inputs:
   bake_image:
     required: false
     default: https://github.com/docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
-  context:
+  build_dir:
     required: false
-    default: "."
+    default: build
   file:
     required: false
     default: "./Dockerfile"
@@ -70,7 +70,7 @@ runs:
       shell: bash
       env:
         TARGETS: ${{ inputs.targets }}
-        CONTEXT: ${{ inputs.context }}
+        BUILD_DIR: ${{ inputs.build_dir }}
         DOCKERFILE: ${{ inputs.file }}
         VERSION: ${{ inputs.version }}
         REVISION: ${{ inputs.revision || gitea.sha }}

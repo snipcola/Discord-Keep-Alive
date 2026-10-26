@@ -11,7 +11,12 @@ require Token "${TOKEN}"
 require Repository "${REPOSITORY}"
 require "API URL" "${API_URL}"
 
-: "${ARTIFACT:=result}"
+: "${BUILD_DIR:=build}"
+: "${LATEST:=true}"
+
+if [ "${LATEST}" = "true" ]; then
+  require "Repository URL" "${REPO_URL}"
+fi
 
 if [[ ${REPOSITORY} != */* ]]; then
   echo "Repository must be owner/repo." >&2
@@ -19,6 +24,22 @@ if [[ ${REPOSITORY} != */* ]]; then
 fi
 
 targets_parse "${TARGETS}"
+
+config="config.example.toml"
+if [ ! -f "${config}" ]; then
+  echo "Missing ${config}" >&2
+  exit 1
+fi
+
+archives=()
+for i in "${!TARGET_RUST[@]}"; do
+  file="${BUILD_DIR}/archives/$(archive_name "$i" "${VERSION}")"
+  if [ ! -f "${file}" ]; then
+    echo "Missing archive for ${TARGET_RUST[$i]}: ${file}" >&2
+    exit 1
+  fi
+  archives+=("${file}")
+done
 
 owner="${REPOSITORY%%/*}"
 repo="${REPOSITORY#*/}"
@@ -46,29 +67,46 @@ fail_http() {
 }
 
 release_id_for_tag() {
-  request GET "${api}/releases/tags/$(uri "${TAG}")" || return 1
+  local tag="$1"
+  request GET "${api}/releases/tags/$(uri "${tag}")" || return 1
   case "${http_code}" in
   200) jq -er '.id' "${body}" ;;
   404) return 2 ;;
-  *) fail_http "Failed to fetch release ${TAG}" ;;
+  *) fail_http "Failed to fetch release ${tag}" ;;
   esac
 }
 
 create_release() {
-  local payload
+  local tag="$1" name="$2" notes="$3" is_draft="$4" is_prerelease="$5" payload
   payload="$(
     jq -nc \
-      --arg tag "${TAG}" \
-      --arg name "${VERSION}" \
-      --arg body "${BODY-}" \
-      --argjson draft "${DRAFT}" \
-      --argjson prerelease "${PRERELEASE}" \
+      --arg tag "${tag}" \
+      --arg name "${name}" \
+      --arg body "${notes}" \
+      --argjson draft "${is_draft}" \
+      --argjson prerelease "${is_prerelease}" \
       '{tag_name: $tag, name: $name, body: $body, draft: $draft, prerelease: $prerelease}'
   )"
   request POST "${api}/releases" -H "Content-Type: application/json" -d "${payload}" || return 1
   case "${http_code}" in
   201) jq -er '.id' "${body}" ;;
-  *) fail_http "Failed to create release ${TAG}" ;;
+  *) fail_http "Failed to create release ${tag}" ;;
+  esac
+}
+
+delete_release() {
+  local tag="$1" release_id rc=0
+  release_id="$(release_id_for_tag "${tag}")" || rc=$?
+  case "${rc}" in
+  0) ;;
+  2) return 0 ;;
+  *) return 1 ;;
+  esac
+
+  request DELETE "${api}/releases/${release_id}" || return 1
+  case "${http_code}" in
+  200 | 204 | 404) echo "Removed release ${tag}." ;;
+  *) fail_http "Failed to delete release ${tag}" ;;
   esac
 }
 
@@ -92,8 +130,10 @@ delete_existing_asset() {
 }
 
 upload_asset() {
-  local release_id="$1" file="$2" name="$3"
-  delete_existing_asset "${release_id}" "${name}" || return 1
+  local release_id="$1" file="$2" name="$3" replace="$4"
+  if [ "${replace}" = "true" ]; then
+    delete_existing_asset "${release_id}" "${name}" || return 1
+  fi
   request POST "${api}/releases/${release_id}/assets?name=$(uri "${name}")" \
     -F "attachment=@${file}" || return 1
   case "${http_code}" in
@@ -102,10 +142,18 @@ upload_asset() {
   esac
 }
 
+upload_assets() {
+  local release_id="$1" asset_version="$2" replace="$3" i
+  for i in "${!archives[@]}"; do
+    upload_asset "${release_id}" "${archives[$i]}" "$(archive_name "$i" "${asset_version}")" "${replace}" || return 1
+  done
+  upload_asset "${release_id}" "${config}" "${config}" "${replace}"
+}
+
 rc=0
-release_id="$(release_id_for_tag)" || rc=$?
+release_id="$(release_id_for_tag "${TAG}")" || rc=$?
 if [ "${rc}" -eq 2 ]; then
-  release_id="$(create_release)" || exit 1
+  release_id="$(create_release "${TAG}" "${VERSION}" "${BODY-}" "${DRAFT}" "${PRERELEASE}")" || exit 1
   echo "Created release ${TAG}."
 elif [ "${rc}" -ne 0 ]; then
   exit 1
@@ -113,14 +161,12 @@ else
   echo "Reusing existing release ${TAG} (${release_id})."
 fi
 
-for i in "${!TARGET_RUST[@]}"; do
-  target="${TARGET_RUST[$i]}"
-  file="${DIST_DIR}/${target}/${ARTIFACT}"
-  if [ ! -f "${file}" ]; then
-    echo "Missing binary for ${target}: ${file}" >&2
-    exit 1
-  fi
-  upload_asset "${release_id}" "${file}" "${PACKAGE}-${TARGET_ASSETS[$i]}" || exit 1
-done
-
+upload_assets "${release_id}" "${VERSION}" true || exit 1
 echo "release_id=${release_id}" >>"${GITEA_OUTPUT}"
+
+if [ "${LATEST}" = "true" ]; then
+  delete_release latest || exit 1
+  latest_id="$(create_release latest latest "[${VERSION}](${REPO_URL%/}/releases/tag/$(uri "${TAG}"))" false true)" || exit 1
+  echo "Created release latest."
+  upload_assets "${latest_id}" "" false || exit 1
+fi

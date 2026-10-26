@@ -12,8 +12,6 @@ targets_parse "${TARGETS}"
 args=()
 targets_cargo_args args
 
-# Must match the path licenses.rs embeds from.
-out=licenses.md
-
+out=NOTICE
 cargo ab "${args[@]}" >"${out}"
 echo "${#TARGET_RUST[@]} target(s) -> ${out}"

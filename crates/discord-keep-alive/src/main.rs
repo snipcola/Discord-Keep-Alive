@@ -1,6 +1,4 @@
 mod adapt;
-#[cfg(dka_licenses)]
-mod licenses;
 mod log;
 
 use std::time::Duration;
@@ -24,11 +22,6 @@ async fn main() {
     }) => {
       let code = run_health_probe(health_socket.as_deref(), &config).await;
       std::process::exit(code);
-    }
-    #[cfg(dka_licenses)]
-    Some(Command::Licenses) => {
-      licenses::print();
-      return;
     }
     None => {}
   }

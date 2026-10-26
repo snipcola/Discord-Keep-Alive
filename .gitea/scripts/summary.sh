@@ -7,7 +7,6 @@ source "${SCRIPT_DIR}/common.sh"
 
 : "${GITEA_STEP_SUMMARY:?GITEA_STEP_SUMMARY is required}"
 : "${PACKAGE:?PACKAGE is required}"
-: "${ARTIFACT:=result}"
 : "${CHANGED:=false}"
 : "${DRY_RUN:=false}"
 
@@ -44,14 +43,14 @@ summary() {
 
   if [ -n "$(trim "${TARGETS-}")" ]; then
     targets_parse "${TARGETS}"
-    heading Binaries
-    for i in "${!TARGET_RUST[@]}"; do
-      asset="${PACKAGE}-${TARGET_ASSETS[$i]}"
-      bin="${DIST_DIR:-dist}/${TARGET_RUST[$i]}/${ARTIFACT}"
-      if [ -f "${bin}" ]; then
-        item "${asset}" "$(du -h "${bin}" | cut -f1)"
+    heading Archives
+    for i in "${!TARGET_ASSETS[@]}"; do
+      archive="$(archive_name "$i" "${VERSION-}")"
+      file="${BUILD_DIR:-build}/archives/${archive}"
+      if [ -f "${file}" ]; then
+        item "${archive}" "$(du -h "${file}" | cut -f1)"
       else
-        item "${asset}" missing
+        item "${archive}" missing
       fi
     done
   fi

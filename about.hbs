@@ -1,15 +1,14 @@
-# Third-party licences
-
+Third-party licences:
 {{#each overview}}
-- {{id}} ({{count}} crates)
+- {{id}} ({{count}} {{#if (eq count 1)}}crate{{else}}crates{{/if}})
 {{/each}}
 {{#each licenses}}
 
----
-
-**{{id}}**, used by {{#each used_by}}{{crate.name}} ({{crate.version}}){{#unless @last}}, {{/unless}}{{/each}}
-
-```text
-{{{text}}}
-```
+--------------------------------------------------------------------------------
+{{id}}, used by:
+{{#each used_by}}
+- {{crate.name}} ({{crate.version}})
 {{/each}}
+--------------------------------------------------------------------------------
+{{{text}}}
+{{~/each~}}
