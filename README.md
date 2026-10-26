@@ -18,7 +18,7 @@ Or with a config file (see [`config.example.toml`](./config.example.toml)):
 
 ```bash
 docker run --rm \
-  -v "$PWD/config.toml:/config.toml:ro" \
+  -v "$PWD/config.toml:/config.toml:ro,z" \
   -e CONFIG_PATH=/config.toml \
   code.snipcola.st/snipcola/discord-keep-alive:latest
 ```

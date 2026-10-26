@@ -4,6 +4,13 @@ services:
   discord-keep-alive:
     image: code.snipcola.st/snipcola/discord-keep-alive:latest
     restart: unless-stopped
+    healthcheck:
+      test: [CMD, /app, health]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      start_interval: 2s
+      retries: 3
     environment:
       TOKEN: ${TOKEN:?set TOKEN}
       # ACCOUNT: primary             # default: account-<index>
@@ -37,7 +44,7 @@ services:
     # optional config file (env is usually simpler in docker)
     # for file-only config, remove TOKEN above; compose still expands ${TOKEN:?…} if left set
     # volumes:
-    #   - ./config.toml:/config.toml:ro
+    #   - ./config.toml:/config.toml:ro,z
     # environment:
     #   CONFIG_PATH: /config.toml
     #   LOG_LEVEL: info
