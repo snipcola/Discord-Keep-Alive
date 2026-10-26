@@ -729,9 +729,9 @@ dependencies = [
 
 [[package]]
 name = "structured-zstd"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "096c39fadb89b2a367a97308d59bcfabb268f9263e9d84a049b5ce14f1457ba6"
+checksum = "973e3e10c087c398d42e55fdf011d2139cb443dfad415f6dc4e415dbe5c695c6"
 
 [[package]]
 name = "subtle"
