@@ -4,7 +4,7 @@ members = ["crates/*"]
 default-members = ["crates/discord-keep-alive"]
 
 [workspace.package]
-version = "0.4.3"
+version = "0.5.0"
 license = "ISC"
 authors = ["snipcola"]
 repository = "https://code.snipcola.st/snipcola/Discord-Keep-Alive"
