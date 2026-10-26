@@ -99,6 +99,26 @@ package_version_at() {
   printf '%s\n' "${version}"
 }
 
+resolve_base() {
+  local parent
+
+  if [[ ! ${BASE-} =~ ^0*$ ]]; then
+    if git cat-file -e "${BASE}^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "${BASE}"; then
+      printf '%s\n' "${BASE}"
+      return 0
+    fi
+    echo "::warning::Push base ${BASE} is not fetchable; comparing against the first parent." >&2
+  fi
+
+  parent="$(git show -s --format=%P HEAD)"
+  parent="${parent%% *}"
+  if [ -n "${parent}" ] && ! git cat-file -e "${parent}^{commit}" 2>/dev/null; then
+    echo "First parent ${parent} is not available locally (need fetch-depth >= 2); refusing to publish." >&2
+    return 1
+  fi
+  printf '%s\n' "${parent}"
+}
+
 meta="$(cargo_metadata .)" || {
   echo "Could not load cargo metadata from HEAD; refusing to publish." >&2
   exit 1
@@ -114,22 +134,16 @@ repository="$(package_field "${meta}" "${package_name}" repository)"
 
 reason=""
 prev=""
-parent=""
+base=""
 if [ "${FORCE_RELEASE}" = "true" ]; then
   reason="force-release"
 else
-  parents="$(git show -s --format=%P HEAD)"
-  if [ -z "${parents}" ]; then
+  base="$(resolve_base)" || exit 1
+  if [ -z "${base}" ]; then
     reason="no-previous-version"
   else
-    parent="${parents%% *}"
-    if ! git cat-file -e "${parent}^{commit}" 2>/dev/null; then
-      echo "First parent ${parent} is not available locally (need fetch-depth >= 2); refusing to publish." >&2
-      exit 1
-    fi
-
-    prev="$(package_version_at "${parent}" "${package_name}")" || {
-      echo "Could not resolve ${package_name} version from ${parent}; refusing to publish." >&2
+    prev="$(package_version_at "${base}" "${package_name}")" || {
+      echo "Could not resolve ${package_name} version from ${base}; refusing to publish." >&2
       exit 1
     }
 
@@ -190,11 +204,11 @@ docker_ref="docker.io/${DH_USER}/${image_name}"
 } >>"${GITEA_OUTPUT}"
 
 if [ "${changed}" = true ]; then
-  if [ -n "${parent}" ]; then
-    echo "Publishing ${package_name}@${version} (${reason}; parent=${parent})."
+  if [ -n "${base}" ]; then
+    echo "Publishing ${package_name}@${version} (${reason}; base=${base})."
   else
     echo "Publishing ${package_name}@${version} (${reason})."
   fi
 else
-  echo "No version change and no ${RELEASE_MARKER} marker (${prev}@${parent} == ${version}); skipping image publish."
+  echo "No version change and no ${RELEASE_MARKER} marker (${prev}@${base} == ${version}); skipping image publish."
 fi

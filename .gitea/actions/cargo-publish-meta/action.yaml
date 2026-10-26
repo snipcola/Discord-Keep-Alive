@@ -20,6 +20,10 @@ inputs:
     description: Commit subject substring that forces a same-version publish
     required: false
     default: "#release"
+  base:
+    description: Commit to read the previous version from; defaults to the first parent
+    required: false
+    default: ""
   local_registry:
     required: false
     default: ""
@@ -72,6 +76,7 @@ runs:
         MANIFEST_PATH: ${{ inputs.manifest_path }}
         IMAGE_NAME: ${{ inputs.image_name }}
         RELEASE_MARKER: ${{ inputs.release_marker }}
+        BASE: ${{ inputs.base }}
         LOCAL_REGISTRY: ${{ inputs.local_registry || env.EXTERNAL_SERVER_DOMAIN }}
         SERVER_URL: ${{ gitea.server_url }}
         LOCAL_USER: ${{ inputs.local_user || gitea.repository_owner }}

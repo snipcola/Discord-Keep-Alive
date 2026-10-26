@@ -98,6 +98,7 @@ jobs:
         uses: ./.gitea/actions/cargo-publish-meta
         with:
           force_release: ${{ inputs.release || inputs.dry_run }}
+          base: ${{ gitea.event_name == 'push' && gitea.event.before || '' }}
           gh_user: ${{ vars.GH_USERNAME }}
           dh_user: ${{ vars.DH_USERNAME }}
 
