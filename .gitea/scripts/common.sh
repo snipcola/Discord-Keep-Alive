@@ -154,6 +154,11 @@ require() {
 
 uri() { printf '%s' "${1-}" | jq -sRr @uri; }
 
+unshallow() {
+  [ -f "$(git rev-parse --git-dir)/shallow" ] || return 0
+  git fetch --quiet --unshallow origin
+}
+
 request() {
   local method="$1" url="$2"
   shift 2

@@ -31,12 +31,8 @@ full_changelog() {
 }
 
 # Release notes are optional; never fail a published release over them.
-fetch=(git fetch --quiet --tags --force)
-if [ -f "$(git rev-parse --git-dir)/shallow" ]; then
-  "${fetch[@]}" --unshallow 2>/dev/null || "${fetch[@]}" 2>/dev/null || true
-else
-  "${fetch[@]}" 2>/dev/null || true
-fi
+unshallow 2>/dev/null || true
+git fetch --quiet --tags --force 2>/dev/null || true
 
 if ! git rev-parse -q --verify "${tag_ref}^{commit}" >/dev/null; then
   echo "::warning::Tag ${TAG} is not available locally; release notes only link to it." >&2

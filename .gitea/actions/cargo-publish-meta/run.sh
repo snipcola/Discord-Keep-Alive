@@ -119,6 +119,14 @@ resolve_base() {
   printf '%s\n' "${parent}"
 }
 
+release_requested() {
+  local range="$1..HEAD" subjects trailers
+  subjects="$(git log --format=%s "${range}")"
+  trailers="$(git log --format="%(trailers:key=${RELEASE_TRAILER},valueonly,unfold)" "${range}")"
+  grep -qF -- "${RELEASE_MARKER}" <<<"${subjects}" ||
+    grep -qix true <<<"${trailers}"
+}
+
 meta="$(cargo_metadata .)" || {
   echo "Could not load cargo metadata from HEAD; refusing to publish." >&2
   exit 1
@@ -149,8 +157,17 @@ else
 
     if [ "${prev}" != "${version}" ]; then
       reason="version:${prev}->${version}"
-    elif git log -1 --format=%s HEAD | grep -qF "${RELEASE_MARKER}"; then
-      reason="commit-marker"
+    else
+      # A single non-merge commit on top of base needs no extra history.
+      if [ "$(git rev-parse HEAD^@)" != "${base}" ]; then
+        unshallow || {
+          echo "Could not fetch the full history; refusing to publish." >&2
+          exit 1
+        }
+      fi
+      if release_requested "${base}"; then
+        reason="commit-marker"
+      fi
     fi
   fi
 fi
@@ -210,5 +227,5 @@ if [ "${changed}" = true ]; then
     echo "Publishing ${package_name}@${version} (${reason})."
   fi
 else
-  echo "Version ${version} is unchanged since ${base} and the commit has no ${RELEASE_MARKER} marker; skipping image publish."
+  echo "Version ${version} is unchanged since ${base} and no commit since has a ${RELEASE_MARKER} subject or a '${RELEASE_TRAILER}: true' trailer; skipping image publish."
 fi
