@@ -22,7 +22,8 @@ pub const DEFAULT_CONFIG_PATH: &str = "config.toml";
 #[derive(Debug, Parser)]
 #[command(
   name = "discord-keep-alive",
-  about = "Keep Discord accounts online with optional presence"
+  about = "Keep Discord accounts online with optional presence",
+  version
 )]
 pub struct Cli {
   /// TOML config path.
