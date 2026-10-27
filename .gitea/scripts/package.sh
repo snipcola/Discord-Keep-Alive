@@ -21,10 +21,8 @@ tarball() {
     -C "${BUILD_DIR}" -cf - "$1"
 }
 
-rm -rf "${BUILD_DIR}/archives"
-mkdir -p "${BUILD_DIR}/archives"
-
-for i in "${!TARGET_ASSETS[@]}"; do
+pack() {
+  local i="$1" stage archive
   stage="$(stage_name "$i")"
   archive="archives/$(archive_name "$i" "${VERSION}")"
 
@@ -42,9 +40,17 @@ for i in "${!TARGET_ASSETS[@]}"; do
 
   *)
     echo "Unsupported archive format: ${TARGET_ARCHIVES[$i]}" >&2
-    exit 1
+    return 1
     ;;
   esac
 
   echo "${stage} -> ${BUILD_DIR}/${archive} ($(du -h "${BUILD_DIR}/${archive}" | cut -f1))"
+}
+
+rm -rf "${BUILD_DIR}/archives"
+mkdir -p "${BUILD_DIR}/archives"
+
+for i in "${!TARGET_ASSETS[@]}"; do
+  bg_start "$(stage_name "$i")" pack "$i"
 done
+bg_wait

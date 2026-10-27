@@ -19,6 +19,7 @@ if [[ ! ${UPLOAD_JOBS} =~ ^[1-9][0-9]*$ ]]; then
   echo "UPLOAD_JOBS must be a positive integer." >&2
   exit 1
 fi
+BG_MAX="${UPLOAD_JOBS}"
 
 if [ "${LATEST}" = "true" ]; then
   require "Repository URL" "${REPO_URL}"
@@ -100,28 +101,25 @@ delete_release() {
   esac
 }
 
-delete_existing_asset() {
-  local release_id="$1" name="$2" asset_id
+list_assets() {
+  local release_id="$1"
   request GET "${api}/releases/${release_id}/assets" || return 1
   case "${http_code}" in
-  200) ;;
+  200) jq -r '.[] | [.name, .id] | @tsv' "${body}" ;;
   *) fail_http "Failed to list assets for release ${release_id}" ;;
   esac
+}
 
-  asset_id="$(jq -r --arg name "${name}" '.[] | select(.name == $name) | .id' "${body}" | head -n 1)"
-  if [ -n "${asset_id}" ] && [ "${asset_id}" != "null" ]; then
+# request() writes to a shared `body`, so each job needs its own.
+upload_asset() {
+  local release_id="$1" file="$2" name="$3" asset_id="$4"
+  body="$(mktemp -p "${tmp}")"
+  if [ -n "${asset_id}" ]; then
     request DELETE "${api}/releases/${release_id}/assets/${asset_id}" || return 1
     case "${http_code}" in
     200 | 204 | 404) ;;
     *) fail_http "Failed to delete asset ${name}" ;;
     esac
-  fi
-}
-
-upload_asset() {
-  local release_id="$1" file="$2" name="$3" replace="$4"
-  if [ "${replace}" = "true" ]; then
-    delete_existing_asset "${release_id}" "${name}" || return 1
   fi
   request POST "${api}/releases/${release_id}/assets?name=$(uri "${name}")" \
     -F "attachment=@${file}" || return 1
@@ -132,39 +130,34 @@ upload_asset() {
 }
 
 upload_assets() {
-  local release_id="$1" asset_version="$2" replace="$3" i work failed=0
+  local release_id="$1" asset_version="$2" replace="$3" i assets name id
   local files=("${archives[@]}" "${config}") names=()
+  local -A asset_ids=()
 
   for i in "${!archives[@]}"; do
     names+=("$(archive_name "$i" "${asset_version}")")
   done
   names+=("${config}")
 
-  work="$(mktemp -d -p "${tmp}")"
-  for i in "${!files[@]}"; do
-    while [ "$(jobs -rp | wc -l)" -ge "${UPLOAD_JOBS}" ]; do
-      wait -n || true
-    done
-    # request() writes to a shared `body`, so each job needs its own.
-    (
-      body="${work}/${i}.body"
-      upload_asset "${release_id}" "${files[$i]}" "${names[$i]}" "${replace}" &&
-        touch "${work}/${i}.ok"
-    ) >"${work}/${i}.log" 2>&1 &
-  done
-  wait
+  if [ "${replace}" = "true" ]; then
+    assets="$(list_assets "${release_id}")" || return 1
+    while IFS=$'\t' read -r name id; do
+      [ -z "${name}" ] || asset_ids[${name}]="${id}"
+    done <<<"${assets}"
+  fi
 
   for i in "${!files[@]}"; do
-    cat "${work}/${i}.log"
-    [ -f "${work}/${i}.ok" ] || failed=1
+    bg_start "${names[$i]}" upload_asset "${release_id}" "${files[$i]}" "${names[$i]}" "${asset_ids[${names[$i]}]-}"
   done
-  [ "${failed}" -eq 0 ]
+  bg_wait
 }
 
 rc=0
+replace=true
 release_id="$(release_id_for_tag "${TAG}")" || rc=$?
 if [ "${rc}" -eq 2 ]; then
   release_id="$(create_release "${TAG}" "${VERSION}" "${BODY-}" "${DRAFT}" "${PRERELEASE}")" || exit 1
+  replace=false
   echo "Created release ${TAG}."
 elif [ "${rc}" -ne 0 ]; then
   exit 1
@@ -172,7 +165,7 @@ else
   echo "Reusing existing release ${TAG} (${release_id})."
 fi
 
-upload_assets "${release_id}" "${VERSION}" true || exit 1
+upload_assets "${release_id}" "${VERSION}" "${replace}" || exit 1
 echo "release_id=${release_id}" >>"${GITEA_OUTPUT}"
 
 if [ "${LATEST}" = "true" ]; then

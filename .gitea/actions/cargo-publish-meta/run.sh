@@ -103,7 +103,7 @@ resolve_base() {
   local parent
 
   if [[ ! ${BASE-} =~ ^0*$ ]]; then
-    if git cat-file -e "${BASE}^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "${BASE}"; then
+    if fetch_commit "${BASE}"; then
       printf '%s\n' "${BASE}"
       return 0
     fi

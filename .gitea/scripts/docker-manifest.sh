@@ -41,8 +41,8 @@ done
 
 echo "Creating manifests from ${#digests[@]} platform digest(s) for ${#REFS_LIST[@]} ref(s)."
 
-for ref in "${REFS_LIST[@]}"; do
-  sources=()
+create_manifest() {
+  local ref="$1" sources=() tag_args digest
   for digest in "${digests[@]}"; do
     sources+=("${ref}@${digest}")
   done
@@ -54,4 +54,9 @@ for ref in "${REFS_LIST[@]}"; do
 
   echo "imagetools create ${tag_args[*]} (${#sources[@]} sources)"
   docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
+}
+
+for ref in "${REFS_LIST[@]}"; do
+  bg_start "${ref}" create_manifest "${ref}"
 done
+bg_wait

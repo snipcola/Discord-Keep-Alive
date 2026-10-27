@@ -70,27 +70,6 @@ jobs:
           targets: ${{ env.TARGETS }}
           tools: cargo-deny, cargo-shear
 
-      - name: Cache host target
-        uses: ./.gitea/actions/cargo-target-cache
-        with:
-          targets: ""
-          key: host
-
-      - name: Deny
-        run: cargo dn
-
-      - name: Shear
-        run: cargo sh
-
-      - name: Format
-        run: cargo fc
-
-      - name: Clippy
-        run: cargo c
-
-      - name: Test
-        run: cargo t
-
       - name: Version & publish decision
         id: meta
         if: >-
@@ -102,6 +81,54 @@ jobs:
           gh_user: ${{ vars.GH_USERNAME }}
           dh_user: ${{ vars.DH_USERNAME }}
 
+      - name: Changes
+        id: changes
+        env:
+          BASE: ${{ gitea.event.pull_request.base.sha || gitea.event.before }}
+          RELEASE: ${{ steps.meta.outputs.changed }}
+          DOCS_ONLY: |
+            .editorconfig
+            .gitignore
+            about.hbs
+            about.toml
+            config.example.toml
+            docker-compose.example.yaml
+            Dockerfile
+            LICENSE
+            README.md
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/changes.sh"
+
+      - name: Cache host target
+        id: host-cache
+        if: steps.changes.outputs.checks == 'true'
+        uses: ./.gitea/actions/cargo-target-cache
+        with:
+          targets: ""
+          key: host
+
+      - name: Format
+        if: steps.changes.outputs.checks == 'true'
+        run: cargo fc
+
+      - name: Clippy, deny & shear
+        if: steps.changes.outputs.checks == 'true'
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/lint.sh"
+
+      - name: Test
+        if: steps.changes.outputs.checks == 'true'
+        run: cargo t
+
+      - name: Prune host target
+        if: steps.host-cache.outputs.cache-hit == 'false'
+        env:
+          PROFILES: ${{ steps.host-cache.outputs.profiles }}
+        run: |
+          set -euo pipefail
+          {
+            cargo ck --message-format=json-render-diagnostics
+            cargo t --no-run --message-format=json-render-diagnostics
+          } | bash "${{ gitea.workspace }}/.gitea/scripts/prune-target.sh"
+
       - name: Publish plan
         id: plan
         if: steps.meta.outputs.changed == 'true'
@@ -112,9 +139,6 @@ jobs:
           LOCAL_REF: ${{ steps.meta.outputs.local }}
           GHCR_REF: ${{ steps.meta.outputs.ghcr }}
           DOCKER_REF: ${{ steps.meta.outputs.docker }}
-          IMAGE_NAME: ${{ steps.meta.outputs.image_name }}
-          RUNNER_OS: ${{ runner.os }}
-          RUNNER_ARCH: ${{ runner.arch }}
         run: bash "${{ gitea.workspace }}/.gitea/scripts/publish-plan.sh"
 
       - name: Setup build tools
@@ -124,23 +148,34 @@ jobs:
           rust: "false"
           tools: cargo-about, cargo-zigbuild
 
-      - name: Licences
-        if: steps.meta.outputs.changed == 'true'
-        run: bash "${{ gitea.workspace }}/.gitea/scripts/licenses.sh"
-
       # Only runs that build release targets write this cache entry.
       - name: Cache release targets
+        id: release-cache
         if: steps.meta.outputs.changed == 'true'
         uses: ./.gitea/actions/cargo-target-cache
         with:
           targets: ${{ env.TARGETS }}
           key: release
 
-      - name: Build binaries
+      - name: Binaries & licences
+        id: build
         if: steps.meta.outputs.changed == 'true'
         env:
           PACKAGE: ${{ steps.meta.outputs.package_name }}
-        run: bash "${{ gitea.workspace }}/.gitea/scripts/build-binaries.sh"
+        run: |
+          set -euo pipefail
+          scripts="${{ gitea.workspace }}/.gitea/scripts"
+          source "${scripts}/common.sh"
+
+          bg_start Licences bash "${scripts}/licenses.sh"
+          bash "${scripts}/build-binaries.sh"
+          bg_wait
+
+      - name: Prune release targets
+        if: steps.release-cache.outputs.cache-hit == 'false'
+        env:
+          PROFILES: ${{ steps.release-cache.outputs.profiles }}
+        run: bash "${{ gitea.workspace }}/.gitea/scripts/prune-target.sh" <"${{ steps.build.outputs.units }}"
 
       - name: Package
         if: steps.meta.outputs.changed == 'true'
@@ -156,29 +191,20 @@ jobs:
         with:
           driver-opts: ${{ steps.plan.outputs.driver_opts }}
 
-      - name: Login (local)
+      - name: Login
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
         uses: ./.gitea/actions/docker-login
         with:
-          registry: ${{ steps.meta.outputs.local_registry }}
-          username: ${{ steps.meta.outputs.local_user }}
-          password: ${{ secrets.AUTH || gitea.token }}
-
-      - name: Login (GHCR)
-        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
-        uses: ./.gitea/actions/docker-login
-        with:
-          registry: ghcr.io
-          username: ${{ vars.GH_USERNAME }}
-          password: ${{ secrets.GH_AUTH }}
-
-      - name: Login (Docker Hub)
-        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
-        uses: ./.gitea/actions/docker-login
-        with:
-          registry: docker.io
-          username: ${{ vars.DH_USERNAME }}
-          password: ${{ secrets.DH_AUTH }}
+          registry-auth: |
+            - registry: ${{ steps.meta.outputs.local_registry }}
+              username: ${{ steps.meta.outputs.local_user }}
+              password: ${{ toJSON(secrets.AUTH || gitea.token) }}
+            - registry: ghcr.io
+              username: ${{ vars.GH_USERNAME }}
+              password: ${{ toJSON(secrets.GH_AUTH) }}
+            - registry: docker.io
+              username: ${{ vars.DH_USERNAME }}
+              password: ${{ toJSON(secrets.DH_AUTH) }}
 
       - name: Bake & push
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
@@ -193,8 +219,6 @@ jobs:
           source: ${{ steps.meta.outputs.repository }}
           license: ${{ steps.meta.outputs.license }}
           refs: ${{ steps.plan.outputs.refs }}
-          cache-from: ${{ steps.plan.outputs.cache_from }}
-          cache-to: ${{ steps.plan.outputs.cache_to }}
           push: ${{ !inputs.dry_run }}
 
       - name: Tag

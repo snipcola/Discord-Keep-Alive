@@ -30,12 +30,6 @@ inputs:
   refs:
     description: Image name bases without tags
     required: true
-  cache-from:
-    required: false
-    default: ""
-  cache-to:
-    required: false
-    default: ""
   push:
     description: Push digests and tags (false = build/cache only)
     required: false
@@ -78,8 +72,6 @@ runs:
         SOURCE: ${{ inputs.source }}
         LICENSE: ${{ inputs.license }}
         REFS: ${{ inputs.refs }}
-        CACHE_FROM: ${{ inputs.cache-from }}
-        CACHE_TO: ${{ inputs.cache-to }}
         PUSH: ${{ inputs.push }}
         BAKE_FILE: ${{ runner.temp }}/docker-bake.json
       run: bash "${{ gitea.workspace }}/.gitea/scripts/docker-bake-plan.sh"

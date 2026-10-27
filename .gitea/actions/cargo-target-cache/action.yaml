@@ -9,6 +9,12 @@ inputs:
     description: Key segment identifying this set of targets
     required: true
 
+outputs:
+  cache-hit:
+    value: ${{ steps.cache.outputs.cache-hit }}
+  profiles:
+    value: ${{ steps.paths.outputs.profiles }}
+
 runs:
   using: composite
   steps:
@@ -21,22 +27,23 @@ runs:
         source "${{ gitea.workspace }}/.gitea/scripts/common.sh"
 
         dir="${CARGO_TARGET_DIR:-target}"
-        subdirs=(debug)
+        profiles=(debug)
         if [ -n "$(trim "${TARGETS}")" ]; then
           targets_parse "${TARGETS}"
           # Host build scripts and proc macros build into release/.
-          subdirs=(release "${TARGET_RUST[@]}")
+          profiles=(release "${TARGET_RUST[@]/%//release}")
         fi
 
         {
-          echo "paths<<EOF"
-          printf "%s\n" "${subdirs[@]/#/${dir}/}"
+          echo "profiles<<EOF"
+          printf "%s\n" "${profiles[@]/#/${dir}/}"
           echo "EOF"
           echo "flags=$(printf '%s' "${RUSTFLAGS-}" | sha256sum | cut -c1-16)"
         } >>"${GITEA_OUTPUT}"
 
-    - uses: ./.gitea/actions/cache
+    - id: cache
+      uses: ./.gitea/actions/cache
       with:
-        path: ${{ steps.paths.outputs.paths }}
+        path: ${{ steps.paths.outputs.profiles }}
         key: cargo-target-${{ inputs.key }}-${{ steps.paths.outputs.flags }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
         restore-keys: cargo-target-${{ inputs.key }}-${{ steps.paths.outputs.flags }}-

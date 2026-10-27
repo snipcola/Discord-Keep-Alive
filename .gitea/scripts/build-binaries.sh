@@ -17,7 +17,8 @@ binary="$(binary_name)"
 # Single invocation; parallel ones would just wait on the build directory lock.
 args=()
 targets_cargo_args args
-cargo zbr -p "${PACKAGE}" "${args[@]}"
+units="$(mktemp)"
+cargo zbr -p "${PACKAGE}" "${args[@]}" --message-format=json-render-diagnostics >"${units}"
 
 rm -rf "${BUILD_DIR}"
 for i in "${!TARGET_RUST[@]}"; do
@@ -31,3 +32,7 @@ for i in "${!TARGET_RUST[@]}"; do
   install -Dm755 "${src}" "${dest}"
   echo "${target} -> ${dest} ($(du -h "${src}" | cut -f1))"
 done
+
+if [ -n "${GITEA_OUTPUT-}" ]; then
+  echo "units=${units}" >>"${GITEA_OUTPUT}"
+fi

@@ -108,7 +108,7 @@ targets_parse() {
     TARGET_EXTS+=("${ext}")
     TARGET_ASSETS+=("${ASSET_OS[${os}]}-${ASSET_ARCH[${arch}]}")
     TARGET_ARCHIVES+=("${ASSET_ARCHIVE[${os}]}")
-  done < <(LC_ALL=C sort -b -t= -k1,1 <<<"${raw}")
+  done < <(LC_ALL=C sort -b -t '=' -k1,1 <<<"${raw}")
 
   if [ "${#TARGET_PLATFORMS[@]}" -eq 0 ]; then
     echo "No targets provided (expected platform=target lines)." >&2
@@ -157,6 +157,43 @@ uri() { printf '%s' "${1-}" | jq -sRr @uri; }
 unshallow() {
   [ -f "$(git rev-parse --git-dir)/shallow" ] || return 0
   git fetch --quiet --unshallow origin
+}
+
+fetch_commit() {
+  git cat-file -e "${1}^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$1"
+}
+
+BG_NAMES=()
+BG_DIR=""
+
+bg_start() {
+  local name="$1" i="${#BG_NAMES[@]}"
+  shift
+  [ -n "${BG_DIR}" ] || BG_DIR="$(mktemp -d)"
+  while [ "${BG_MAX:-0}" -gt 0 ] && [ "$(jobs -rp | wc -l)" -ge "${BG_MAX}" ]; do
+    wait -n || true
+  done
+  (
+    "$@"
+    touch "${BG_DIR}/${i}.ok"
+  ) >"${BG_DIR}/${i}.log" 2>&1 &
+  BG_NAMES+=("${name}")
+}
+
+bg_wait() {
+  local i failed=()
+  wait
+  for i in "${!BG_NAMES[@]}"; do
+    cat "${BG_DIR}/${i}.log"
+    [ -f "${BG_DIR}/${i}.ok" ] || failed+=("${BG_NAMES[$i]}")
+  done
+  rm -rf "${BG_DIR}"
+  BG_NAMES=()
+  BG_DIR=""
+  if [ "${#failed[@]}" -gt 0 ]; then
+    echo "Failed: ${failed[*]}" >&2
+    return 1
+  fi
 }
 
 request() {

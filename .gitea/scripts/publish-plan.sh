@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Resolve publish refs and bake cache opts.
+# Resolve publish refs and Buildx driver opts.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,7 +8,6 @@ source "${SCRIPT_DIR}/common.sh"
 : "${PUBLISH_LOCAL:?PUBLISH_LOCAL is required}"
 : "${PUBLISH_GHCR:?PUBLISH_GHCR is required}"
 : "${PUBLISH_DOCKERHUB:?PUBLISH_DOCKERHUB is required}"
-: "${IMAGE_NAME:?IMAGE_NAME is required}"
 : "${GITEA_OUTPUT:?GITEA_OUTPUT is required}"
 
 any=false
@@ -41,13 +40,6 @@ fi
 DOCKER_NETWORK="${INPUT_DOCKER_NETWORK:-${DOCKER_NETWORK-}}"
 driver_opts="${DOCKER_NETWORK:+network=${DOCKER_NETWORK}}"
 
-gha_scope="${IMAGE_NAME}"
-if [ -n "${RUNNER_OS-}" ] && [ -n "${RUNNER_ARCH-}" ]; then
-  gha_scope="${IMAGE_NAME}-runner-${RUNNER_OS}-${RUNNER_ARCH}"
-fi
-cache_from=("type=gha,scope=${gha_scope}")
-cache_to=("type=gha,mode=max,scope=${gha_scope}")
-
 {
   echo "any=${any}"
   echo "driver_opts=${driver_opts}"
@@ -55,11 +47,5 @@ cache_to=("type=gha,mode=max,scope=${gha_scope}")
   if [ "${#refs[@]}" -gt 0 ]; then
     printf '%s\n' "${refs[@]}"
   fi
-  echo "EOF"
-  echo "cache_from<<EOF"
-  printf '%s\n' "${cache_from[@]}"
-  echo "EOF"
-  echo "cache_to<<EOF"
-  printf '%s\n' "${cache_to[@]}"
   echo "EOF"
 } >>"${GITEA_OUTPUT}"
