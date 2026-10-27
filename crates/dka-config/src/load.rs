@@ -11,7 +11,7 @@ use crate::source::env;
 use crate::source::file::load_file;
 use crate::util::trim_owned;
 
-// --config wins; if it is still the default path, use CONFIG_PATH when set.
+// --config wins, unless it's still the default and CONFIG_PATH is set.
 fn resolve_config_path_arg(cli_path: &Path) -> PathBuf {
   resolve_config_path(cli_path, std::env::var_os("CONFIG_PATH"))
 }
@@ -68,7 +68,7 @@ pub(crate) fn load_with(
   resolve_config(merge_partial_layers(config_path, [env_layer, cli_layer])?)
 }
 
-// Health socket only (skips account resolve). CLI override first; empty string disables.
+// Loads only the health socket, skipping account resolution. The CLI override wins; empty disables.
 pub fn load_health_endpoint(
   config_path: &Path,
   cli_override: Option<&str>,

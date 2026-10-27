@@ -4,7 +4,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use prost::Message;
 
-// Mirrors discord_protos.qos_token.v1, declaring only fields we read or forward.
+// Mirrors discord_protos.qos_token.v1, with only the fields we read or forward.
 #[derive(Message)]
 struct QosToken {
   #[prost(message, optional, tag = "1")]

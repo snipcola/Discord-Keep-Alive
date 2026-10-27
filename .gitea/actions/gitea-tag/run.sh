@@ -33,23 +33,6 @@ body="$(mktemp)"
 trap 'rm -f "${body}"' EXIT
 auth_hdr=(-H "Authorization: token ${TOKEN}" -H "Content-Type: application/json")
 
-request() {
-  local method="$1" url="$2"
-  shift 2
-  http_code="$(
-    curl -sS -o "${body}" -w "%{http_code}" \
-      -X "${method}" \
-      "${auth_hdr[@]}" \
-      "$@" \
-      "${url}"
-  )" || return 1
-}
-
-fail_http() {
-  echo "${1} (HTTP ${http_code}): $(cat "${body}")" >&2
-  return 1
-}
-
 ensure_tag() {
   local tag="$1"
   local message="${2:-${tag}}"
@@ -83,7 +66,7 @@ ensure_tag() {
     esac
   }
 
-  # 409 means a release still points at the tag; drop it and retry once.
+  # 409: a release still uses the tag. Delete it and retry once.
   delete_tag() {
     local attempt
     for attempt in 1 2; do

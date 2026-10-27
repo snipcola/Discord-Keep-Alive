@@ -13,6 +13,12 @@ require "API URL" "${API_URL}"
 
 : "${BUILD_DIR:=build}"
 : "${LATEST:=true}"
+: "${UPLOAD_JOBS:=5}"
+
+if [[ ! ${UPLOAD_JOBS} =~ ^[1-9][0-9]*$ ]]; then
+  echo "UPLOAD_JOBS must be a positive integer." >&2
+  exit 1
+fi
 
 if [ "${LATEST}" = "true" ]; then
   require "Repository URL" "${REPO_URL}"
@@ -45,26 +51,10 @@ owner="${REPOSITORY%%/*}"
 repo="${REPOSITORY#*/}"
 api="${API_URL%/}/repos/${owner}/${repo}"
 
-body="$(mktemp)"
-trap 'rm -f "${body}"' EXIT
+tmp="$(mktemp -d)"
+trap 'rm -rf "${tmp}"' EXIT
+body="${tmp}/body"
 auth_hdr=(-H "Authorization: token ${TOKEN}")
-
-request() {
-  local method="$1" url="$2"
-  shift 2
-  http_code="$(
-    curl -sS -o "${body}" -w "%{http_code}" \
-      -X "${method}" \
-      "${auth_hdr[@]}" \
-      "$@" \
-      "${url}"
-  )" || return 1
-}
-
-fail_http() {
-  echo "${1} (HTTP ${http_code}): $(cat "${body}")" >&2
-  return 1
-}
 
 release_id_for_tag() {
   local tag="$1"
@@ -110,7 +100,6 @@ delete_release() {
   esac
 }
 
-# Replace assets so re-runs against the same tag stay idempotent.
 delete_existing_asset() {
   local release_id="$1" name="$2" asset_id
   request GET "${api}/releases/${release_id}/assets" || return 1
@@ -143,11 +132,33 @@ upload_asset() {
 }
 
 upload_assets() {
-  local release_id="$1" asset_version="$2" replace="$3" i
+  local release_id="$1" asset_version="$2" replace="$3" i work failed=0
+  local files=("${archives[@]}" "${config}") names=()
+
   for i in "${!archives[@]}"; do
-    upload_asset "${release_id}" "${archives[$i]}" "$(archive_name "$i" "${asset_version}")" "${replace}" || return 1
+    names+=("$(archive_name "$i" "${asset_version}")")
   done
-  upload_asset "${release_id}" "${config}" "${config}" "${replace}"
+  names+=("${config}")
+
+  work="$(mktemp -d -p "${tmp}")"
+  for i in "${!files[@]}"; do
+    while [ "$(jobs -rp | wc -l)" -ge "${UPLOAD_JOBS}" ]; do
+      wait -n || true
+    done
+    # request() writes to a shared `body`, so each job needs its own.
+    (
+      body="${work}/${i}.body"
+      upload_asset "${release_id}" "${files[$i]}" "${names[$i]}" "${replace}" &&
+        touch "${work}/${i}.ok"
+    ) >"${work}/${i}.log" 2>&1 &
+  done
+  wait
+
+  for i in "${!files[@]}"; do
+    cat "${work}/${i}.log"
+    [ -f "${work}/${i}.ok" ] || failed=1
+  done
+  [ "${failed}" -eq 0 ]
 }
 
 rc=0

@@ -30,7 +30,7 @@ full_changelog() {
   printf '**Full changelog**: [%s](%s)\n' "${link_text}" "${link_url}"
 }
 
-# Notes are a nicety; never fail a release that already published.
+# Release notes are optional; never fail a published release over them.
 fetch=(git fetch --quiet --tags --force)
 if [ -f "$(git rev-parse --git-dir)/shallow" ]; then
   "${fetch[@]}" --unshallow 2>/dev/null || "${fetch[@]}" 2>/dev/null || true
@@ -44,7 +44,7 @@ if ! git rev-parse -q --verify "${tag_ref}^{commit}" >/dev/null; then
   exit 0
 fi
 
-# Sort 1.0.0-rc.1 below 1.0.0; stable releases skip rcs.
+# Orders 1.0.0-rc.1 before 1.0.0; stable releases skip release candidates.
 prev=""
 seen=0
 while IFS= read -r t; do
@@ -68,7 +68,7 @@ fi
 
 log=(git -c core.quotePath=false log "${range}" --no-merges)
 
-# A BREAKING CHANGE footer is equivalent to `!` on the type.
+# A BREAKING CHANGE footer counts the same as `!` after the type.
 breaking="$("${log[@]}" -E --grep='^BREAKING[- ]CHANGE:' --format='%h' | tr '\n' ' ')"
 
 manifest_expr='([.package.version, .workspace.package.version] | map(select(tag == "!!str")) | .[0] // ""),
@@ -77,7 +77,7 @@ third_party_expr='[.package[] | select(has("source"))]'
 
 toml() { git show "$1" | yq -p toml -o json -I0 "$2"; }
 
-# Sets the caller's before/after.
+# Sets `before` and `after` in the caller.
 toml_pair() {
   before="$(toml "$1^:$2" "$3")" && after="$(toml "$1:$2" "$3")"
 }

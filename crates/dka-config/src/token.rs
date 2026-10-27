@@ -5,7 +5,6 @@ use std::str::FromStr;
 use secrecy::{ExposeSecret, SecretString as SecrecyString};
 use serde::Deserialize;
 
-/// Token wrapper: redacted Debug, zeroized on drop via `secrecy`.
 #[derive(Clone, Default, Deserialize)]
 #[serde(transparent)]
 pub struct SecretString(SecrecyString);

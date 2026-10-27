@@ -108,7 +108,7 @@ targets_parse() {
     TARGET_EXTS+=("${ext}")
     TARGET_ASSETS+=("${ASSET_OS[${os}]}-${ASSET_ARCH[${arch}]}")
     TARGET_ARCHIVES+=("${ASSET_ARCHIVE[${os}]}")
-  done <<<"${raw}"
+  done < <(LC_ALL=C sort -b -t= -k1,1 <<<"${raw}")
 
   if [ "${#TARGET_PLATFORMS[@]}" -eq 0 ]; then
     echo "No targets provided (expected platform=target lines)." >&2
@@ -120,7 +120,7 @@ stage_name() { printf '%s' "${PACKAGE}-${TARGET_ASSETS[$1]}"; }
 
 archive_name() { printf '%s' "${PACKAGE}${2:+-${2}}-${TARGET_ASSETS[$1]}${TARGET_ARCHIVES[$1]}"; }
 
-# The binary is named by [[bin]], not by the package.
+# The binary takes its name from [[bin]], not the package.
 binary_name() {
   cargo metadata --format-version 1 --no-deps |
     jq -er --arg pkg "${PACKAGE}" \
@@ -153,6 +153,26 @@ require() {
 }
 
 uri() { printf '%s' "${1-}" | jq -sRr @uri; }
+
+request() {
+  local method="$1" url="$2"
+  shift 2
+  http_code="$(
+    curl -sS -o "${body}" -w "%{http_code}" \
+      --connect-timeout 10 \
+      --speed-limit 1024 --speed-time 60 \
+      --retry 3 --retry-connrefused \
+      -X "${method}" \
+      "${auth_hdr[@]}" \
+      "$@" \
+      "${url}"
+  )" || return 1
+}
+
+fail_http() {
+  echo "${1} (HTTP ${http_code}): $(cat "${body}")" >&2
+  return 1
+}
 
 normalize_host() {
   local host

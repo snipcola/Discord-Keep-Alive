@@ -13,10 +13,10 @@ pub struct FieldSpec {
   pub set_suffix: &'static str,
 }
 
-/// String-field catalog: enum + `ALL`/`spec`/`get_mut`, optional partial/cli_args/cli_get.
+/// Declares an enum of string fields with `ALL`, `spec` and `get_mut`.
 ///
-/// Per-field: `serde_rename`, paired `cli_field` + `help`.
-/// Flags: `env_opt`/`env_req`, `cli_req`, `partial`, `cli_args(ArgsStruct)`.
+/// Optional per-field keys: `serde_rename`, and `cli_field` with `help`.
+/// Optional flags: `env_opt`/`env_req`, `cli_req`, `partial`, `cli_args(ArgsStruct)`.
 macro_rules! string_fields {
   (
     $(#[$meta:meta])*
@@ -145,8 +145,8 @@ macro_rules! string_fields {
     } $($rest)*);
   };
 
-  // clap::Args group for `#[command(flatten)]` (macros cannot expand into struct fields).
-  // Also emits `cli_get` so apply_*_cli is a pure catalog loop.
+  // Emits a clap `Args` struct for `#[command(flatten)]` (macros can't expand into
+  // struct fields), plus `cli_get` so apply_*_cli can loop over the catalog.
   (@flags $vis:vis $Name:ident $Target:ident {
     $(
       $Variant:ident($field:ident) {
@@ -246,14 +246,10 @@ impl DefaultsProfile {
   }
 }
 
-/// How empty override strings map onto resolved `ClientProperties`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientPropEmptyPolicy {
-  /// Leave the built-in value when the override is empty.
   SkipEmpty,
-  /// Map empty to `None` (optional resolved field).
   EmptyToNone,
-  /// Assign even when empty (resolved field is `String`).
   AssignEvenEmpty,
 }
 
@@ -434,7 +430,7 @@ impl GlobalDefaultField {
   }
 }
 
-// Manual: Token uses SecretString; Name uses bare ACCOUNT env and --account.
+// Hand-written: Token is a SecretString, and Name uses the bare ACCOUNT env var and --account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountScalarField {
   Token,
@@ -461,7 +457,7 @@ impl AccountScalarField {
         cli_long: Some("token"),
         set_suffix: "token",
       },
-      // No env_suffix: name is ACCOUNT / ACCOUNT_<id>, not ACCOUNT_NAME.
+      // No env_suffix: the env var is ACCOUNT or ACCOUNT_<id>, not ACCOUNT_NAME.
       Self::Name => FieldSpec {
         toml: "name",
         env_suffix: None,
@@ -521,14 +517,14 @@ impl AccountScalarField {
   }
 }
 
-/// Account scalar clap group. Catalog owns long names; Token stays `SecretString`.
+/// Clap group for account scalars. Long names come from the catalog.
 #[derive(Debug, Default, Args)]
 pub struct AccountScalarCliArgs {
-  /// Token for the flat (default) account.
+  /// Account token.
   #[arg(long = AccountScalarField::Token.cli_long())]
   pub token: Option<SecretString>,
 
-  /// Display name for the flat account.
+  /// Account name, used in logs.
   #[arg(long = AccountScalarField::Name.cli_long())]
   pub name: Option<String>,
 
@@ -536,11 +532,11 @@ pub struct AccountScalarCliArgs {
   #[arg(long = AccountScalarField::Kind.cli_long())]
   pub kind: Option<String>,
 
-  /// User device (`desktop`, `web`, or `mobile`).
+  /// Device to appear as (`web`, `desktop` or `mobile`; users only).
   #[arg(long = AccountScalarField::Device.cli_long())]
   pub device: Option<String>,
 
-  /// Presence (`online`, `idle`, `dnd`, or `invisible`).
+  /// Status (`online`, `idle`, `dnd` or `invisible`).
   #[arg(long = AccountScalarField::Status.cli_long())]
   pub status: Option<String>,
 }
@@ -553,7 +549,7 @@ string_fields! {
       cli_long: Some("custom-status"),
       set_suffix: "text",
       cli_field: custom_status,
-      help: "Custom status text (users only).",
+      help: "Custom status text (users only)",
     },
     Emoji(emoji) {
       toml: "emoji",
@@ -561,7 +557,7 @@ string_fields! {
       cli_long: Some("custom-status-emoji"),
       set_suffix: "emoji",
       cli_field: custom_status_emoji,
-      help: "Custom status emoji (users only).",
+      help: "Custom status emoji (users only)",
     },
   }
   env_req cli_req partial cli_args(CustomStatusCliArgs)
@@ -575,7 +571,7 @@ string_fields! {
       cli_long: Some("activity"),
       set_suffix: "name",
       cli_field: activity,
-      help: "Flat activity name.",
+      help: "Activity name",
     },
     Type(activity_type) {
       toml: "type",
@@ -584,7 +580,7 @@ string_fields! {
       set_suffix: "type",
       serde_rename: "type",
       cli_field: activity_type,
-      help: "Activity type (`playing`, `streaming`, `listening`, `watching`, `competing`).",
+      help: "Activity type (`playing`, `streaming`, `listening`, `watching`, `competing`, `hang`)",
     },
     Platform(platform) {
       toml: "platform",
@@ -592,7 +588,7 @@ string_fields! {
       cli_long: Some("activity-platform"),
       set_suffix: "platform",
       cli_field: activity_platform,
-      help: "Activity platform string.",
+      help: "Platform shown on the activity (e.g. `desktop`, `xbox`)",
     },
     Timestamp(timestamp) {
       toml: "timestamp",
@@ -600,7 +596,7 @@ string_fields! {
       cli_long: Some("activity-timestamp"),
       set_suffix: "timestamp",
       cli_field: activity_timestamp,
-      help: "Activity start time (Unix seconds).",
+      help: "Activity start time (Unix seconds)",
     },
     ApplicationId(application_id) {
       toml: "application_id",
@@ -608,7 +604,7 @@ string_fields! {
       cli_long: Some("activity-application-id"),
       set_suffix: "application_id",
       cli_field: activity_application_id,
-      help: "Discord application id.",
+      help: "Application ID",
     },
     Details(details) {
       toml: "details",
@@ -616,7 +612,7 @@ string_fields! {
       cli_long: Some("activity-details"),
       set_suffix: "details",
       cli_field: activity_details,
-      help: "Activity details line.",
+      help: "Details line",
     },
     Url(url) {
       toml: "url",
@@ -624,7 +620,7 @@ string_fields! {
       cli_long: Some("activity-url"),
       set_suffix: "url",
       cli_field: activity_url,
-      help: "Stream URL (required when type is `streaming`).",
+      help: "Stream URL (required for `streaming`)",
     },
     LargeImage(large_image) {
       toml: "large_image",
@@ -632,7 +628,7 @@ string_fields! {
       cli_long: Some("activity-large-image"),
       set_suffix: "large_image",
       cli_field: activity_large_image,
-      help: "Large image asset key.",
+      help: "Large image asset key",
     },
     LargeImageText(large_image_text) {
       toml: "large_image_text",
@@ -640,7 +636,7 @@ string_fields! {
       cli_long: Some("activity-large-image-text"),
       set_suffix: "large_image_text",
       cli_field: activity_large_image_text,
-      help: "Large image hover text.",
+      help: "Large image hover text",
     },
     SmallImage(small_image) {
       toml: "small_image",
@@ -648,7 +644,7 @@ string_fields! {
       cli_long: Some("activity-small-image"),
       set_suffix: "small_image",
       cli_field: activity_small_image,
-      help: "Small image asset key.",
+      help: "Small image asset key",
     },
     SmallImageText(small_image_text) {
       toml: "small_image_text",
@@ -656,7 +652,7 @@ string_fields! {
       cli_long: Some("activity-small-image-text"),
       set_suffix: "small_image_text",
       cli_field: activity_small_image_text,
-      help: "Small image hover text.",
+      help: "Small image hover text",
     },
     Button(button) {
       toml: "button",
@@ -664,7 +660,7 @@ string_fields! {
       cli_long: Some("activity-button"),
       set_suffix: "button",
       cli_field: activity_button,
-      help: "Button 1 label.",
+      help: "Button 1 label",
     },
     ButtonUrl(button_url) {
       toml: "button_url",
@@ -672,7 +668,7 @@ string_fields! {
       cli_long: Some("activity-button-url"),
       set_suffix: "button_url",
       cli_field: activity_button_url,
-      help: "Button 1 URL.",
+      help: "Button 1 URL",
     },
     Button2(button_2) {
       toml: "button_2",
@@ -680,7 +676,7 @@ string_fields! {
       cli_long: Some("activity-button-2"),
       set_suffix: "button_2",
       cli_field: activity_button_2,
-      help: "Button 2 label.",
+      help: "Button 2 label",
     },
     Button2Url(button_2_url) {
       toml: "button_2_url",
@@ -688,7 +684,7 @@ string_fields! {
       cli_long: Some("activity-button-2-url"),
       set_suffix: "button_2_url",
       cli_field: activity_button_2_url,
-      help: "Button 2 URL.",
+      help: "Button 2 URL",
     },
     PartyId(party_id) {
       toml: "party_id",
@@ -696,7 +692,7 @@ string_fields! {
       cli_long: Some("activity-party-id"),
       set_suffix: "party_id",
       cli_field: activity_party_id,
-      help: "Party id.",
+      help: "Party ID",
     },
     PartyCurrent(party_current) {
       toml: "party_current",
@@ -704,7 +700,7 @@ string_fields! {
       cli_long: Some("activity-party-current"),
       set_suffix: "party_current",
       cli_field: activity_party_current,
-      help: "Party current size.",
+      help: "Current party size",
     },
     PartyMax(party_max) {
       toml: "party_max",
@@ -712,7 +708,7 @@ string_fields! {
       cli_long: Some("activity-party-max"),
       set_suffix: "party_max",
       cli_field: activity_party_max,
-      help: "Party max size.",
+      help: "Maximum party size",
     },
   }
   env_opt cli_req partial cli_args(ActivityCliArgs)

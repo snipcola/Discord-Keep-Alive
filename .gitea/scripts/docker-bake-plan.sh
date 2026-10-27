@@ -26,7 +26,7 @@ cache_to=()
 read_lines cache_from "${CACHE_FROM-}"
 read_lines cache_to "${CACHE_TO-}"
 
-# Bake resolves a relative dockerfile against each target's context.
+# Bake resolves relative Dockerfile paths against each target's context.
 dockerfile="$(realpath "${DOCKERFILE}")"
 binary="$(binary_name)"
 contexts=()
@@ -48,7 +48,7 @@ if [ "${PUSH}" = "true" ]; then
   push_json=true
 fi
 
-# Emit digests when pushing; docker-manifest.sh applies version tags.
+# Pushes by digest; docker-manifest.sh adds the version tags.
 jq -nc \
   --arg dockerfile "${dockerfile}" \
   --arg binary "${binary}" \

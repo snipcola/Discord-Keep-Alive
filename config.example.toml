@@ -9,14 +9,14 @@ log_level = "info"
 # status = "online"                           # online (default) | dnd | idle | invisible
 
 # [custom_status]                             # user only; can combine with activities
-# text = "Keep Alive"                         # required for custom status to show
+# text = "Keep Alive"                         # required to show a custom status
 # emoji = "✨"                                # optional
 
 # [activity]                                  # first activity
-# name = "Keep Alive"                         # required for this entry
+# name = "Keep Alive"                         # required
 # type = "playing"                            # playing | streaming | listening | watching | competing | hang
 # platform = "desktop"                        # user only: desktop | samsung | xbox | ios | android | embedded | ps4 | ps5
-# timestamp = "1700000000"                    # user only; unix seconds (default: process start)
+# timestamp = "1700000000"                    # user only; Unix seconds (default: process start)
 # application_id = "1"                        # user only; default: 1, 2, 3… per activity
 # details = "details text"                    # user: details line; bot: text under the name
 # url = "https://twitch.tv/example"           # required for streaming (Twitch or YouTube)
@@ -70,7 +70,7 @@ log_level = "info"
 # heartbeat_version = "30"                    # user QoS heartbeats; empty sends plain heartbeats
 # capabilities = "16000"                      # user identify capabilities; empty omits
 
-# [defaults.bot]                              # identify properties + gateway user-agent (optional)
+# [defaults.bot]                              # identify properties and gateway user agent
 # os = "linux"
 # browser = "discord-keep-alive"
 # device = "discord-keep-alive"
@@ -112,4 +112,4 @@ log_level = "info"
 # system_locale = "en-US"
 # release_channel = "stable"
 
-# health_socket = "/tmp/dka-health.sock"      # optional; unix socket path or windows pipe name; off when unset
+# health_socket = "/tmp/dka-health.sock"      # Unix socket path or Windows pipe name; off when unset

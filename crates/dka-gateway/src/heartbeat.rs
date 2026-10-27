@@ -20,7 +20,6 @@ pub async fn heartbeat_loop(
   seq_cell: Arc<AtomicI64>,
   shutdown: &mut watch::Receiver<bool>,
 ) {
-  // First beat is delayed by interval * random(0..1); later beats are every interval.
   if is_shutdown(shutdown) {
     return;
   }
@@ -34,7 +33,7 @@ pub async fn heartbeat_loop(
     }
   }
 
-  // interval() fires immediately; that is fine after the jitter sleep above.
+  // interval() ticks immediately, which is fine after the jitter sleep above.
   let mut ticker = interval(Duration::from_millis(interval_ms));
   ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 

@@ -27,7 +27,7 @@ pub fn build_presence_data(
       }
     }
     AccountKind::Bot => {
-      // Bots keep only the first activity; Discord ignores the rest.
+      // Discord ignores all but the first bot activity.
       if let Some(v) = activities.iter().find_map(|a| a.to_activity(kind)) {
         out.push(v);
       }

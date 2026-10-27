@@ -2,12 +2,12 @@ use anyhow::{Context, Result};
 use structured_zstd::decoding::FrameDecoder;
 
 const INITIAL_LEN: usize = 8 * 1024;
-// Keep this much buffer after reclaim for normal frames.
+// Capacity kept after reclaiming, enough for normal frames.
 const KEEP_CAP: usize = 64 * 1024;
-// Only shrink after large spikes (for example READY).
+// The buffer only shrinks after a large spike, such as READY.
 const SHRINK_THRESHOLD: usize = 256 * 1024;
 
-// Shared zstd stream for the life of one WebSocket connection.
+// One zstd stream per WebSocket connection.
 pub(crate) struct TransportDecompress {
   decoder: FrameDecoder,
   pending: Vec<u8>,
@@ -25,7 +25,6 @@ impl TransportDecompress {
     }
   }
 
-  // Output is only valid until the next push.
   pub(crate) fn push(&mut self, compressed: &[u8]) -> Result<&[u8]> {
     self.out_len = 0;
 
@@ -80,7 +79,6 @@ mod tests {
   use std::io::Write;
   use structured_zstd::encoding::{CompressionLevel, StreamingEncoder};
 
-  // One continuous zstd stream with compress+flush per payload.
   fn compress_stream_messages(chunks: &[&[u8]]) -> Vec<Vec<u8>> {
     let mut encoder = StreamingEncoder::new(Vec::new(), CompressionLevel::Default);
 

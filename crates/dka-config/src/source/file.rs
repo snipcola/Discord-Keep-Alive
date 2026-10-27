@@ -28,7 +28,7 @@ struct FileConfig {
   account: FileAccount,
 }
 
-// Scalars shared with PartialAccount; dual activity containers stay file-only.
+// Scalars shared with PartialAccount. The two activity containers are file-only.
 #[derive(Debug, Clone, Default, Deserialize)]
 struct FileAccount {
   #[serde(flatten)]
@@ -65,7 +65,7 @@ fn file_config_to_partial(file: FileConfig) -> PartialConfig {
     account_order.push(ACCOUNT_FLAT.into());
   }
 
-  // Non-empty [[accounts]] entries get dense ids "0","1",… in file order.
+  // Non-empty [[accounts]] entries get ids "0", "1", … in file order.
   let mut next_account_id = 0usize;
   for acc in file.accounts {
     let partial = file_account_to_partial(acc);
@@ -97,7 +97,6 @@ fn file_account_to_partial(acc: FileAccount) -> PartialAccount {
     activity_order.push(ACTIVITY_SINGULAR.into());
   }
 
-  // Non-empty [[activities]] entries get dense ids the same way.
   let mut next_activity_id = 0usize;
   for act in acc.activities {
     if any_activity_field_set(&act) {

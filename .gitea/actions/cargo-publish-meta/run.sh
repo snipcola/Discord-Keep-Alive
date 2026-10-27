@@ -210,5 +210,5 @@ if [ "${changed}" = true ]; then
     echo "Publishing ${package_name}@${version} (${reason})."
   fi
 else
-  echo "No version change and no ${RELEASE_MARKER} marker (${prev}@${base} == ${version}); skipping image publish."
+  echo "Version ${version} is unchanged since ${base} and the commit has no ${RELEASE_MARKER} marker; skipping image publish."
 fi

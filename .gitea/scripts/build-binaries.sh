@@ -14,7 +14,7 @@ targets_parse "${TARGETS}"
 
 binary="$(binary_name)"
 
-# One invocation: concurrent ones would serialise on the build directory lock.
+# Single invocation; parallel ones would just wait on the build directory lock.
 args=()
 targets_cargo_args args
 cargo zbr -p "${PACKAGE}" "${args[@]}"

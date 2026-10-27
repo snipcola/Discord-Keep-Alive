@@ -43,7 +43,7 @@ pub(super) async fn graceful_disconnect(
       debug!(error = %err, "failed to send offline presence");
     } else {
       trace!("sent offline presence");
-      // Give Discord time to apply presence before the session is closed.
+      // Let Discord apply the presence before we close the session.
       sleep(Duration::from_millis(250)).await;
     }
   }
@@ -85,8 +85,8 @@ pub(super) async fn graceful_disconnect(
 }
 
 pub(super) fn identify_d(params: &SessionParams, qos: Option<&DerivedQos>) -> Value {
-  // Identify carries presence for the pre-READY window; READY/RESUMED re-apply it.
-  // Payload-level zlib off; transport already uses zstd-stream.
+  // Identify carries the initial presence; READY and RESUMED send it again.
+  // No payload-level compression, since the transport already uses zstd-stream.
   let mut d = json!({
     "token": params.token,
     "properties": identify_properties(&params.properties, params.kind),

@@ -48,7 +48,7 @@ done
   echo "rust_targets=${rust_targets}"
   echo "zig=${zig}"
   echo "specs=$(csv specs)"
-  # Sorted so the key depends on the set, not the order it was requested in.
+  # Sorted, so the key doesn't depend on request order.
   echo "fingerprint=$(printf '%s\n' "${specs[@]+"${specs[@]}"}" | sort | sha256sum | cut -c1-16)"
   echo "paths<<EOF"
   printf '%s\n' "${paths[@]+"${paths[@]}"}"

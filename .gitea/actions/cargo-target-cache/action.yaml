@@ -24,7 +24,7 @@ runs:
         subdirs=(debug)
         if [ -n "$(trim "${TARGETS}")" ]; then
           targets_parse "${TARGETS}"
-          # Host build scripts and proc macros land in release/.
+          # Host build scripts and proc macros build into release/.
           subdirs=(release "${TARGET_RUST[@]}")
         fi
 

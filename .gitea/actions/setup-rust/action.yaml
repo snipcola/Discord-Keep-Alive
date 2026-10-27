@@ -12,7 +12,7 @@ inputs:
 runs:
   using: composite
   steps:
-    # Commas are not permitted in cache keys.
+    # Cache keys can't contain commas, so hash the targets.
     - id: fp
       shell: bash
       env:
@@ -24,8 +24,8 @@ runs:
         path: ~/.rustup
         key: rustup-toolchain-${{ hashFiles('rust-toolchain.toml') }}-${{ steps.fp.outputs.targets }}
 
-    # rust-cache never rewrites an entry restored on an exact key match, so
-    # bins and targets are cached separately to avoid pinning stale contents.
+    # rust-cache doesn't rewrite an entry restored on an exact key match,
+    # so bins and targets are cached separately to avoid stale contents.
     - uses: ${{ inputs.image }}
       with:
         target: ${{ inputs.targets }}

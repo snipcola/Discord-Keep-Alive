@@ -33,6 +33,10 @@ inputs:
   prerelease:
     required: false
     default: "false"
+  upload_jobs:
+    description: Maximum concurrent asset uploads
+    required: false
+    default: "4"
   token:
     required: false
     default: ""
@@ -77,6 +81,7 @@ runs:
         LATEST: ${{ inputs.latest }}
         DRAFT: ${{ inputs.draft }}
         PRERELEASE: ${{ inputs.prerelease }}
+        UPLOAD_JOBS: ${{ inputs.upload_jobs }}
         TOKEN: ${{ inputs.token || gitea.token }}
         API_URL: ${{ inputs.api_url || gitea.api_url }}
         REPOSITORY: ${{ inputs.repository || gitea.repository }}

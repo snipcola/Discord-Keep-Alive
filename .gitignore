@@ -1,9 +1,7 @@
-# Build
 /target
 /build
 /NOTICE
 
-# Secrets / Config
 .env*
 !.env.example
 /config.toml

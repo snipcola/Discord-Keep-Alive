@@ -6,7 +6,7 @@ pub type ActivityId = String;
 pub const ACCOUNT_FLAT: &str = "__flat__";
 pub const ACTIVITY_SINGULAR: &str = "__singular__";
 
-// 1-64 chars: start letter/digit, then letter/digit/hyphen; no trailing hyphen, `_`, or reserved id.
+// 1-64 chars: a letter or digit, then letters, digits or hyphens. No trailing hyphen; reserved ids are rejected.
 pub fn parse_user_id(raw: &str) -> Result<String, ConfigError> {
   if raw.is_empty() {
     return Err(ConfigError::InvalidId("id must not be empty".into()));
@@ -23,13 +23,13 @@ pub fn parse_user_id(raw: &str) -> Result<String, ConfigError> {
   let first = bytes[0];
   if !first.is_ascii_alphanumeric() {
     return Err(ConfigError::InvalidId(format!(
-      "id '{raw}' must start with an alphanumeric character"
+      "id '{raw}' must start with a letter or digit"
     )));
   }
   for &b in &bytes[1..] {
     if !(b.is_ascii_alphanumeric() || b == b'-') {
       return Err(ConfigError::InvalidId(format!(
-        "id '{raw}' may only contain alphanumeric characters and '-'"
+        "id '{raw}' may only contain letters, digits and '-'"
       )));
     }
   }

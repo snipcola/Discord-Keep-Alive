@@ -46,7 +46,7 @@ Installs the `dka` binary.
 git clone --depth 1 --branch latest https://code.snipcola.st/snipcola/Discord-Keep-Alive
 cd Discord-Keep-Alive
 cp config.example.toml config.toml
-# Set at least a token before running.
+# Set a token in config.toml before running.
 cargo run --release
 ```
 

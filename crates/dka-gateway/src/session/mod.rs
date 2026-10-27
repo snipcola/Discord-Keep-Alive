@@ -50,7 +50,7 @@ struct SessionState {
   resume_url: Option<String>,
   // Set after READY/RESUMED. A healthy drop resets reconnect attempts.
   session_healthy: bool,
-  // Survives clear_session; reused on fresh identify.
+  // Survives clear_session and is reused on a fresh identify.
   qos: Option<DerivedQos>,
 }
 
@@ -70,8 +70,8 @@ impl SessionState {
     self.session_id.is_some() && self.seq.is_some()
   }
 
-  // Only resume a session that reached READY/RESUMED; a resume that died earlier
-  // would just be retried against a session the gateway already rejected.
+  // Only resume a session that reached READY or RESUMED. Otherwise we'd retry
+  // a resume the gateway has already rejected.
   fn can_resume_after_error(&self) -> bool {
     self.session_healthy && self.can_resume()
   }
@@ -95,7 +95,7 @@ enum SessionEnd {
   Shutdown,
   Reconnect {
     resume: bool,
-    // Optional extra wait (for example 2s after INVALID_SESSION).
+    // Extra wait, e.g. 2s after INVALID_SESSION.
     extra_delay: Option<Duration>,
     cause: &'static str,
   },
@@ -122,7 +122,7 @@ impl SessionEnd {
     }
   }
 
-  // 1000/1001 invalidate the session server-side; any other code keeps it resumable.
+  // Close codes 1000 and 1001 end the session server-side; any other code leaves it resumable.
   fn close_frame(&self) -> Option<CloseFrame> {
     match self {
       Self::Reconnect { .. } => Some(CloseFrame {

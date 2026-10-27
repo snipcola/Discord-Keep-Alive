@@ -1,5 +1,3 @@
-//! Test-only helpers.
-
 use std::collections::{BTreeMap, HashMap};
 
 use clap::Parser;
@@ -102,7 +100,7 @@ pub fn for_each_catalog_field(
   }
 }
 
-/// Every defaults profile × client-prop leaf (no flat CLI by design).
+/// Visits every defaults profile × client property (no flat CLI, by design).
 pub fn for_each_defaults_field(mut on_field: impl FnMut(DefaultsProfile, ClientPropField)) {
   for &profile in DefaultsProfile::ALL {
     for &field in ClientPropField::ALL {
@@ -111,7 +109,7 @@ pub fn for_each_defaults_field(mut on_field: impl FnMut(DefaultsProfile, ClientP
   }
 }
 
-/// Stable sample value for catalog reachability (not domain-valid).
+/// Stable sample value for catalog tests; not valid for the field's domain.
 pub fn catalog_sample_value(label: &str) -> String {
   format!("cat-{label}")
 }

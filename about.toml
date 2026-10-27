@@ -1,4 +1,4 @@
-# Keep within deny.toml's list; order matters for "A OR B" crates.
+# Stay within deny.toml's list. Order matters for "A OR B" licences.
 accepted = [
   "ISC",
   "MIT",

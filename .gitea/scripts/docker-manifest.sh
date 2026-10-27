@@ -17,12 +17,13 @@ mapfile -t digests < <(
     if type != "object" then
       error("bake metadata must be a JSON object")
     else
-      to_entries[]
-      | .value
+      to_entries
+      | sort_by(.key)
+      | .[].value
       | objects
       | ."containerimage.digest" // empty
     end
-  ' | sed '/^$/d' | sort -u
+  ' | awk 'NF && !seen[$0]++'
 )
 
 if [ "${#digests[@]}" -eq 0 ]; then

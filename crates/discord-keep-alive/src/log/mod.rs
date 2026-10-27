@@ -8,7 +8,7 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 use self::account::AccountLayer;
 use self::format::HumanFormat;
 
-// Prefer RUST_LOG when set; otherwise log workspace crates at log_level and mute noisy deps.
+// RUST_LOG wins if set. Otherwise workspace crates log at log_level and dependencies are muted.
 pub fn init(log_level: &str) {
   let filter =
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter(log_level)));

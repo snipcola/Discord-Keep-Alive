@@ -26,12 +26,12 @@ use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_f
 use super::inbound::decode_inbound;
 use super::{SessionEnd, SessionParams, SessionState, WsStream, send_json};
 
-// Auth and shard/intent failures are fatal; do not reconnect.
+// Auth, shard and intent failures are fatal: don't reconnect.
 fn is_fatal_close_code(code: u16) -> bool {
   matches!(code, 4004 | 4010..=4014)
 }
 
-// Invalid seq (4007): identify again, do not resume.
+// After an invalid seq (4007), identify again instead of resuming.
 fn resume_after_close(code: u16) -> bool {
   code != 4007
 }

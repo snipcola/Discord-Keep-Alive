@@ -17,8 +17,8 @@ use crate::util::trim_to_string;
 
 pub const DEFAULT_CONFIG_PATH: &str = "config.toml";
 
-// No clap env=; process env is the env source only.
-// Flat leaves: flatten Args groups (macros cannot expand into struct fields).
+// No clap `env=`: only the env source reads the process environment.
+// The flat flags live in flattened `Args` groups, as macros can't expand into struct fields.
 #[derive(Debug, Parser)]
 #[command(
   name = "discord-keep-alive",
@@ -46,11 +46,11 @@ pub struct Cli {
   #[command(flatten)]
   pub activity: ActivityCliArgs,
 
-  /// Account override: `id.path=value` (e.g. `main.token=AAA`).
+  /// Set a field on a specific account: `ID.PATH=VALUE` (e.g. `main.token=AAA`).
   #[arg(long = "account-set", value_name = "SPEC", action = clap::ArgAction::Append)]
   pub account_set: Vec<String>,
 
-  /// Path override: `PATH=VALUE` (e.g. `log_level=debug`).
+  /// Set any config field: `PATH=VALUE` (e.g. `log_level=debug`).
   #[arg(long = "set", value_name = "PATH=VALUE", action = clap::ArgAction::Append)]
   pub set: Vec<String>,
 
@@ -62,7 +62,7 @@ pub struct Cli {
 pub enum Command {
   /// Probe health: exit 0 ok, 1 unhealthy, 2 unreachable.
   Health {
-    /// Endpoint for this probe only. Empty disables.
+    /// Health socket or pipe name to probe, instead of the configured one.
     #[arg(long)]
     health_socket: Option<String>,
 
@@ -72,7 +72,7 @@ pub enum Command {
   },
 }
 
-/// CLI partial. Apply order (last wins): flat flags → `--account-set` → `--set`.
+/// Builds the CLI layer. Later sources win: flat flags, then `--account-set`, then `--set`.
 pub fn cli_partial(cli: &Cli) -> Result<PartialConfig, ConfigError> {
   let mut partial = PartialConfig::default();
 
@@ -95,7 +95,7 @@ fn apply_flat_flags(partial: &mut PartialConfig, cli: &Cli) {
   if let Some(v) = trim_to_string(cli.log_level.as_deref()) {
     apply_path(partial, &ConfigPath::LogLevel, v);
   }
-  // Keep empty health_socket (disables). Do not drop it via trim.
+  // An empty health_socket disables it, so don't trim it away.
   if let Some(v) = cli.health_socket.clone() {
     apply_path(partial, &ConfigPath::HealthSocket, v);
   }
@@ -126,12 +126,12 @@ pub fn parse_account_set_spec(spec: &str) -> Result<(ConfigPath, String), Config
   let (path, value) = split_kv(spec)?;
   let Some((id, rest)) = path.split_once('.') else {
     return Err(ConfigError::InvalidPath(format!(
-      "account-set expects id.path=value, got '{spec}'"
+      "--account-set expects ID.PATH=VALUE, got '{spec}'"
     )));
   };
   if rest.is_empty() {
     return Err(ConfigError::InvalidPath(format!(
-      "account-set missing path after id in '{spec}'"
+      "--account-set is missing a path after the ID in '{spec}'"
     )));
   }
   let account_id = parse_account_id(id)?;
@@ -171,7 +171,7 @@ pub fn parse_set_path(path: &str) -> Result<ConfigPath, ConfigError> {
       Ok(ConfigPath::Account(account_id, account_path))
     }
 
-    // Bare paths (token, activity.name, …) attach to the flat account.
+    // Bare paths like `token` or `activity.name` target the flat account.
     _ => match parse_account_relative_segs(&segs) {
       Some(Ok(account_path)) => Ok(ConfigPath::Account(ACCOUNT_FLAT.into(), account_path)),
       Some(Err(e)) => Err(e),
@@ -193,8 +193,8 @@ fn parse_account_relative_path(path: &str) -> Result<AccountPath, ConfigError> {
   }
 }
 
-/// Account-relative path segments. `None` = not this grammar;
-/// `Some(Err)` keeps bad field/id errors distinct from unknown roots.
+/// Parses account-relative path segments. Returns `None` if they aren't an account
+/// path at all, and `Some(Err)` if they are but a field or id is invalid.
 fn parse_account_relative_segs(segs: &[&str]) -> Option<Result<AccountPath, ConfigError>> {
   match segs {
     [seg] => parse_account_scalar_token(seg).map(|f| Ok(AccountPath::Scalar(f))),
@@ -217,7 +217,6 @@ fn parse_account_relative_segs(segs: &[&str]) -> Option<Result<AccountPath, Conf
   }
 }
 
-/// Catalog set_suffix, or the CLI long `account` → Name.
 fn parse_account_scalar_token(raw: &str) -> Option<AccountScalarField> {
   if raw == "account" {
     return Some(AccountScalarField::Name);
@@ -507,7 +506,6 @@ mod tests {
     );
   }
 
-  /// Every catalog `cli_long` is a real clap long and applies to the flat account only.
   #[test]
   fn catalog_cli_longs_parse_and_apply_flat_account() {
     for_each_catalog_field(

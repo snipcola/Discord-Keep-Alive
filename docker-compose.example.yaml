@@ -25,7 +25,7 @@ services:
       # ACTIVITY_0_TYPE: listening
       LOG_LEVEL: info # error | warn | info | debug | trace
 
-      # extra accounts (ids can also be strings, i.e. ACCOUNT_TEST_TOKEN)
+      # Extra accounts (ids can also be names, e.g. ACCOUNT_TEST_TOKEN)
       # ACCOUNT_0_TOKEN: ${ACCOUNT_0_TOKEN:?set ACCOUNT_0_TOKEN}
       # ACCOUNT_0: primary
       # ACCOUNT_0_KIND: user
@@ -41,8 +41,8 @@ services:
       # ACCOUNT_1_KIND: bot
       # ACCOUNT_1_STATUS: online
 
-    # optional config file (env is usually simpler in docker)
-    # for file-only config, remove TOKEN above; compose still expands ${TOKEN:?…} if left set
+    # Optional config file (environment variables are usually simpler in Docker).
+    # To use only a config file, remove TOKEN above; otherwise compose still requires it.
     # volumes:
     #   - ./config.toml:/config.toml:ro,z
     # environment:

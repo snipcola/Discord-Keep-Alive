@@ -125,8 +125,8 @@ pub(crate) fn merge_account(dst: &mut PartialAccount, mut src: PartialAccount) {
   append_missing_keys(&mut dst.activity_order, dst.activities.keys());
 }
 
-// Field-level overlay. Maps merge by string id; order only appends missing ids.
-// Ids are never renumbered: "1" stays "1".
+// Overlays src onto dst field by field. Maps merge by id; new ids are appended
+// and existing ones are never renumbered.
 pub(crate) fn merge_partial(dst: &mut PartialConfig, src: PartialConfig) {
   if src.log_level.is_some() {
     dst.log_level = src.log_level;
@@ -296,7 +296,7 @@ mod tests {
     );
   }
 
-  /// Catalog leaves merge by field id (src None does not wipe dst).
+  /// Catalog leaves merge by field id; a `None` in src doesn't wipe dst.
   #[test]
   fn catalog_activity_and_custom_merge_field_level() {
     for_each_catalog_field(
@@ -322,7 +322,7 @@ mod tests {
         let mut dst = PartialActivity::default();
         *field.get_mut(&mut dst) = Some("keep".into());
         let mut src = PartialActivity::default();
-        // Set a different leaf on src so merge is non-empty without wiping `field`.
+        // Sets another leaf on src so the merge isn't empty, without touching `field`.
         if let Some(&other) = ActivityField::ALL.iter().find(|&&f| f != field) {
           *other.get_mut(&mut src) = Some("from-src".into());
           merge_activity(&mut dst, src);

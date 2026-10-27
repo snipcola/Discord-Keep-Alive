@@ -46,7 +46,6 @@ impl HealthState {
   }
 }
 
-// Exit codes: 0 healthy, 1 unhealthy, 2 unreachable or misconfigured.
 pub async fn probe(endpoint: &str) -> i32 {
   match tokio::time::timeout(PROBE_TIMEOUT, serve::probe_once(endpoint)).await {
     Ok(Ok(true)) => 0,

@@ -20,7 +20,7 @@ if [ "${CHANGED}" = "true" ]; then
   fi
 fi
 
-# A failure can land between destinations, so nothing below is verified.
+# A failure can hit between destinations, so the results below are unverified.
 if [ "${FAILED:-false}" = "true" ]; then
   published="incomplete (run failed)"
   suffix=" (unverified)"

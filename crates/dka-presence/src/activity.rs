@@ -4,7 +4,7 @@ use crate::constants::{
   AccountKind, ActivityPlatform, ActivityType, DEFAULT_APPLICATION_ID, DEFAULT_PARTY_ID,
 };
 
-// Rewrite Discord CDN/media URLs to mp:…. Leave known prefixes and numeric ids alone.
+// Rewrites Discord CDN and media URLs to `mp:…`; known prefixes and numeric ids pass through.
 pub(crate) fn normalize_activity_image(image: &str) -> String {
   let image = image.trim();
   if image.is_empty() {
@@ -161,7 +161,7 @@ fn put_image(map: &mut Map<String, Value>, key: &str, image: Option<&str>) {
   }
 }
 
-// Bots may only send name, type, state, and url.
+// Bots can only send name, type, state and url.
 fn build_bot_activity(name: &str, cfg: &ActivityConfig) -> Value {
   let ty = match cfg.activity_type {
     None | Some(ActivityType::Custom) => ActivityType::Playing,
@@ -193,7 +193,7 @@ pub(crate) fn build_custom_status(state: &str, emoji: Option<&str>) -> Value {
 
 fn parse_emoji(raw: &str) -> Value {
   let raw = raw.trim();
-  // Accept <:name:id>, <a:name:id>, a bare id, or a unicode name.
+  // Accepts <:name:id>, <a:name:id>, a bare id or a unicode name.
   if let Some(inner) = raw.strip_circumfix('<', '>') {
     let (animated, rest) = if let Some(rest) = inner.strip_prefix("a:") {
       (true, rest)

@@ -4,8 +4,7 @@ use crate::gateway_query;
 
 const MAX_BACKOFF_SECS: u64 = 90;
 
-// Exponential backoff from 1s, capped at 90s, plus up to 25% jitter.
-// attempt is 1 on the first reconnect.
+// `attempt` starts at 1 on the first reconnect.
 pub fn backoff_with_jitter(attempt: u32) -> Duration {
   let exp = attempt.saturating_sub(1).min(7);
   let base_ms = (1u64 << exp).min(MAX_BACKOFF_SECS).saturating_mul(1000);

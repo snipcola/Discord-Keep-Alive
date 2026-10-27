@@ -11,7 +11,7 @@ inputs:
 runs:
   using: composite
   steps:
-    # The tool cache is local disk only, so it never survives a fresh runner.
+    # The tool cache is local, so fresh runners lose it.
     - uses: ${{ inputs.image }}
       with:
         version: ${{ inputs.version }}

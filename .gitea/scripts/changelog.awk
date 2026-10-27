@@ -38,7 +38,7 @@ function emit(  type, scope, desc, bucket, head, is_breaking, breaking_footer) {
   else if (type == "refactor") bucket = "refactor"
   else bucket = "chore"
 
-  # Breaking changes stay visible even when they ship no code.
+  # Breaking changes are always listed, even without code changes.
   if (!code && bucket != "breaking") bucket = "internal-" bucket
 
   lines[bucket, ++count[bucket]] = sprintf("- %s ([`%s`](%s/commit/%s))", \

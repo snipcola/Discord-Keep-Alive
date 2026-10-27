@@ -22,7 +22,7 @@ enum AccountEnvField {
   Custom(CustomStatusField),
 }
 
-// Longest suffix first so CUSTOM_STATUS_EMOJI wins over shorter tails.
+// Longest suffix first, so CUSTOM_STATUS_EMOJI isn't read as a shorter match.
 static ACCOUNT_SUFFIXES_LONGEST_FIRST: LazyLock<Vec<(&'static str, AccountEnvField)>> =
   LazyLock::new(|| {
     let mut v: Vec<_> = AccountScalarField::ALL
@@ -38,7 +38,7 @@ static ACCOUNT_SUFFIXES_LONGEST_FIRST: LazyLock<Vec<(&'static str, AccountEnvFie
     v
   });
 
-// Longest ACTIVITY_* suffix wins (same rule as account suffixes).
+// Longest first, same as the account suffixes.
 static ACTIVITY_SUFFIXES_LONGEST_FIRST: LazyLock<Vec<(ActivityField, &'static str)>> =
   LazyLock::new(|| {
     let mut v: Vec<_> = ActivityField::ALL
@@ -139,7 +139,6 @@ where
   partial
 }
 
-// Env keys must be ASCII letters, digits, `_`, or `-` (no case folding).
 fn is_ascii_env_key(key: &str) -> bool {
   !key.is_empty()
     && key
@@ -207,7 +206,7 @@ fn parse_account_rest(rest: &str) -> Option<ConfigPath> {
 
   for &(suffix, field) in account_suffixes_longest_first() {
     if rest == suffix {
-      // Bare ACCOUNT_TOKEN (no id) is not a keyed account; handled as flat TOKEN.
+      // A bare ACCOUNT_TOKEN has no id, so it's ignored (use TOKEN).
       return None;
     }
     let patterned = format!("_{suffix}");
@@ -428,7 +427,7 @@ mod tests {
 
   #[test]
   fn discover_account_without_token() {
-    // Non-token keys still create the account slot; resolve enforces token later.
+    // Non-token keys still create the account; resolve checks for the token later.
     let p = from_env_map(&env_map(&[("ACCOUNT_x_STATUS", "idle")]));
     assert!(p.accounts.contains_key("x"));
     assert_eq!(status_of(&p, "x"), Some("idle"));
@@ -493,7 +492,6 @@ mod tests {
     );
   }
 
-  /// Catalog env keys round-trip into partials (flat + one multi-account id).
   #[test]
   fn catalog_env_suffixes_apply_into_partial() {
     for_each_catalog_field(
