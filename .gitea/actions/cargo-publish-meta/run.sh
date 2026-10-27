@@ -100,23 +100,59 @@ package_version_at() {
 }
 
 resolve_base() {
-  local parent
+  local head parent base shallow rc=0
+  head="$(git rev-parse --verify HEAD)" || return 1
+  # %P is empty at a shallow boundary, so read the commit directly.
+  parent="$(git cat-file -p "${head}" | sed -n '/^$/,$d; s/^parent //p')" || return 1
+  parent="${parent%%$'\n'*}"
 
-  if [[ ! ${BASE-} =~ ^0*$ ]]; then
-    if fetch_commit "${BASE}"; then
-      printf '%s\n' "${BASE}"
-      return 0
+  if [ -z "${BASE-}" ]; then
+    if [ -n "${parent}" ] && ! git cat-file -e "${parent}^{commit}" 2>/dev/null; then
+      echo "First parent ${parent} is not available locally (need fetch-depth >= 2); refusing to publish." >&2
+      return 1
     fi
-    echo "::warning::Push base ${BASE} is not fetchable; comparing against the first parent." >&2
+    printf '%s\n' "${parent}"
+    return 0
+  fi
+  [[ ${BASE} =~ ^0+$ ]] && return 0
+
+  if [[ ${BASE} == "${head}" || ${BASE} == "${parent}" ]] && git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+    printf '%s\n' "${BASE}"
+    return 0
   fi
 
-  parent="$(git show -s --format=%P HEAD)"
-  parent="${parent%% *}"
-  if [ -n "${parent}" ] && ! git cat-file -e "${parent}^{commit}" 2>/dev/null; then
-    echo "First parent ${parent} is not available locally (need fetch-depth >= 2); refusing to publish." >&2
+  shallow="$(git rev-parse --is-shallow-repository)" || return 1
+  if [ "${shallow}" = true ]; then
+    git fetch --quiet --unshallow origin "${BASE}" "${head}"
+  elif ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+    git fetch --quiet origin "${BASE}"
+  fi || {
+    echo "Could not fetch history for ${BASE}; refusing to publish." >&2
+    return 1
+  }
+  shallow="$(git rev-parse --is-shallow-repository)" || return 1
+  if [ "${shallow}" = true ]; then
+    echo "History is still shallow; refusing to publish." >&2
     return 1
   fi
-  printf '%s\n' "${parent}"
+
+  base="$(git merge-base --all "${BASE}" "${head}")" || rc=$?
+  case "${rc}" in
+  0) ;;
+  1)
+    echo "::warning::Push base ${BASE} shares no history with HEAD; treating as a new branch." >&2
+    return 0
+    ;;
+  *) return "${rc}" ;;
+  esac
+  if [[ ${base} == *$'\n'* ]]; then
+    echo "Push base ${BASE} has multiple merge bases with HEAD; refusing to publish." >&2
+    return 1
+  fi
+  if [ "${base}" != "${BASE}" ]; then
+    echo "Push base ${BASE} is not in HEAD's history; comparing against ${base}." >&2
+  fi
+  printf '%s\n' "${base}"
 }
 
 release_requested() {

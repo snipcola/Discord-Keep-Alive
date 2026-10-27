@@ -25,7 +25,7 @@ inputs:
     required: false
     default: Force-Release
   base:
-    description: Commit to read the previous version from; defaults to the first parent
+    description: Pre-push tip to compare against; defaults to the first parent, all zeros means a new branch
     required: false
     default: ""
   local_registry:
