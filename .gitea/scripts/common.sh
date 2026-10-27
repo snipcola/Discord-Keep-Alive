@@ -48,7 +48,7 @@ csv() {
 }
 
 targets_parse() {
-  local raw="${1-}" only_os="${2-}" line platform rust os arch ext i
+  local raw="${1-}" only_os="${2-}" line platform rust os arch asset rows="" prev=""
   TARGET_PLATFORMS=()
   TARGET_RUST=()
   TARGET_NAMES=()
@@ -93,27 +93,29 @@ targets_parse() {
       continue
     fi
 
-    for i in "${!TARGET_PLATFORMS[@]}"; do
-      if [ "${TARGET_PLATFORMS[$i]}" = "${platform}" ]; then
-        echo "Duplicate Docker platform: ${platform}" >&2
-        return 1
-      fi
-    done
+    rows+="${ASSET_OS[${os}]}-${ASSET_ARCH[${arch}]} ${platform} ${rust}"$'\n'
+  done <<<"${raw}"
 
-    ext="${ASSET_EXT[${os}]-}"
+  if [ -z "${rows}" ]; then
+    echo "No targets provided (expected platform=target lines)." >&2
+    return 1
+  fi
+
+  while read -r asset platform rust; do
+    if [ "${asset}" = "${prev}" ]; then
+      echo "Duplicate Docker platform: ${platform}" >&2
+      return 1
+    fi
+    prev="${asset}"
+    os="${platform%%/*}"
 
     TARGET_PLATFORMS+=("${platform}")
     TARGET_RUST+=("${rust}")
     TARGET_NAMES+=("${platform//\//-}")
-    TARGET_EXTS+=("${ext}")
-    TARGET_ASSETS+=("${ASSET_OS[${os}]}-${ASSET_ARCH[${arch}]}")
+    TARGET_EXTS+=("${ASSET_EXT[${os}]-}")
+    TARGET_ASSETS+=("${asset}")
     TARGET_ARCHIVES+=("${ASSET_ARCHIVE[${os}]}")
-  done < <(LC_ALL=C sort -b -t '=' -k1,1 <<<"${raw}")
-
-  if [ "${#TARGET_PLATFORMS[@]}" -eq 0 ]; then
-    echo "No targets provided (expected platform=target lines)." >&2
-    return 1
-  fi
+  done < <(LC_ALL=C sort <<<"${rows%$'\n'}")
 }
 
 stage_name() { printf '%s' "${PACKAGE}-${TARGET_ASSETS[$1]}"; }
