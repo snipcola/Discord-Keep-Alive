@@ -37,16 +37,12 @@ tag="${PREFIX}${VERSION}"
 message="${MESSAGE:-${tag}}"
 created=false
 
-delete_release() {
+free_tag() {
   local release_id
   release_id="$(release_id_for_tag "${tag}")" || return 1
   [ -n "${release_id}" ] || return 0
-
-  request DELETE "${api}/releases/${release_id}" || return 1
-  case "${http_code}" in
-  200 | 204 | 404) echo "Removed release ${tag} so its tag can move." ;;
-  *) fail_http "Failed to delete release ${tag}" ;;
-  esac
+  delete_release "${release_id}" || return 1
+  echo "Removed release ${tag} so its tag can move."
 }
 
 create_tag() {
@@ -68,7 +64,7 @@ create_tag() {
 
 move_tag() {
   local from="$1"
-  delete_release || return 1
+  free_tag || return 1
   delete_tag "${tag}" || return 1
   create_tag || {
     echo "Failed to recreate tag ${tag} after delete." >&2

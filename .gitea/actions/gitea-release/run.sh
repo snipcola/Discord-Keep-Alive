@@ -77,13 +77,14 @@ create_release() {
 }
 
 edit_release() {
-  local release_id="$1" tag="$2" target="$3" notes="$4" payload
+  local release_id="$1" tag="$2" target="$3" notes="$4" draft="${5-null}" payload
   payload="$(
     jq -nc \
       --arg tag "${tag}" \
       --arg target "${target}" \
       --arg body "${notes}" \
-      '{tag_name: $tag, target_commitish: $target, body: $body}'
+      --argjson draft "${draft}" \
+      '{tag_name: $tag, target_commitish: $target, body: $body, draft: $draft}'
   )"
   request PATCH "${api}/releases/${release_id}" -H "Content-Type: application/json" -d "${payload}" || return 1
   case "${http_code}" in
@@ -150,29 +151,39 @@ sync_assets() {
   bg_wait
 }
 
-# Gitea won't delete a tag in use, so the release moves to a spare tag first.
+# Staged as a draft so latest is only missing during the swap.
 publish_latest() {
-  local spare="latest-next" sha notes latest_id current
+  local stage="latest-next" sha notes live_id stage_id current=""
   sha="$(tag_commit "${TAG}")" || return 1
   notes="[${VERSION}](${REPO_URL%/}/releases/tag/$(uri "${TAG}"))"
 
-  latest_id="$(release_id_for_tag latest)" || return 1
-  [ -n "${latest_id}" ] || latest_id="$(release_id_for_tag "${spare}")" || return 1
-  if [ -z "${latest_id}" ]; then
-    latest_id="$(create_release latest latest "${notes}" false true "${sha}")" || return 1
-    echo "Created release latest."
+  live_id="$(release_id_for_tag latest)" || return 1
+  [ -z "${live_id}" ] || current="$(tag_commit latest)" || return 1
+  if [ "${current}" = "${sha}" ]; then
+    edit_release "${live_id}" latest "${sha}" "${notes}" || return 1
+    echo "Updating release latest."
+    sync_assets "${live_id}" ""
+    return
   fi
 
-  current="$(tag_commit latest)" || return 1
-  if [ "${current}" != "${sha}" ]; then
-    edit_release "${latest_id}" "${spare}" "${sha}" "${notes}" || return 1
-    delete_tag latest || return 1
+  stage_id="$(release_id_for_tag "${stage}")" || return 1
+  if [ -z "${stage_id}" ]; then
+    stage_id="$(create_release "${stage}" latest "${notes}" true true "${sha}")" || return 1
+  else
+    edit_release "${stage_id}" "${stage}" "${sha}" "${notes}" || return 1
   fi
-  edit_release "${latest_id}" latest "${sha}" "${notes}" || return 1
-  delete_tag "${spare}" || return 1
-  [ "${current}" = "${sha}" ] || echo "Moved latest: ${current:-none} -> ${sha}."
+  echo "Staging release latest."
+  sync_assets "${stage_id}" "" || return 1
 
-  sync_assets "${latest_id}" ""
+  [ -z "${live_id}" ] || delete_release "${live_id}" || return 1
+  delete_tag latest || return 1
+  edit_release "${stage_id}" latest "${sha}" "${notes}" false || return 1
+
+  [ "$(tag_commit latest)" = "${sha}" ] || {
+    echo "Tag latest does not point to ${sha}." >&2
+    return 1
+  }
+  echo "Moved latest: ${current:-none} -> ${sha}."
 }
 
 release_id="$(release_id_for_tag "${TAG}")" || exit 1

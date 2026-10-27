@@ -237,6 +237,14 @@ release_id_for_tag() {
   esac
 }
 
+delete_release() {
+  request DELETE "${api}/releases/$1" || return 1
+  case "${http_code}" in
+  200 | 204 | 404) ;;
+  *) fail_http "Failed to delete release $1" ;;
+  esac
+}
+
 delete_tag() {
   request DELETE "${api}/tags/$(uri "$1")" || return 1
   case "${http_code}" in
