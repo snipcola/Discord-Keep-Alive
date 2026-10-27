@@ -17,5 +17,5 @@ mod test_support;
 pub use error::ConfigError;
 pub use load::{load, load_health_endpoint};
 pub use model::{AccountConfig, AppConfig};
-pub use source::{Cli, Command, DEFAULT_LOG_LEVEL};
+pub use source::{Cli, Command, DEFAULT_LOG_LEVEL, LOG_LEVELS};
 pub use token::SecretString;

@@ -48,6 +48,10 @@ macro_rules! string_enum {
         }
       }
 
+      pub fn names() -> impl Iterator<Item = &'static str> {
+        Self::ALL.iter().map(|v| v.as_str())
+      }
+
       pub fn parse(value: &str) -> Option<Self> {
         Self::ALL
           .iter()
@@ -92,16 +96,20 @@ string_enum! {
   }
 }
 
+impl Status {
+  pub const DEFAULT: Self = Self::Online;
+}
+
 string_enum! {
   #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
   pub enum ActivityType {
-    Playing = 0 => "PLAYING",
-    Streaming = 1 => "STREAMING",
-    Listening = 2 => "LISTENING",
-    Watching = 3 => "WATCHING",
-    Custom = 4 => "CUSTOM",
-    Competing = 5 => "COMPETING",
-    Hang = 6 => "HANG",
+    Playing = 0 => "playing",
+    Streaming = 1 => "streaming",
+    Listening = 2 => "listening",
+    Watching = 3 => "watching",
+    Custom = 4 => "custom",
+    Competing = 5 => "competing",
+    Hang = 6 => "hang",
   }
   all = [Custom, Playing, Streaming, Listening, Watching, Competing, Hang]
 }

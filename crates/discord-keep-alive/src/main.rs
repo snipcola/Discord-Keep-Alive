@@ -1,5 +1,6 @@
 mod adapt;
 mod log;
+mod term;
 
 use std::time::Duration;
 
@@ -15,20 +16,13 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(15);
 async fn main() {
   let cli = Cli::parse();
 
-  match cli.command {
-    Some(Command::Health {
-      health_socket,
-      config,
-    }) => {
-      let code = run_health_probe(health_socket.as_deref(), &config).await;
-      std::process::exit(code);
-    }
-    None => {}
+  if matches!(cli.command, Some(Command::Health)) {
+    std::process::exit(run_health_probe(&cli).await);
   }
 
   let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
   let (reason_tx, reason_rx) = watch::channel(None::<&'static str>);
-  spawn_shutdown_listener(shutdown_tx, reason_tx);
+  spawn_shutdown_listener(shutdown_tx.clone(), reason_tx);
 
   rustls::crypto::ring::default_provider()
     .install_default()
@@ -37,7 +31,7 @@ async fn main() {
   let app = match load(&cli) {
     Ok(cfg) => cfg,
     Err(err) => {
-      eprintln!("error: {err}");
+      term::report_error(err);
       std::process::exit(1);
     }
   };
@@ -49,7 +43,11 @@ async fn main() {
     return;
   }
 
-  info!(accounts = app.accounts.len(), "starting");
+  let count = app.accounts.len();
+  info!(
+    "starting {count} account{}",
+    if count == 1 { "" } else { "s" }
+  );
 
   let health = app
     .health_socket
@@ -61,7 +59,7 @@ async fn main() {
     let rx = shutdown_rx.clone();
     health_task = Some(tokio::spawn(async move {
       if let Err(err) = dka_runtime::serve(&endpoint, state, rx).await {
-        error!(error = %err, "health server failed");
+        error!("health server failed: {err:#}");
       }
     }));
   }
@@ -72,60 +70,88 @@ async fn main() {
     .map(|account| adapt::session_params(account, &app.defaults))
     .collect();
 
-  let supervisor = tokio::spawn(dka_runtime::run_accounts(
+  let mut supervisor = tokio::spawn(dka_runtime::run_accounts(
     accounts,
     health,
     shutdown_rx.clone(),
   ));
 
-  while !*shutdown_rx.borrow_and_update() {
-    if shutdown_rx.changed().await.is_err() {
-      break;
+  let early_result = tokio::select! {
+    biased;
+    () = wait_for_shutdown(&mut shutdown_rx) => {
+      log_shutting_down(&reason_rx);
+      None
     }
-  }
-  log_shutting_down(&reason_rx);
+    result = &mut supervisor => {
+      let _ = shutdown_tx.send(true);
+      Some(result)
+    }
+  };
+  let accounts_stopped = early_result.is_some();
 
   let shutdown = async {
     if let Some(task) = health_task {
       let _ = task.await;
     }
-    match supervisor.await {
-      Ok(()) => {}
-      Err(err) => {
-        error!(error = %err, "supervisor failed");
-        std::process::exit(1);
-      }
+    match early_result {
+      Some(result) => result,
+      None => supervisor.await,
     }
   };
 
-  if tokio::time::timeout(SHUTDOWN_TIMEOUT, shutdown)
-    .await
-    .is_err()
-  {
-    error!(
-      timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
-      "shutdown timed out"
-    );
-    std::process::exit(1);
+  let exit_code = match tokio::time::timeout(SHUTDOWN_TIMEOUT, shutdown).await {
+    Err(_) => {
+      error!(
+        timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
+        "shutdown timed out"
+      );
+      1
+    }
+    Ok(Err(err)) => {
+      error!("supervisor failed: {err}");
+      1
+    }
+    Ok(Ok(())) if accounts_stopped => {
+      error!("all accounts stopped");
+      1
+    }
+    Ok(Ok(())) => 0,
+  };
+  if exit_code != 0 {
+    std::process::exit(exit_code);
   }
 }
 
-async fn run_health_probe(cli_override: Option<&str>, config_path: &std::path::Path) -> i32 {
-  let endpoint = match load_health_endpoint(config_path, cli_override) {
+async fn run_health_probe(cli: &Cli) -> i32 {
+  let endpoint = match load_health_endpoint(&cli.config, cli.health_socket.as_deref()) {
     Ok(Some(endpoint)) => endpoint,
     Ok(None) => {
-      eprintln!(
-        "error: health socket not configured (set health_socket / HEALTH_SOCKET / --health-socket)"
+      term::report_error(
+        "health socket not configured (set health_socket, HEALTH_SOCKET or --health-socket)",
       );
       return 2;
     }
     Err(err) => {
-      eprintln!("error: {err}");
+      term::report_error(err);
       return 2;
     }
   };
 
-  dka_runtime::probe(&endpoint).await
+  match dka_runtime::probe(&endpoint).await {
+    Ok(()) => 0,
+    Err(err) => {
+      term::report_error(&err);
+      err.exit_code()
+    }
+  }
+}
+
+async fn wait_for_shutdown(shutdown_rx: &mut watch::Receiver<bool>) {
+  while !*shutdown_rx.borrow_and_update() {
+    if shutdown_rx.changed().await.is_err() {
+      break;
+    }
+  }
 }
 
 fn spawn_shutdown_listener(
@@ -183,6 +209,8 @@ fn request_shutdown(
 }
 
 fn log_shutting_down(reason_rx: &watch::Receiver<Option<&'static str>>) {
-  let reason = reason_rx.borrow().unwrap_or("unknown");
-  info!(reason, "shutting down");
+  match *reason_rx.borrow() {
+    Some(reason) => info!("received {reason}, shutting down"),
+    None => info!("shutting down"),
+  }
 }

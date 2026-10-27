@@ -109,7 +109,14 @@ pub fn for_each_defaults_field(mut on_field: impl FnMut(DefaultsProfile, ClientP
   }
 }
 
-/// Stable sample value for catalogue tests; not valid for the field's domain.
+/// Stable sample value for catalogue tests; valid for enum fields, arbitrary otherwise.
 pub fn catalogue_sample_value(label: &str) -> String {
-  format!("cat-{label}")
+  match label {
+    "kind" => "bot".into(),
+    "device" => "web".into(),
+    "status" => "idle".into(),
+    "type" => "playing".into(),
+    "platform" => "xbox".into(),
+    _ => format!("cat-{label}"),
+  }
 }

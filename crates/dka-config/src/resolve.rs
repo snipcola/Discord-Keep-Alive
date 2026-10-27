@@ -13,11 +13,13 @@ use crate::model::partial::{
 };
 use crate::model::resolved::{AccountConfig, AppConfig};
 use crate::product_defaults::product_defaults;
-use crate::schema::fields::{DefaultsProfile, GlobalDefaultField, empty_to_none};
+use crate::schema::fields::{
+  DefaultsProfile, GlobalDefaultField, activity_type_names, empty_to_none,
+};
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
 use crate::source::defaults::DEFAULT_LOG_LEVEL;
 use crate::token::SecretString;
-use crate::util::{trim_opt, trim_owned};
+use crate::util::{hint, trim_opt, trim_owned};
 
 pub(crate) fn resolve_config(partial: PartialConfig) -> Result<AppConfig, ConfigError> {
   let log_level = trim_owned(partial.log_level).unwrap_or_else(|| DEFAULT_LOG_LEVEL.into());
@@ -162,16 +164,16 @@ fn resolve_one_account(index: usize, raw: PartialAccount) -> Result<AccountConfi
     .map(SecretString::new)
     .ok_or_else(|| ConfigError::MissingToken(name.clone()))?;
 
-  let kind =
-    parse_enum_field(&name, "kind", kind, AccountKind::parse)?.unwrap_or(AccountKind::User);
+  let kind = parse_enum_field(&name, "kind", kind, AccountKind::parse, AccountKind::names)?
+    .unwrap_or(AccountKind::User);
 
   let device = if kind == AccountKind::Bot {
     None
   } else {
-    parse_enum_field(&name, "device", device, Device::parse)?
+    parse_enum_field(&name, "device", device, Device::parse, Device::names)?
   };
 
-  let status = parse_enum_field(&name, "status", status, Status::parse)?;
+  let status = parse_enum_field(&name, "status", status, Status::parse, Status::names)?;
 
   let custom_status = match custom_status {
     Some(cs) if custom_status_configured(&cs) && kind == AccountKind::User => {
@@ -223,17 +225,21 @@ fn parse_custom_status(raw: PartialCustomStatus) -> CustomStatusConfig {
   }
 }
 
-fn parse_enum_field<T>(
+fn parse_enum_field<T, N>(
   account: &str,
   field: &str,
   raw: Option<String>,
   parse: impl FnOnce(&str) -> Option<T>,
-) -> Result<Option<T>, ConfigError> {
+  names: impl FnOnce() -> N,
+) -> Result<Option<T>, ConfigError>
+where
+  N: IntoIterator<Item = &'static str>,
+{
   match trim_opt(raw.as_deref()) {
     None => Ok(None),
     Some(v) => parse(v)
       .map(Some)
-      .ok_or_else(|| ConfigError::invalid_field(account, field, v)),
+      .ok_or_else(|| ConfigError::invalid_field(account, field, v, hint(v, names()))),
   }
 }
 
@@ -246,7 +252,7 @@ fn parse_i64_field(
     None => Ok(None),
     Some(v) => {
       v.parse::<i64>()
-        .map_err(|_| ConfigError::invalid_field(account, field, v))?;
+        .map_err(|_| ConfigError::invalid_field(account, field, v, "expected an integer"))?;
       Ok(Some(v.to_string()))
     }
   }
@@ -274,16 +280,18 @@ fn parse_activity(
   let mut activity = ActivityConfig::new();
   activity.name = trim_owned(raw.name);
 
-  if let Some(ty) = trim_opt(raw.activity_type.as_deref()) {
-    let parsed = ActivityType::parse(ty)
-      .ok_or_else(|| ConfigError::invalid_field(account, "activity type", ty))?;
-    if parsed == ActivityType::Custom {
-      return Err(ConfigError::invalid(
-        account,
-        "activity type 'custom' is not valid here; use [custom_status]",
-      ));
-    }
-    activity.activity_type = Some(parsed);
+  activity.activity_type = parse_enum_field(
+    account,
+    "activity type",
+    raw.activity_type,
+    ActivityType::parse,
+    activity_type_names,
+  )?;
+  if activity.activity_type == Some(ActivityType::Custom) {
+    return Err(ConfigError::invalid(
+      account,
+      "activity type 'custom' is not valid here; use [custom_status]",
+    ));
   }
 
   activity.platform = parse_enum_field(
@@ -291,6 +299,7 @@ fn parse_activity(
     "activity platform",
     raw.platform,
     ActivityPlatform::parse,
+    ActivityPlatform::names,
   )?;
 
   activity.timestamp = parse_i64_field(account, "activity timestamp", raw.timestamp)?;

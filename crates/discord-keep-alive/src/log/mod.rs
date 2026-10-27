@@ -1,39 +1,38 @@
 mod account;
 mod format;
 
-use std::io::IsTerminal;
-
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use self::account::AccountLayer;
 use self::format::HumanFormat;
+use crate::term::ansi_enabled;
 
 // RUST_LOG wins if set. Otherwise workspace crates log at log_level and dependencies are muted.
 pub fn init(log_level: &str) {
   let filter =
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter(log_level)));
 
-  let ansi = std::io::stderr().is_terminal();
-
   tracing_subscriber::registry()
     .with(filter)
     .with(AccountLayer)
-    .with(tracing_subscriber::fmt::layer().event_format(HumanFormat::new(ansi)))
+    .with(tracing_subscriber::fmt::layer().event_format(HumanFormat::new(ansi_enabled())))
     .init();
 }
 
 fn default_filter(level: &str) -> String {
   let level = normalise_level(level);
   format!(
-    "discord_keep_alive={level},dka_gateway={level},dka_runtime={level},tokio=warn,tokio_tungstenite=warn,tungstenite=warn,rustls=warn"
+    "{}={level},dka_gateway={level},dka_runtime={level},tokio=warn,tokio_tungstenite=warn,tungstenite=warn,rustls=warn",
+    env!("CARGO_CRATE_NAME")
   )
 }
 
 fn normalise_level(level: &str) -> String {
   let lower = level.to_ascii_lowercase();
-  match lower.as_str() {
-    "error" | "warn" | "info" | "debug" | "trace" => lower,
-    _ => dka_config::DEFAULT_LOG_LEVEL.into(),
+  if dka_config::LOG_LEVELS.contains(&lower.as_str()) {
+    lower
+  } else {
+    dka_config::DEFAULT_LOG_LEVEL.into()
   }
 }
 

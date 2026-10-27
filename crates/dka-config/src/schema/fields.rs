@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use clap::Args;
+use dka_presence::ActivityType;
 use serde::Deserialize;
 
 use crate::token::SecretString;
@@ -43,6 +44,10 @@ macro_rules! string_fields {
 
     impl $Name {
       pub const ALL: &[Self] = &[$(Self::$Variant,)*];
+
+      pub fn keys() -> impl Iterator<Item = &'static str> {
+        Self::ALL.iter().map(|f| f.spec().toml)
+      }
 
       pub const fn spec(self) -> FieldSpec {
         match self {
@@ -430,6 +435,16 @@ impl GlobalDefaultField {
   }
 }
 
+pub const ROOT_KEYS: [&str; 4] = ["log_level", "health_socket", "defaults", "accounts"];
+pub const ACCOUNT_KEYS: [&str; 3] = ["custom_status", "activity", "activities"];
+
+pub fn activity_type_names() -> impl Iterator<Item = &'static str> {
+  ActivityType::ALL
+    .iter()
+    .filter(|&&t| t != ActivityType::Custom)
+    .map(|t| t.as_str())
+}
+
 // Hand-written: Token is a SecretString, and Name uses the bare ACCOUNT env var and --account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountScalarField {
@@ -448,6 +463,14 @@ impl AccountScalarField {
     Self::Device,
     Self::Status,
   ];
+
+  pub fn keys() -> impl Iterator<Item = &'static str> {
+    Self::ALL.iter().map(|f| f.spec().toml)
+  }
+
+  pub fn set_suffixes() -> impl Iterator<Item = &'static str> {
+    Self::ALL.iter().map(|f| f.spec().set_suffix)
+  }
 
   pub const fn spec(self) -> FieldSpec {
     match self {
@@ -528,15 +551,15 @@ pub struct AccountScalarCliArgs {
   #[arg(long = AccountScalarField::Name.cli_long())]
   pub name: Option<String>,
 
-  /// Account kind (`user` or `bot`).
+  /// Account kind.
   #[arg(long = AccountScalarField::Kind.cli_long())]
   pub kind: Option<String>,
 
-  /// Device to appear as (`web`, `desktop` or `mobile`; users only).
+  /// Device to appear as (users only).
   #[arg(long = AccountScalarField::Device.cli_long())]
   pub device: Option<String>,
 
-  /// Status (`online`, `idle`, `dnd` or `invisible`).
+  /// Online status.
   #[arg(long = AccountScalarField::Status.cli_long())]
   pub status: Option<String>,
 }
@@ -580,7 +603,7 @@ string_fields! {
       set_suffix: "type",
       serde_rename: "type",
       cli_field: activity_type,
-      help: "Activity type (`playing`, `streaming`, `listening`, `watching`, `competing`, `hang`)",
+      help: "Activity type",
     },
     Platform(platform) {
       toml: "platform",
@@ -588,7 +611,7 @@ string_fields! {
       cli_long: Some("activity-platform"),
       set_suffix: "platform",
       cli_field: activity_platform,
-      help: "Platform shown on the activity (e.g. `desktop`, `xbox`)",
+      help: "Platform shown on the activity",
     },
     Timestamp(timestamp) {
       toml: "timestamp",

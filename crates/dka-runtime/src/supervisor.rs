@@ -3,7 +3,7 @@ use std::sync::Arc;
 use dka_gateway::{LiveSink, SessionParams, run_session};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
-use tracing::{Instrument, error, info, info_span};
+use tracing::{Instrument, error, info_span};
 
 use crate::health::HealthState;
 
@@ -17,7 +17,6 @@ pub async fn run_accounts(
   for params in accounts {
     let rx = shutdown.clone();
     let health = health.clone();
-    info!(account = %params.name, "starting session");
     set.spawn(async move {
       run_account(params, health, rx).await;
     });
@@ -43,7 +42,7 @@ async fn run_account(
       None => Box::new(|_| {}),
     };
     if let Err(err) = run_session(params, on_live, shutdown).await {
-      error!(error = %err, "session failed");
+      error!("session failed: {err:#}");
     }
   }
   .instrument(info_span!("session", account = %name))

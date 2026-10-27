@@ -4,6 +4,7 @@ use std::path::Path;
 use figment::{
   Figment,
   providers::{Format, Toml},
+  value::{Dict, Tag, Value},
 };
 use serde::Deserialize;
 
@@ -11,6 +12,10 @@ use crate::error::ConfigError;
 use crate::model::partial::{
   AccountScalars, PartialAccount, PartialActivity, PartialConfig, PartialCustomStatus,
   PartialDefaults, any_account_field_set, any_activity_field_set,
+};
+use crate::schema::fields::{
+  ACCOUNT_KEYS, AccountScalarField, ActivityField, ClientPropField, CustomStatusField,
+  DefaultsProfile, GlobalDefaultField, ROOT_KEYS,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
 
@@ -45,14 +50,109 @@ pub fn load_file(path: &Path) -> Result<PartialConfig, ConfigError> {
   if !path.exists() {
     return Err(ConfigError::ConfigNotFound(path.to_path_buf()));
   }
-  let dto: FileConfig = Figment::new().merge(Toml::file(path)).extract()?;
-  Ok(file_config_to_partial(dto))
+  parse(&Figment::new().merge(Toml::file(path)), path)
 }
 
 #[cfg(test)]
 pub fn load_toml_str(contents: &str) -> Result<PartialConfig, ConfigError> {
-  let dto: FileConfig = Figment::new().merge(Toml::string(contents)).extract()?;
+  parse(
+    &Figment::new().merge(Toml::string(contents)),
+    Path::new("<inline>"),
+  )
+}
+
+fn parse(figment: &Figment, file: &Path) -> Result<PartialConfig, ConfigError> {
+  let to_error = |err: figment::Error| ConfigError::from_figment(file, &err);
+  let raw: Dict = figment.extract().map_err(to_error)?;
+  check_keys(&raw, file)?;
+  let dto: FileConfig = Value::Dict(Tag::default(), raw)
+    .deserialize()
+    .map_err(to_error)?;
   Ok(file_config_to_partial(dto))
+}
+
+fn check_keys(root: &Dict, file: &Path) -> Result<(), ConfigError> {
+  check_account(root, "", &ROOT_KEYS, file)?;
+
+  if let Some(defaults) = section(root, "defaults") {
+    let profiles = DefaultsProfile::ALL.iter().map(|p| p.toml());
+    check_table(
+      defaults,
+      "defaults",
+      GlobalDefaultField::keys().chain(profiles),
+      file,
+    )?;
+    for profile in DefaultsProfile::ALL {
+      if let Some(props) = section(defaults, profile.toml()) {
+        let scope = format!("defaults.{}", profile.toml());
+        check_table(props, &scope, ClientPropField::keys(), file)?;
+      }
+    }
+  }
+
+  for (i, account) in entries(root, "accounts").enumerate() {
+    check_account(account, &format!("accounts[{i}]"), &[], file)?;
+  }
+  Ok(())
+}
+
+fn check_account(
+  table: &Dict,
+  scope: &str,
+  extra: &[&'static str],
+  file: &Path,
+) -> Result<(), ConfigError> {
+  let keys = AccountScalarField::keys()
+    .chain(ACCOUNT_KEYS)
+    .chain(extra.iter().copied());
+  check_table(table, scope, keys, file)?;
+
+  let nested = |name: &str| match scope {
+    "" => name.to_string(),
+    _ => format!("{scope}.{name}"),
+  };
+  if let Some(custom_status) = section(table, "custom_status") {
+    check_table(
+      custom_status,
+      &nested("custom_status"),
+      CustomStatusField::keys(),
+      file,
+    )?;
+  }
+  if let Some(activity) = section(table, "activity") {
+    check_table(activity, &nested("activity"), ActivityField::keys(), file)?;
+  }
+  for (i, activity) in entries(table, "activities").enumerate() {
+    let scope = format!("{}[{i}]", nested("activities"));
+    check_table(activity, &scope, ActivityField::keys(), file)?;
+  }
+  Ok(())
+}
+
+fn check_table(
+  table: &Dict,
+  scope: &str,
+  keys: impl Iterator<Item = &'static str>,
+  file: &Path,
+) -> Result<(), ConfigError> {
+  let keys: Vec<&str> = keys.collect();
+  match table.keys().find(|key| !keys.contains(&key.as_str())) {
+    Some(key) => Err(ConfigError::unknown_key(file, scope, key, keys)),
+    None => Ok(()),
+  }
+}
+
+fn section<'a>(table: &'a Dict, key: &str) -> Option<&'a Dict> {
+  table.get(key).and_then(Value::as_dict)
+}
+
+fn entries<'a>(table: &'a Dict, key: &str) -> impl Iterator<Item = &'a Dict> {
+  table
+    .get(key)
+    .and_then(Value::as_array)
+    .into_iter()
+    .flatten()
+    .filter_map(Value::as_dict)
 }
 
 fn file_config_to_partial(file: FileConfig) -> PartialConfig {
@@ -251,6 +351,67 @@ type = "playing"
       Some("Second")
     );
     assert!(!flat.activities.contains_key("1"));
+  }
+
+  fn load_error(toml: &str) -> String {
+    load_toml_str(toml).unwrap_err().to_string()
+  }
+
+  #[test]
+  fn unknown_keys_are_rejected_with_a_suggestion() {
+    assert_eq!(
+      load_error("tokn = \"x\""),
+      "<inline>: unknown key 'tokn' (did you mean 'token'?)"
+    );
+    assert_eq!(
+      load_error("[[accounts]]\nstauts = \"dnd\""),
+      "<inline>: unknown key 'stauts' in accounts[0] (did you mean 'status'?)"
+    );
+    assert_eq!(
+      load_error("[[accounts]]\ntoken = \"x\"\n[accounts.activity]\nnme = \"a\""),
+      "<inline>: unknown key 'nme' in accounts[0].activity (did you mean 'name'?)"
+    );
+    assert!(
+      load_error("[[activities]]\nzzz = \"a\"")
+        .starts_with("<inline>: unknown key 'zzz' in activities[0] (expected name, ")
+    );
+    assert!(
+      load_error("[defaults.web]\nzzz = \"a\"")
+        .starts_with("<inline>: unknown key 'zzz' in defaults.web (expected ")
+    );
+  }
+
+  #[test]
+  fn type_errors_name_the_key() {
+    assert_eq!(
+      load_error("log_level = 3"),
+      "<inline>: log_level: invalid type: found signed int `3`, expected a string"
+    );
+  }
+
+  #[test]
+  fn every_catalogue_key_is_accepted() {
+    fn assign(keys: impl Iterator<Item = &'static str>) -> String {
+      keys.map(|key| format!("{key} = \"x\"\n")).collect()
+    }
+    let sections = |prefix: &str| {
+      format!(
+        "[{prefix}custom_status]\n{}[{prefix}activity]\n{}[[{prefix}activities]]\n{}",
+        assign(CustomStatusField::keys()),
+        assign(ActivityField::keys()),
+        assign(ActivityField::keys()),
+      )
+    };
+    let toml = format!(
+      "{}{}[defaults]\n{}[defaults.web]\n{}[[accounts]]\n{}{}",
+      assign(AccountScalarField::keys()),
+      sections(""),
+      assign(GlobalDefaultField::keys()),
+      assign(ClientPropField::keys()),
+      assign(AccountScalarField::keys()),
+      sections("accounts."),
+    );
+    load_toml_str(&toml).unwrap_or_else(|err| panic!("{err}\n{toml}"));
   }
 
   #[test]

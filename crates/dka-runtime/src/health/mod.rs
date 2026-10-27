@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use thiserror::Error;
 use tracing::debug;
 
 pub use serve::serve;
@@ -46,21 +47,31 @@ impl HealthState {
   }
 }
 
-pub async fn probe(endpoint: &str) -> i32 {
+#[derive(Debug, Error)]
+pub enum ProbeError {
+  #[error("unhealthy: one or more accounts are not live")]
+  Unhealthy,
+  #[error("health probe failed: {0:#}")]
+  Unreachable(anyhow::Error),
+  #[error("health probe timed out")]
+  TimedOut,
+}
+
+impl ProbeError {
+  pub fn exit_code(&self) -> i32 {
+    match self {
+      Self::Unhealthy => 1,
+      Self::Unreachable(_) | Self::TimedOut => 2,
+    }
+  }
+}
+
+pub async fn probe(endpoint: &str) -> Result<(), ProbeError> {
   match tokio::time::timeout(PROBE_TIMEOUT, serve::probe_once(endpoint)).await {
-    Ok(Ok(true)) => 0,
-    Ok(Ok(false)) => {
-      eprintln!("error: health check failed: one or more accounts are not live");
-      1
-    }
-    Ok(Err(err)) => {
-      eprintln!("error: health probe failed: {err}");
-      2
-    }
-    Err(_) => {
-      eprintln!("error: health probe timed out");
-      2
-    }
+    Ok(Ok(true)) => Ok(()),
+    Ok(Ok(false)) => Err(ProbeError::Unhealthy),
+    Ok(Err(err)) => Err(ProbeError::Unreachable(err)),
+    Err(_) => Err(ProbeError::TimedOut),
   }
 }
 

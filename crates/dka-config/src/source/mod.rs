@@ -4,4 +4,4 @@ pub mod env;
 pub mod file;
 
 pub use cli::{Cli, Command};
-pub use defaults::DEFAULT_LOG_LEVEL;
+pub use defaults::{DEFAULT_LOG_LEVEL, LOG_LEVELS};

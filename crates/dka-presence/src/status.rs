@@ -37,7 +37,7 @@ pub fn build_presence_data(
   json!({
     "since": since,
     "activities": out,
-    "status": status.unwrap_or(Status::Online).as_str(),
+    "status": status.unwrap_or(Status::DEFAULT).as_str(),
     "afk": afk,
   })
 }

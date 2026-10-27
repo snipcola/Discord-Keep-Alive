@@ -65,7 +65,14 @@ pub(crate) fn load_with(
   env_layer: PartialConfig,
   cli_layer: PartialConfig,
 ) -> Result<AppConfig, ConfigError> {
-  resolve_config(merge_partial_layers(config_path, [env_layer, cli_layer])?)
+  resolve_config(merge_partial_layers(config_path, [env_layer, cli_layer])?).map_err(
+    |err| match err {
+      ConfigError::NoAccounts if !config_path.exists() => {
+        ConfigError::NoAccountsMissingConfig(config_path.to_path_buf())
+      }
+      err => err,
+    },
+  )
 }
 
 // Loads only the health socket, skipping account resolution. The CLI override wins; empty disables.
@@ -343,6 +350,20 @@ token = "file-0"
     )
     .unwrap_err();
     assert!(matches!(err, ConfigError::NoAccounts));
+  }
+
+  #[test]
+  fn no_accounts_reports_a_missing_default_config() {
+    let err = load_with(
+      Path::new(DEFAULT_CONFIG_PATH),
+      PartialConfig::default(),
+      PartialConfig::default(),
+    )
+    .unwrap_err();
+    assert!(
+      matches!(err, ConfigError::NoAccountsMissingConfig(ref p) if p == Path::new(DEFAULT_CONFIG_PATH)),
+      "{err}"
+    );
   }
 
   #[test]

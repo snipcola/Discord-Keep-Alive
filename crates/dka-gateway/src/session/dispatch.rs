@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Result;
 use tokio::sync::watch;
 use tokio::time::Instant;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, trace};
 
 use crate::payload::{
   GatewayEnvelope, GatewayPayload, OP_DISPATCH, OP_HEARTBEAT, OP_HEARTBEAT_ACK, OP_HELLO,
@@ -55,23 +55,20 @@ pub(super) async fn handle_payload(
       debug!("server requested heartbeat");
       None
     }
-    OP_RECONNECT => {
-      warn!("server requested reconnect");
-      Some(SessionEnd::reconnect(true, "reconnect"))
-    }
+    OP_RECONNECT => Some(SessionEnd::reconnect(true, "server requested reconnect")),
     OP_INVALID_SESSION => {
       let resumable = payload
         .d_str()
         .and_then(|d| serde_json::from_str(d).ok())
         .unwrap_or(false);
-      warn!(resumable, "invalid session");
+      debug!(resumable, "invalid session");
       if !resumable {
         state.clear_session();
       }
       Some(SessionEnd::reconnect_after(
         resumable,
         Duration::from_secs(2),
-        "invalid_session",
+        "session invalidated",
       ))
     }
     OP_DISPATCH => {

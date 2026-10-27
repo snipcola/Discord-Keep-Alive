@@ -9,34 +9,32 @@ pub const ACTIVITY_SINGULAR: &str = "__singular__";
 // 1-64 chars: a letter or digit, then letters, digits or hyphens. No trailing hyphen; reserved ids are rejected.
 pub fn parse_user_id(raw: &str) -> Result<String, ConfigError> {
   if raw.is_empty() {
-    return Err(ConfigError::InvalidId("id must not be empty".into()));
+    return Err(ConfigError::invalid_id(raw, "must not be empty"));
   }
   if raw == ACCOUNT_FLAT || raw == ACTIVITY_SINGULAR {
-    return Err(ConfigError::InvalidId(format!("reserved id '{raw}'")));
+    return Err(ConfigError::invalid_id(raw, "reserved"));
   }
   if raw.len() > 64 {
-    return Err(ConfigError::InvalidId(format!(
-      "id '{raw}' exceeds 64 characters"
-    )));
+    return Err(ConfigError::invalid_id(raw, "longer than 64 characters"));
   }
   let bytes = raw.as_bytes();
   let first = bytes[0];
   if !first.is_ascii_alphanumeric() {
-    return Err(ConfigError::InvalidId(format!(
-      "id '{raw}' must start with a letter or digit"
-    )));
+    return Err(ConfigError::invalid_id(
+      raw,
+      "must start with a letter or digit",
+    ));
   }
   for &b in &bytes[1..] {
     if !(b.is_ascii_alphanumeric() || b == b'-') {
-      return Err(ConfigError::InvalidId(format!(
-        "id '{raw}' may only contain letters, digits and '-'"
-      )));
+      return Err(ConfigError::invalid_id(
+        raw,
+        "only letters, digits and '-' are allowed",
+      ));
     }
   }
   if bytes.last() == Some(&b'-') {
-    return Err(ConfigError::InvalidId(format!(
-      "id '{raw}' must not end with '-'"
-    )));
+    return Err(ConfigError::invalid_id(raw, "must not end with '-'"));
   }
   Ok(raw.to_string())
 }

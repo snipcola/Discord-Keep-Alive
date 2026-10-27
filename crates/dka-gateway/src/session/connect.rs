@@ -14,7 +14,7 @@ use tokio_tungstenite::{
     http::{HeaderValue, header::USER_AGENT},
   },
 };
-use tracing::{Instrument, Span, debug, error, warn};
+use tracing::{Instrument, Span, debug};
 
 use crate::compress::TransportDecompress;
 use crate::heartbeat::{HeartbeatCmd, heartbeat_loop};
@@ -27,8 +27,16 @@ use super::inbound::decode_inbound;
 use super::{SessionEnd, SessionParams, SessionState, WsStream, send_json};
 
 // Auth, shard and intent failures are fatal: don't reconnect.
-fn is_fatal_close_code(code: u16) -> bool {
-  matches!(code, 4004 | 4010..=4014)
+fn fatal_close_reason(code: u16) -> Option<&'static str> {
+  match code {
+    4004 => Some("token rejected"),
+    4010 => Some("invalid shard"),
+    4011 => Some("sharding required"),
+    4012 => Some("invalid API version"),
+    4013 => Some("invalid intents"),
+    4014 => Some("disallowed intents"),
+    _ => None,
+  }
 }
 
 // After an invalid seq (4007), identify again instead of resuming.
@@ -146,12 +154,12 @@ pub(super) async fn connect_and_run(
             interval_ms,
             since_ack_ms,
           }) => {
-            warn!(interval_ms, since_ack_ms, "heartbeat ack timed out");
-            end = SessionEnd::reconnect(true, "zombie");
+            debug!(interval_ms, since_ack_ms, "heartbeat ack timed out");
+            end = SessionEnd::reconnect(true, "no heartbeat reply");
             break;
           }
           None => {
-            end = SessionEnd::reconnect(true, "heartbeat");
+            end = SessionEnd::reconnect(true, "heartbeat stopped");
             break;
           }
         }
@@ -168,13 +176,12 @@ pub(super) async fn connect_and_run(
               .as_ref()
               .map(|f| f.reason.to_string())
               .unwrap_or_default();
-            if is_fatal_close_code(code) {
-              error!(code, reason = %reason, "gateway closed");
+            if let Some(reason) = fatal_close_reason(code) {
               end = SessionEnd::Fatal { code, reason };
             } else {
               let resume = resume_after_close(code);
               debug!(code, reason = %reason, resume, "connection closed");
-              end = SessionEnd::reconnect(resume, "close");
+              end = SessionEnd::reconnect(resume, "connection closed");
             }
             break;
           }

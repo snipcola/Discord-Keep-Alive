@@ -3,6 +3,7 @@ mod dispatch;
 mod identify;
 mod inbound;
 
+use std::borrow::Cow;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -97,11 +98,11 @@ enum SessionEnd {
     resume: bool,
     // Extra wait, e.g. 2s after INVALID_SESSION.
     extra_delay: Option<Duration>,
-    cause: &'static str,
+    cause: Cow<'static, str>,
   },
   Fatal {
     code: u16,
-    reason: String,
+    reason: &'static str,
   },
 }
 
@@ -110,7 +111,7 @@ impl SessionEnd {
     Self::Reconnect {
       resume,
       extra_delay: None,
-      cause,
+      cause: cause.into(),
     }
   }
 
@@ -118,7 +119,7 @@ impl SessionEnd {
     Self::Reconnect {
       resume,
       extra_delay: Some(delay),
-      cause,
+      cause: cause.into(),
     }
   }
 
@@ -153,7 +154,11 @@ pub async fn run_session(
       gateway_url()
     };
 
-    debug!("connecting to {}", display_ws_url(&connect_url));
+    debug!(
+      resume = state.can_resume(),
+      "connecting to {}",
+      display_ws_url(&connect_url)
+    );
     state.set_healthy(false);
 
     let (resume, extra_delay, cause) =
@@ -161,7 +166,7 @@ pub async fn run_session(
         Ok(SessionEnd::Shutdown) => return finish_disconnect(&mut state),
         Ok(SessionEnd::Fatal { code, reason }) => {
           state.set_healthy(false);
-          error!(code, reason = %reason, "session stopped (fatal close)");
+          error!(code, "{reason}, not retrying");
           return Ok(());
         }
         Ok(SessionEnd::Reconnect {
@@ -169,10 +174,11 @@ pub async fn run_session(
           extra_delay,
           cause,
         }) => (resume, extra_delay, cause),
-        Err(err) => {
-          error!(error = %err, "session failed");
-          (state.can_resume_after_error(), None, "error")
-        }
+        Err(err) => (
+          state.can_resume_after_error(),
+          None,
+          Cow::Owned(format!("session failed: {err:#}")),
+        ),
       };
 
     if schedule_reconnect(
@@ -180,7 +186,7 @@ pub async fn run_session(
       &mut attempt,
       resume,
       extra_delay,
-      cause,
+      &cause,
       &mut shutdown,
     )
     .await
@@ -218,9 +224,8 @@ async fn schedule_reconnect(
   if let Some(extra) = extra_delay {
     delay = delay.saturating_add(extra);
   }
-  let n = *attempt;
   info!(
-    "reconnecting in {} (attempt {n}, resume={resume}, cause={cause})",
+    "{cause}, reconnecting in {} (attempt {attempt})",
     format_delay(delay)
   );
   if wait_or_shutdown(delay, shutdown).await {
@@ -299,7 +304,7 @@ mod tests {
     assert!(
       SessionEnd::Fatal {
         code: 4004,
-        reason: "auth".into(),
+        reason: "token rejected",
       }
       .close_frame()
       .is_none()
