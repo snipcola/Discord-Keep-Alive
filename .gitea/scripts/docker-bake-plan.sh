@@ -15,7 +15,7 @@ source "${SCRIPT_DIR}/common.sh"
 : "${REFS:?REFS is required}"
 : "${CREATED:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 : "${SOURCE:=}"
-: "${LICENSE:=}"
+: "${LICENCE:=}"
 : "${PUSH:=true}"
 
 targets_parse "${TARGETS}" linux
@@ -50,7 +50,7 @@ jq -nc \
   --arg package "${PACKAGE}" \
   --arg source "${SOURCE}" \
   --arg created "${CREATED}" \
-  --arg license "${LICENSE}" \
+  --arg licence "${LICENCE}" \
   --arg refs_csv "${refs_csv}" \
   --argjson push "${push_json}" \
   --argjson platforms "${platforms_json}" \
@@ -93,7 +93,7 @@ jq -nc \
                       "org.opencontainers.image.created": $created
                     }
                     + opt_label("org.opencontainers.image.source"; $source)
-                    + opt_label("org.opencontainers.image.licenses"; $license)
+                    + opt_label("org.opencontainers.image.licenses"; $licence)
                   ),
                   output: target_output
                 }

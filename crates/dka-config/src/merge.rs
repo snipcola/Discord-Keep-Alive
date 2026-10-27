@@ -296,10 +296,10 @@ mod tests {
     );
   }
 
-  /// Catalog leaves merge by field id; a `None` in src doesn't wipe dst.
+  /// Catalogue leaves merge by field id; a `None` in src doesn't wipe dst.
   #[test]
-  fn catalog_activity_and_custom_merge_field_level() {
-    for_each_catalog_field(
+  fn catalogue_activity_and_custom_merge_field_level() {
+    for_each_catalogue_field(
       |_| {},
       |field| {
         let mut dst = PartialCustomStatus::default();

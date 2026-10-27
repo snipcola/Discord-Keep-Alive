@@ -434,10 +434,10 @@ mod tests {
   }
 
   #[test]
-  fn catalog_env_suffixes_are_reachable() {
+  fn catalogue_env_suffixes_are_reachable() {
     let account_suffixes = account_suffixes_longest_first();
     let act_suffixes = activity_suffixes_longest_first();
-    for_each_catalog_field(
+    for_each_catalogue_field(
       |field| {
         let Some(suffix) = field.env_suffix() else {
           return;
@@ -493,13 +493,13 @@ mod tests {
   }
 
   #[test]
-  fn catalog_env_suffixes_apply_into_partial() {
-    for_each_catalog_field(
+  fn catalogue_env_suffixes_apply_into_partial() {
+    for_each_catalogue_field(
       |field| {
         let Some(suffix) = field.env_suffix() else {
           return;
         };
-        let sample = catalog_sample_value(suffix);
+        let sample = catalogue_sample_value(suffix);
         let p = from_env_map(&env_map(&[(suffix, sample.as_str())]));
         let mut acc = p
           .accounts
@@ -527,7 +527,7 @@ mod tests {
       },
       |field| {
         let suffix = field.env_suffix();
-        let sample = catalog_sample_value(suffix);
+        let sample = catalogue_sample_value(suffix);
         let p = from_env_map(&env_map(&[(suffix, sample.as_str())]));
         let mut cs = p
           .accounts
@@ -544,7 +544,7 @@ mod tests {
         let Some(suffix) = field.env_suffix() else {
           return;
         };
-        let sample = catalog_sample_value(suffix);
+        let sample = catalogue_sample_value(suffix);
         let key = format!("ACTIVITY_{suffix}");
         let p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
         let mut act = p
@@ -562,12 +562,12 @@ mod tests {
   }
 
   #[test]
-  fn catalog_defaults_env_keys_are_reachable() {
+  fn catalogue_defaults_env_keys_are_reachable() {
     for_each_defaults_field(|profile, field| {
       let key = format!("{}{}", profile.env_prefix(), field.env_suffix());
       let path = parse_env_key(&key).unwrap_or_else(|| panic!("parse {key}"));
       assert_eq!(path, ConfigPath::Defaults(profile, field), "{key}");
-      let sample = catalog_sample_value(field.env_suffix());
+      let sample = catalogue_sample_value(field.env_suffix());
       let mut p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
       let props = profile.props_mut(&mut p.defaults);
       assert_eq!(
@@ -579,7 +579,7 @@ mod tests {
   }
 
   #[test]
-  fn catalog_global_defaults_env_keys_are_reachable() {
+  fn catalogue_global_defaults_env_keys_are_reachable() {
     for &field in GlobalDefaultField::ALL {
       let key = format!("{}{}", ENV_DEFAULTS_PREFIX, field.env_suffix());
       assert_eq!(
@@ -587,7 +587,7 @@ mod tests {
         Some(ConfigPath::GlobalDefault(field)),
         "{key}"
       );
-      let sample = catalog_sample_value(field.env_suffix());
+      let sample = catalogue_sample_value(field.env_suffix());
       let mut p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
       assert_eq!(
         field.get_mut(&mut p.defaults.global).as_deref(),

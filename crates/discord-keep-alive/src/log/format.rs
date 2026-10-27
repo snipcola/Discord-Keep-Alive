@@ -65,14 +65,14 @@ fn write_level(writer: &mut Writer<'_>, level: tracing::Level, ansi: bool) -> fm
     return write!(writer, "{level:>5}");
   }
 
-  let (color, label) = match level {
+  let (colour, label) = match level {
     tracing::Level::ERROR => ("\x1b[31m", "ERROR"),
     tracing::Level::WARN => ("\x1b[33m", " WARN"),
     tracing::Level::INFO => ("\x1b[32m", " INFO"),
     tracing::Level::DEBUG => ("\x1b[34m", "DEBUG"),
     tracing::Level::TRACE => ("\x1b[35m", "TRACE"),
   };
-  write!(writer, "{color}{label}\x1b[0m")
+  write!(writer, "{colour}{label}\x1b[0m")
 }
 
 fn account_from_spans<S, N>(ctx: &FmtContext<'_, S, N>) -> Option<String>

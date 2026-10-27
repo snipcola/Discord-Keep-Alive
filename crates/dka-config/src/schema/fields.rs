@@ -146,7 +146,7 @@ macro_rules! string_fields {
   };
 
   // Emits a clap `Args` struct for `#[command(flatten)]` (macros can't expand into
-  // struct fields), plus `cli_get` so apply_*_cli can loop over the catalog.
+  // struct fields), plus `cli_get` so apply_*_cli can loop over the catalogue.
   (@flags $vis:vis $Name:ident $Target:ident {
     $(
       $Variant:ident($field:ident) {
@@ -517,7 +517,7 @@ impl AccountScalarField {
   }
 }
 
-/// Clap group for account scalars. Long names come from the catalog.
+/// Clap group for account scalars. Long names come from the catalogue.
 #[derive(Debug, Default, Args)]
 pub struct AccountScalarCliArgs {
   /// Account token.

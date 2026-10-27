@@ -169,6 +169,7 @@ jobs:
 
           # Licence generation only takes CPU the build leaves idle.
           bg_start Licences nice -n 10 bash "${scripts}/licences.sh"
+
           bash "${scripts}/build-binaries.sh"
           bg_wait
 
@@ -218,7 +219,7 @@ jobs:
           revision: ${{ inputs.commit || gitea.sha }}
           package: ${{ steps.meta.outputs.package_name }}
           source: ${{ steps.meta.outputs.repository }}
-          license: ${{ steps.meta.outputs.license }}
+          licence: ${{ steps.meta.outputs.licence }}
           refs: ${{ steps.plan.outputs.refs }}
           push: ${{ !inputs.dry_run }}
 

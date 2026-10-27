@@ -84,7 +84,7 @@ pub fn name_of<'a>(p: &'a PartialConfig, id: &str) -> Option<&'a str> {
   p.accounts.get(id).and_then(|a| a.name.as_deref())
 }
 
-pub fn for_each_catalog_field(
+pub fn for_each_catalogue_field(
   mut on_account: impl FnMut(AccountScalarField),
   mut on_custom: impl FnMut(CustomStatusField),
   mut on_activity: impl FnMut(ActivityField),
@@ -109,7 +109,7 @@ pub fn for_each_defaults_field(mut on_field: impl FnMut(DefaultsProfile, ClientP
   }
 }
 
-/// Stable sample value for catalog tests; not valid for the field's domain.
-pub fn catalog_sample_value(label: &str) -> String {
+/// Stable sample value for catalogue tests; not valid for the field's domain.
+pub fn catalogue_sample_value(label: &str) -> String {
   format!("cat-{label}")
 }

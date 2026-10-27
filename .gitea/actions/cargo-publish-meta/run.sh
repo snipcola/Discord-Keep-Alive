@@ -137,7 +137,7 @@ version="$(package_version "${meta}" "${package_name}")" || {
   echo "Could not resolve ${package_name} version from HEAD; refusing to publish." >&2
   exit 1
 }
-license="$(package_field "${meta}" "${package_name}" license)"
+licence="$(package_field "${meta}" "${package_name}" license)"
 repository="$(package_field "${meta}" "${package_name}" repository)"
 
 reason=""
@@ -184,7 +184,7 @@ local_registry="${LOCAL_REGISTRY:-}"
 if [ -z "${local_registry}" ] && [ -n "${SERVER_URL-}" ]; then
   local_registry="${SERVER_URL}"
 fi
-local_registry="$(normalize_host "${local_registry}")"
+local_registry="$(normalise_host "${local_registry}")"
 
 local_ref=""
 if [ -n "${local_registry}" ] && [ -n "${local_user}" ]; then
@@ -211,7 +211,7 @@ docker_ref="docker.io/${DH_USER}/${image_name}"
   echo "changed=${changed}"
   echo "reason=${reason}"
   echo "image_name=${image_name}"
-  echo "license=${license}"
+  echo "licence=${licence}"
   echo "repository=${repository}"
   echo "local_registry=${local_registry}"
   echo "local_user=${local_user}"

@@ -245,7 +245,7 @@ delete_tag() {
   esac
 }
 
-normalize_host() {
+normalise_host() {
   local host
   host="$(trim "${1-}")"
   if [[ ${host} == *://* ]]; then

@@ -23,13 +23,13 @@ pub fn init(log_level: &str) {
 }
 
 fn default_filter(level: &str) -> String {
-  let level = normalize_level(level);
+  let level = normalise_level(level);
   format!(
     "discord_keep_alive={level},dka_gateway={level},dka_runtime={level},tokio=warn,tokio_tungstenite=warn,tungstenite=warn,rustls=warn"
   )
 }
 
-fn normalize_level(level: &str) -> String {
+fn normalise_level(level: &str) -> String {
   let lower = level.to_ascii_lowercase();
   match lower.as_str() {
     "error" | "warn" | "info" | "debug" | "trace" => lower,

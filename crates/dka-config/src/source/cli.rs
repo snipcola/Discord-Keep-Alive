@@ -458,8 +458,8 @@ mod tests {
   }
 
   #[test]
-  fn catalog_set_suffixes_and_cli_longs_reachable_via_path_parser() {
-    for_each_catalog_field(
+  fn catalogue_set_suffixes_and_cli_longs_reachable_via_path_parser() {
+    for_each_catalogue_field(
       |field| {
         let suffix = field.spec().set_suffix;
         let path = parse_set_path(suffix).unwrap_or_else(|e| panic!("{suffix}: {e}"));
@@ -508,13 +508,13 @@ mod tests {
   }
 
   #[test]
-  fn catalog_cli_longs_parse_and_apply_flat_account() {
-    for_each_catalog_field(
+  fn catalogue_cli_longs_parse_and_apply_flat_account() {
+    for_each_catalogue_field(
       |field| {
         let Some(long) = field.spec().cli_long else {
           return;
         };
-        let sample = catalog_sample_value(field.spec().set_suffix);
+        let sample = catalogue_sample_value(field.spec().set_suffix);
         let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
           .unwrap_or_else(|e| panic!("--{long}: {e}"));
         let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
@@ -531,7 +531,7 @@ mod tests {
       },
       |field| {
         let long = field.cli_long();
-        let sample = catalog_sample_value(field.spec().set_suffix);
+        let sample = catalogue_sample_value(field.spec().set_suffix);
         let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
           .unwrap_or_else(|e| panic!("--{long}: {e}"));
         let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
@@ -548,7 +548,7 @@ mod tests {
       },
       |field| {
         let long = field.cli_long();
-        let sample = catalog_sample_value(field.spec().set_suffix);
+        let sample = catalogue_sample_value(field.spec().set_suffix);
         let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
           .unwrap_or_else(|e| panic!("--{long}: {e}"));
         let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
@@ -567,12 +567,12 @@ mod tests {
   }
 
   #[test]
-  fn catalog_defaults_set_paths_reachable() {
+  fn catalogue_defaults_set_paths_reachable() {
     for_each_defaults_field(|profile, field| {
       let path = format!("defaults.{}.{}", profile.toml(), field.spec().set_suffix);
       let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
       assert_eq!(got, ConfigPath::Defaults(profile, field), "{path}");
-      let sample = catalog_sample_value(field.spec().set_suffix);
+      let sample = catalogue_sample_value(field.spec().set_suffix);
       let mut cli = empty_cli();
       cli.set = vec![format!("{path}={sample}")];
       let mut p = cli_partial(&cli).unwrap_or_else(|e| panic!("{path}: {e}"));
@@ -586,12 +586,12 @@ mod tests {
   }
 
   #[test]
-  fn catalog_global_defaults_set_paths_reachable() {
+  fn catalogue_global_defaults_set_paths_reachable() {
     for &field in GlobalDefaultField::ALL {
       let path = format!("defaults.{}", field.spec().set_suffix);
       let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
       assert_eq!(got, ConfigPath::GlobalDefault(field), "{path}");
-      let sample = catalog_sample_value(field.spec().set_suffix);
+      let sample = catalogue_sample_value(field.spec().set_suffix);
       let mut cli = empty_cli();
       cli.set = vec![format!("{path}={sample}")];
       let mut p = cli_partial(&cli).unwrap_or_else(|e| panic!("{path}: {e}"));

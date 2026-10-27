@@ -5,7 +5,7 @@ use crate::constants::{
 };
 
 // Rewrites Discord CDN and media URLs to `mp:…`; known prefixes and numeric ids pass through.
-pub(crate) fn normalize_activity_image(image: &str) -> String {
+pub(crate) fn normalise_activity_image(image: &str) -> String {
   let image = image.trim();
   if image.is_empty() {
     return String::new();
@@ -157,7 +157,7 @@ fn put_str_map(map: &mut Map<String, Value>, key: &str, value: Option<&str>) {
 
 fn put_image(map: &mut Map<String, Value>, key: &str, image: Option<&str>) {
   if let Some(image) = image.filter(|s| !s.is_empty()) {
-    map.insert(key.into(), json!(normalize_activity_image(image)));
+    map.insert(key.into(), json!(normalise_activity_image(image)));
   }
 }
 
@@ -528,7 +528,7 @@ mod tests {
   }
 
   #[test]
-  fn normalize_activity_image_inputs() {
+  fn normalise_activity_image_inputs() {
     for (label, input, expected) in [
       (
         "cdn_query",
@@ -544,7 +544,7 @@ mod tests {
       ("numeric_id", "1234567890", "1234567890"),
       ("youtube", "youtube:dQw4w9WgXcQ", "youtube:dQw4w9WgXcQ"),
     ] {
-      assert_eq!(normalize_activity_image(input), expected, "{label}");
+      assert_eq!(normalise_activity_image(input), expected, "{label}");
     }
   }
 

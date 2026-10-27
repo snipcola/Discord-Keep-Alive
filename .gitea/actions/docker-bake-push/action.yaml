@@ -24,7 +24,7 @@ inputs:
   source:
     required: false
     default: ""
-  license:
+  licence:
     required: false
     default: ""
   refs:
@@ -70,7 +70,7 @@ runs:
         REVISION: ${{ inputs.revision || gitea.sha }}
         PACKAGE: ${{ inputs.package }}
         SOURCE: ${{ inputs.source }}
-        LICENSE: ${{ inputs.license }}
+        LICENCE: ${{ inputs.licence }}
         REFS: ${{ inputs.refs }}
         PUSH: ${{ inputs.push }}
         BAKE_FILE: ${{ runner.temp }}/docker-bake.json

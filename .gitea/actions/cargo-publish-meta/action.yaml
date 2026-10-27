@@ -64,8 +64,8 @@ outputs:
     value: ${{ steps.meta.outputs.ghcr }}
   docker:
     value: ${{ steps.meta.outputs.docker }}
-  license:
-    value: ${{ steps.meta.outputs.license }}
+  licence:
+    value: ${{ steps.meta.outputs.licence }}
   repository:
     value: ${{ steps.meta.outputs.repository }}
 
