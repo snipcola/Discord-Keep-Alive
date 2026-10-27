@@ -167,7 +167,8 @@ jobs:
           scripts="${{ gitea.workspace }}/.gitea/scripts"
           source "${scripts}/common.sh"
 
-          bg_start Licences bash "${scripts}/licenses.sh"
+          # Licence generation only takes CPU the build leaves idle.
+          bg_start Licences nice -n 10 bash "${scripts}/licences.sh"
           bash "${scripts}/build-binaries.sh"
           bg_wait
 

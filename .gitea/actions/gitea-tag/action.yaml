@@ -17,10 +17,6 @@ inputs:
     description: skip, fail, or override if the tag points elsewhere
     required: false
     default: override
-  latest:
-    description: Also move the floating latest tag
-    required: false
-    default: "true"
   token:
     required: false
     default: ""
@@ -48,7 +44,6 @@ runs:
         MESSAGE: ${{ inputs.message }}
         TARGET: ${{ inputs.target || gitea.sha }}
         CONFLICT: ${{ inputs.conflict }}
-        LATEST: ${{ inputs.latest }}
         TOKEN: ${{ inputs.token || gitea.token }}
         API_URL: ${{ inputs.api_url || gitea.api_url }}
         REPOSITORY: ${{ inputs.repository || gitea.repository }}

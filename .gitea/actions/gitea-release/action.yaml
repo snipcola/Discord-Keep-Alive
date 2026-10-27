@@ -24,7 +24,7 @@ inputs:
     required: false
     default: ""
   latest:
-    description: Also recreate the rolling latest release
+    description: Also update the rolling latest release
     required: false
     default: "true"
   draft:

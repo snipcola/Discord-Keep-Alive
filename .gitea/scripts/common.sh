@@ -168,6 +168,7 @@ fetch_commit() {
 BG_NAMES=()
 BG_DIR=""
 
+# Jobs need `set -e`, so don't call this under `||` or `&&`.
 bg_start() {
   local name="$1" i="${#BG_NAMES[@]}"
   shift
@@ -216,6 +217,32 @@ request() {
 fail_http() {
   echo "${1} (HTTP ${http_code}): $(cat "${body}")" >&2
   return 1
+}
+
+tag_commit() {
+  request GET "${api}/tags/$(uri "$1")" || return 1
+  case "${http_code}" in
+  200) jq -er '.commit.sha' "${body}" ;;
+  404) ;;
+  *) fail_http "Failed to fetch tag $1" ;;
+  esac
+}
+
+release_id_for_tag() {
+  request GET "${api}/releases/tags/$(uri "$1")" || return 1
+  case "${http_code}" in
+  200) jq -er '.id' "${body}" ;;
+  404) ;;
+  *) fail_http "Failed to fetch release $1" ;;
+  esac
+}
+
+delete_tag() {
+  request DELETE "${api}/tags/$(uri "$1")" || return 1
+  case "${http_code}" in
+  200 | 204 | 404) ;;
+  *) fail_http "Failed to delete tag $1" ;;
+  esac
 }
 
 normalize_host() {
