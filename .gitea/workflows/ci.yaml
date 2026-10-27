@@ -216,7 +216,7 @@ jobs:
           file: ./Dockerfile
           targets: ${{ env.TARGETS }}
           version: ${{ steps.meta.outputs.version }}
-          revision: ${{ inputs.commit || gitea.sha }}
+          revision: ${{ steps.meta.outputs.revision }}
           package: ${{ steps.meta.outputs.package_name }}
           source: ${{ steps.meta.outputs.repository }}
           licence: ${{ steps.meta.outputs.licence }}
@@ -229,7 +229,7 @@ jobs:
         uses: ./.gitea/actions/gitea-tag
         with:
           version: ${{ steps.meta.outputs.version }}
-          target: ${{ inputs.commit || gitea.sha }}
+          target: ${{ steps.meta.outputs.revision }}
 
       - name: Release
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
@@ -250,7 +250,7 @@ jobs:
           CHANGED: ${{ steps.meta.outputs.changed }}
           REASON: ${{ steps.meta.outputs.reason }}
           TAG: ${{ steps.tag.outputs.tag }}
-          REVISION: ${{ inputs.commit || gitea.sha }}
+          REVISION: ${{ steps.meta.outputs.revision }}
           REFS: ${{ steps.plan.outputs.refs }}
           DRY_RUN: ${{ inputs.dry_run }}
           FAILED: ${{ contains(job.status, 'failure') }}

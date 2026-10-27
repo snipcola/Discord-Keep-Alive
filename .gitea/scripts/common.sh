@@ -156,13 +156,56 @@ require() {
 
 uri() { printf '%s' "${1-}" | jq -sRr @uri; }
 
+is_shallow() { [ "$(git rev-parse --is-shallow-repository)" = true ]; }
+
 unshallow() {
-  [ -f "$(git rev-parse --git-dir)/shallow" ] || return 0
+  is_shallow || return 0
   git fetch --quiet --unshallow origin
 }
 
-fetch_commit() {
-  git cat-file -e "${1}^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$1"
+# Reads the commit itself, as `git log --format=%P` is empty at a shallow boundary.
+first_parent() {
+  local parents
+  parents="$(git cat-file -p "$1" | sed -n '/^$/,$d; s/^parent //p')" || return 1
+  printf '%s\n' "${parents%%$'\n'*}"
+}
+
+# Prints the commit where HEAD branched off $1, or nothing if they share no history.
+fork_point() {
+  local base="$1" head points rc=0
+  head="$(git rev-parse --verify HEAD)" || return 1
+
+  # No fetch needed when $1 is HEAD or its parent.
+  if [[ ${base} == "${head}" || ${base} == "$(first_parent "${head}")" ]] &&
+    git cat-file -e "${base}^{commit}" 2>/dev/null; then
+    printf '%s\n' "${base}"
+    return 0
+  fi
+
+  if is_shallow; then
+    git fetch --quiet --unshallow origin "${base}" "${head}"
+  elif ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+    git fetch --quiet origin "${base}"
+  fi || {
+    echo "Could not fetch history for ${base}." >&2
+    return 1
+  }
+  if is_shallow; then
+    echo "History is still shallow." >&2
+    return 1
+  fi
+
+  points="$(git merge-base --all "${base}" "${head}")" || rc=$?
+  case "${rc}" in
+  0) ;;
+  1) return 0 ;;
+  *) return "${rc}" ;;
+  esac
+  if [[ ${points} == *$'\n'* ]]; then
+    echo "${base} has multiple merge bases with HEAD." >&2
+    return 1
+  fi
+  printf '%s\n' "${points}"
 }
 
 BG_NAMES=()

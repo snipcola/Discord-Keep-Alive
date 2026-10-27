@@ -48,6 +48,8 @@ outputs:
     value: ${{ steps.meta.outputs.package_name }}
   version:
     value: ${{ steps.meta.outputs.version }}
+  revision:
+    value: ${{ steps.meta.outputs.revision }}
   changed:
     value: ${{ steps.meta.outputs.changed }}
   reason:

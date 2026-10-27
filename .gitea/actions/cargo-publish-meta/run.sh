@@ -100,13 +100,10 @@ package_version_at() {
 }
 
 resolve_base() {
-  local head parent base shallow rc=0
-  head="$(git rev-parse --verify HEAD)" || return 1
-  # %P is empty at a shallow boundary, so read the commit directly.
-  parent="$(git cat-file -p "${head}" | sed -n '/^$/,$d; s/^parent //p')" || return 1
-  parent="${parent%%$'\n'*}"
+  local parent base
 
   if [ -z "${BASE-}" ]; then
+    parent="$(first_parent HEAD)" || return 1
     if [ -n "${parent}" ] && ! git cat-file -e "${parent}^{commit}" 2>/dev/null; then
       echo "First parent ${parent} is not available locally (need fetch-depth >= 2); refusing to publish." >&2
       return 1
@@ -116,40 +113,13 @@ resolve_base() {
   fi
   [[ ${BASE} =~ ^0+$ ]] && return 0
 
-  if [[ ${BASE} == "${head}" || ${BASE} == "${parent}" ]] && git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
-    printf '%s\n' "${BASE}"
-    return 0
-  fi
-
-  shallow="$(git rev-parse --is-shallow-repository)" || return 1
-  if [ "${shallow}" = true ]; then
-    git fetch --quiet --unshallow origin "${BASE}" "${head}"
-  elif ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
-    git fetch --quiet origin "${BASE}"
-  fi || {
-    echo "Could not fetch history for ${BASE}; refusing to publish." >&2
+  base="$(fork_point "${BASE}")" || {
+    echo "Could not compare push base ${BASE} with HEAD; refusing to publish." >&2
     return 1
   }
-  shallow="$(git rev-parse --is-shallow-repository)" || return 1
-  if [ "${shallow}" = true ]; then
-    echo "History is still shallow; refusing to publish." >&2
-    return 1
-  fi
-
-  base="$(git merge-base --all "${BASE}" "${head}")" || rc=$?
-  case "${rc}" in
-  0) ;;
-  1)
+  if [ -z "${base}" ]; then
     echo "::warning::Push base ${BASE} shares no history with HEAD; treating as a new branch." >&2
-    return 0
-    ;;
-  *) return "${rc}" ;;
-  esac
-  if [[ ${base} == *$'\n'* ]]; then
-    echo "Push base ${BASE} has multiple merge bases with HEAD; refusing to publish." >&2
-    return 1
-  fi
-  if [ "${base}" != "${BASE}" ]; then
+  elif [ "${base}" != "${BASE}" ]; then
     echo "Push base ${BASE} is not in HEAD's history; comparing against ${base}." >&2
   fi
   printf '%s\n' "${base}"
@@ -162,6 +132,8 @@ release_requested() {
   grep -qF -- "${RELEASE_MARKER}" <<<"${subjects}" ||
     grep -qix true <<<"${trailers}"
 }
+
+revision="$(git rev-parse --verify HEAD)" || exit 1
 
 meta="$(cargo_metadata .)" || {
   echo "Could not load cargo metadata from HEAD; refusing to publish." >&2
@@ -244,6 +216,7 @@ docker_ref="docker.io/${DH_USER}/${image_name}"
 {
   echo "package_name=${package_name}"
   echo "version=${version}"
+  echo "revision=${revision}"
   echo "changed=${changed}"
   echo "reason=${reason}"
   echo "image_name=${image_name}"
