@@ -88,7 +88,7 @@ pub(super) fn identify_d(params: &SessionParams, qos: Option<&DerivedQos>) -> Va
   // Identify carries the initial presence; READY and RESUMED send it again.
   // No payload-level compression, since the transport already uses zstd-stream.
   let mut d = json!({
-    "token": params.token,
+    "token": params.token.expose(),
     "properties": identify_properties(&params.properties, params.kind),
     "compress": false,
     "presence": params.presence.clone(),
@@ -207,7 +207,7 @@ mod tests {
   fn params(kind: AccountKind, properties: ClientProperties) -> SessionParams {
     SessionParams {
       name: "t".into(),
-      token: "tok".into(),
+      token: "tok".to_string().into(),
       kind,
       presence: json!({}),
       properties,

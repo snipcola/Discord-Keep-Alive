@@ -31,7 +31,7 @@ pub fn session_params(mut account: AccountConfig, defaults: &Defaults) -> Sessio
 
   SessionParams {
     name: account.name,
-    token: account.token.into_inner(),
+    token: account.token.into_inner().into(),
     kind: account.kind,
     presence,
     properties,

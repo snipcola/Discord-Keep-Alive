@@ -1,5 +1,30 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json, value::RawValue};
+
+const REDACTED: &str = "<redacted>";
+
+#[derive(Clone)]
+pub struct Token(String);
+
+impl Token {
+  pub(crate) fn expose(&self) -> &str {
+    &self.0
+  }
+}
+
+impl From<String> for Token {
+  fn from(value: String) -> Self {
+    Self(value)
+  }
+}
+
+impl fmt::Debug for Token {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(REDACTED)
+  }
+}
 
 pub const OP_DISPATCH: u8 = 0;
 pub const OP_HEARTBEAT: u8 = 1;
@@ -12,10 +37,23 @@ pub const OP_HELLO: u8 = 10;
 pub const OP_HEARTBEAT_ACK: u8 = 11;
 pub const OP_QOS_HEARTBEAT: u8 = 40;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct GatewayPayload {
   pub op: u8,
   pub d: Value,
+}
+
+impl fmt::Debug for GatewayPayload {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let mut d = self.d.clone();
+    if let Some(token) = d.get_mut("token") {
+      *token = Value::from(REDACTED);
+    }
+    f.debug_struct("GatewayPayload")
+      .field("op", &self.op)
+      .field("d", &d)
+      .finish()
+  }
 }
 
 impl GatewayPayload {
@@ -59,6 +97,13 @@ impl<'a> GatewayEnvelope<'a> {
 
   pub fn d_str(&self) -> Option<&'a str> {
     self.d.map(RawValue::get)
+  }
+
+  pub fn invalid_session_resumable(&self) -> bool {
+    self
+      .d_str()
+      .and_then(|d| serde_json::from_str(d).ok())
+      .unwrap_or(false)
   }
 }
 
@@ -167,16 +212,44 @@ mod tests {
   }
 
   #[test]
-  fn invalid_session_bool() {
-    for (label, d, expected) in [("true", "true", true), ("false", "false", false)] {
-      let text = format!(r#"{{"op":9,"d":{d},"s":null,"t":null}}"#);
-      let env = GatewayEnvelope::from_json(&text).unwrap();
-      let resumable = env
-        .d_str()
-        .and_then(|raw| serde_json::from_str(raw).ok())
-        .unwrap_or(false);
-      assert_eq!(resumable, expected, "{label}");
+  fn invalid_session_resumable_follows_boolean_payload() {
+    for (label, text, expected) in [
+      ("d true", r#"{"op":9,"d":true,"s":null,"t":null}"#, true),
+      ("d false", r#"{"op":9,"d":false,"s":null,"t":null}"#, false),
+      ("d null", r#"{"op":9,"d":null,"s":null,"t":null}"#, false),
+      ("d absent", r#"{"op":9}"#, false),
+      ("d string", r#"{"op":9,"d":"true"}"#, false),
+      ("d object", r#"{"op":9,"d":{"resumable":true}}"#, false),
+    ] {
+      let env = GatewayEnvelope::from_json(text).unwrap();
+      assert_eq!(
+        env.invalid_session_resumable(),
+        expected,
+        "invalid session with {label}"
+      );
     }
+  }
+
+  #[test]
+  fn payload_debug_redacts_token() {
+    let secret = "payload-secret-0451";
+    let payload = GatewayPayload::new(
+      OP_RESUME,
+      json!({"token": secret, "session_id": "sid", "seq": 3}),
+    );
+    let debug = format!("{payload:?}");
+    assert!(
+      !debug.contains(secret),
+      "GatewayPayload Debug leaked the token: {debug}"
+    );
+    assert!(
+      debug.contains("sid") && debug.contains(REDACTED),
+      "GatewayPayload Debug should keep other fields and mark the token: {debug}"
+    );
+    assert_eq!(
+      payload.d["token"], secret,
+      "redaction must not change the payload that is sent"
+    );
   }
 
   #[test]

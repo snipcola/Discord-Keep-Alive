@@ -18,10 +18,10 @@ use tokio_tungstenite::tungstenite::{
 };
 use tracing::{debug, error, info};
 
-use crate::payload::GatewayPayload;
+use crate::payload::{GatewayPayload, Token};
 use crate::properties::{ClientProperties, UserOptions};
 use crate::qos::DerivedQos;
-use crate::reconnect::{backoff_with_jitter, resume_ws_url};
+use crate::reconnect::{backoff_with_jitter, next_attempt, resume_ws_url};
 use crate::{GATEWAY_HOST, gateway_url, is_shutdown};
 
 use self::connect::connect_and_run;
@@ -31,11 +31,10 @@ type WsStream =
 type WsWrite = SplitSink<WsStream, Message>;
 type WsRead = SplitStream<WsStream>;
 
-// Presence is ready-made JSON; the gateway never rebuilds it.
 #[derive(Debug, Clone)]
 pub struct SessionParams {
   pub name: String,
-  pub token: String,
+  pub token: Token,
   pub kind: AccountKind,
   pub presence: Value,
   pub properties: ClientProperties,
@@ -96,7 +95,6 @@ enum SessionEnd {
   Shutdown,
   Reconnect {
     resume: bool,
-    // Extra wait, e.g. 2s after INVALID_SESSION.
     extra_delay: Option<Duration>,
     cause: Cow<'static, str>,
   },
@@ -216,10 +214,7 @@ async fn schedule_reconnect(
   } else {
     state.clear_session();
   }
-  if was_healthy {
-    *attempt = 0;
-  }
-  *attempt = attempt.saturating_add(1);
+  *attempt = next_attempt(*attempt, was_healthy);
   let mut delay = backoff_with_jitter(*attempt);
   if let Some(extra) = extra_delay {
     delay = delay.saturating_add(extra);
@@ -290,6 +285,29 @@ mod tests {
     assert!(state(true, true).can_resume_after_error());
     assert!(!state(false, true).can_resume_after_error());
     assert!(!state(true, false).can_resume_after_error());
+  }
+
+  #[test]
+  fn session_params_debug_hides_token() {
+    let secret = "params-secret-0451";
+    let params = SessionParams {
+      name: "main".into(),
+      token: secret.to_string().into(),
+      kind: AccountKind::User,
+      presence: Value::Null,
+      properties: ClientProperties::default(),
+      user: UserOptions::default(),
+    };
+    let debug = format!("{params:?}");
+    assert!(
+      !debug.contains(secret),
+      "SessionParams Debug leaked the token: {debug}"
+    );
+    assert!(
+      debug.contains("main"),
+      "SessionParams Debug should still show the account name: {debug}"
+    );
+    assert_eq!(params.token.expose(), secret, "token must stay usable");
   }
 
   #[test]

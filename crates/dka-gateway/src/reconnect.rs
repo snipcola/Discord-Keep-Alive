@@ -4,11 +4,22 @@ use crate::gateway_query;
 
 const MAX_BACKOFF_SECS: u64 = 90;
 
-// `attempt` starts at 1 on the first reconnect.
+pub fn next_attempt(current: u32, session_was_healthy: bool) -> u32 {
+  if session_was_healthy {
+    1
+  } else {
+    current.saturating_add(1)
+  }
+}
+
 pub fn backoff_with_jitter(attempt: u32) -> Duration {
+  backoff_delay(attempt, rand::random())
+}
+
+fn backoff_delay(attempt: u32, jitter_fraction: f64) -> Duration {
   let exp = attempt.saturating_sub(1).min(7);
   let base_ms = (1u64 << exp).min(MAX_BACKOFF_SECS).saturating_mul(1000);
-  let jitter_ms = (rand::random::<f64>() * base_ms as f64 * 0.25) as u64;
+  let jitter_ms = (jitter_fraction * base_ms as f64 * 0.25) as u64;
   Duration::from_millis(base_ms + jitter_ms)
 }
 
@@ -25,6 +36,48 @@ pub fn resume_ws_url(base: &str) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn attempts_count_failures_and_reset_after_a_healthy_session() {
+    for (current, healthy, expected) in [
+      (0, false, 1),
+      (1, false, 2),
+      (6, false, 7),
+      (6, true, 1),
+      (0, true, 1),
+      (u32::MAX, false, u32::MAX),
+    ] {
+      assert_eq!(
+        next_attempt(current, healthy),
+        expected,
+        "after attempt {current} with healthy session = {healthy}"
+      );
+    }
+  }
+
+  #[test]
+  fn backoff_delay_table() {
+    for (attempt, jitter, expected_ms) in [
+      (0, 0.0, 1000),
+      (1, 0.0, 1000),
+      (1, 1.0, 1250),
+      (2, 0.0, 2000),
+      (3, 0.0, 4000),
+      (4, 0.0, 8000),
+      (4, 0.5, 9000),
+      (7, 0.0, 64_000),
+      (8, 0.0, 90_000),
+      (8, 1.0, 112_500),
+      (20, 0.0, 90_000),
+      (u32::MAX, 0.0, 90_000),
+    ] {
+      assert_eq!(
+        backoff_delay(attempt, jitter),
+        Duration::from_millis(expected_ms),
+        "attempt {attempt} with jitter fraction {jitter}"
+      );
+    }
+  }
 
   #[test]
   fn backoff_escalates_then_caps() {

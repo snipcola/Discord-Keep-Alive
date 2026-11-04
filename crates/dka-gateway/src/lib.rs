@@ -6,6 +6,7 @@ pub(crate) mod qos;
 pub(crate) mod reconnect;
 pub mod session;
 
+pub use payload::Token;
 pub use properties::{ClientProperties, Defaults};
 pub use session::{LiveSink, SessionParams, run_session};
 

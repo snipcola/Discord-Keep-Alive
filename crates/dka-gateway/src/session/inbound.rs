@@ -17,7 +17,6 @@ impl InboundText<'_> {
   }
 }
 
-// None for control frames (ping, pong, close), which the caller handles.
 pub(super) fn decode_inbound<'a>(
   msg: Message,
   decomp: &'a mut TransportDecompress,

@@ -2,9 +2,7 @@ use anyhow::{Context, Result};
 use structured_zstd::decoding::FrameDecoder;
 
 const INITIAL_LEN: usize = 8 * 1024;
-// Capacity kept after reclaiming, enough for normal frames.
 const KEEP_CAP: usize = 64 * 1024;
-// The buffer only shrinks after a large spike, such as READY.
 const SHRINK_THRESHOLD: usize = 256 * 1024;
 
 // One zstd stream per WebSocket connection.

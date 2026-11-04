@@ -57,10 +57,7 @@ pub(super) async fn handle_payload(
     }
     OP_RECONNECT => Some(SessionEnd::reconnect(true, "server requested reconnect")),
     OP_INVALID_SESSION => {
-      let resumable = payload
-        .d_str()
-        .and_then(|d| serde_json::from_str(d).ok())
-        .unwrap_or(false);
+      let resumable = payload.invalid_session_resumable();
       debug!(resumable, "invalid session");
       if !resumable {
         state.clear_session();

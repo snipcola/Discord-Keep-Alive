@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicI64;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use tokio::sync::watch;
-use tokio::time::Instant;
+use tokio::task::JoinSet;
+use tokio::time::{Instant, timeout};
 use tokio_tungstenite::{
   connect_async_with_config,
   tungstenite::{
@@ -26,7 +28,8 @@ use super::identify::{HelloWaitError, graceful_disconnect, send_identify, wait_f
 use super::inbound::decode_inbound;
 use super::{SessionEnd, SessionParams, SessionState, WsStream, send_json};
 
-// Auth, shard and intent failures are fatal: don't reconnect.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+
 fn fatal_close_reason(code: u16) -> Option<&'static str> {
   match code {
     4004 => Some("token rejected"),
@@ -39,9 +42,9 @@ fn fatal_close_reason(code: u16) -> Option<&'static str> {
   }
 }
 
-// After an invalid seq (4007), identify again instead of resuming.
+// After an invalid seq (4007) or a timed-out session (4009), identify again instead of resuming.
 fn resume_after_close(code: u16) -> bool {
-  code != 4007
+  !matches!(code, 4007 | 4009)
 }
 
 pub(super) async fn connect_and_run(
@@ -95,7 +98,8 @@ pub(super) async fn connect_and_run(
   let hb_seq = seq_cell.clone();
   let mut hb_shutdown = shutdown.clone();
   let hb_span = Span::current();
-  let heartbeat_handle = tokio::spawn(
+  let mut heartbeat = JoinSet::new();
+  heartbeat.spawn(
     async move {
       heartbeat_loop(interval_ms, hb_tx, ack_rx, hb_seq, &mut hb_shutdown).await;
     }
@@ -110,7 +114,7 @@ pub(super) async fn connect_and_run(
       &GatewayPayload::new(
         OP_RESUME,
         json!({
-          "token": params.token,
+          "token": params.token.expose(),
           "session_id": session_id,
           "seq": seq,
         }),
@@ -211,10 +215,7 @@ pub(super) async fn connect_and_run(
               break;
             }
           }
-          Some(Err(err)) => {
-            heartbeat_handle.abort();
-            return Err(err.into());
-          }
+          Some(Err(err)) => return Err(err.into()),
           None => {
             end = SessionEnd::reconnect(true, "eof");
             break;
@@ -224,7 +225,7 @@ pub(super) async fn connect_and_run(
     }
   }
 
-  heartbeat_handle.abort();
+  drop(heartbeat);
 
   match &end {
     SessionEnd::Shutdown => {
@@ -255,7 +256,131 @@ async fn connect_gateway(
     let value = HeaderValue::from_str(ua).context("invalid user-agent header value")?;
     request.headers_mut().insert(USER_AGENT, value);
   }
-  connect_async_with_config(request, None, true)
+  bounded_connect(
+    url,
+    CONNECT_TIMEOUT,
+    connect_async_with_config(request, None, true),
+  )
+  .await
+}
+
+async fn bounded_connect<T, E>(
+  url: &str,
+  limit: Duration,
+  connect: impl Future<Output = Result<T, E>>,
+) -> Result<T>
+where
+  E: std::error::Error + Send + Sync + 'static,
+{
+  timeout(limit, connect)
     .await
+    .with_context(|| {
+      format!(
+        "websocket connect to {url} timed out after {}s",
+        limit.as_secs()
+      )
+    })?
     .with_context(|| format!("websocket connect to {url}"))
+}
+
+#[cfg(test)]
+mod tests {
+  use std::future::pending;
+
+  use super::*;
+
+  #[test]
+  fn close_codes_that_end_the_account() {
+    for (code, expected) in [
+      (4004, Some("token rejected")),
+      (4010, Some("invalid shard")),
+      (4011, Some("sharding required")),
+      (4012, Some("invalid API version")),
+      (4013, Some("invalid intents")),
+      (4014, Some("disallowed intents")),
+      (4000, None),
+      (4007, None),
+      (4009, None),
+      (1000, None),
+      (1006, None),
+    ] {
+      assert_eq!(
+        fatal_close_reason(code),
+        expected,
+        "fatal reason for close code {code}"
+      );
+    }
+  }
+
+  #[test]
+  fn close_codes_that_force_a_new_session() {
+    for (code, expected) in [
+      (4000, true),
+      (4001, true),
+      (4002, true),
+      (4003, true),
+      (4005, true),
+      (4008, true),
+      (1000, true),
+      (1006, true),
+      (4004, true),
+      (4007, false),
+      (4009, false),
+    ] {
+      assert_eq!(
+        resume_after_close(code),
+        expected,
+        "resume decision for close code {code}"
+      );
+    }
+  }
+
+  #[tokio::test(start_paused = true)]
+  async fn stalled_connect_times_out_with_context() {
+    let started = Instant::now();
+    let err =
+      bounded_connect::<(), std::io::Error>("wss://example.invalid", CONNECT_TIMEOUT, pending())
+        .await
+        .expect_err("a connect that never completes must time out");
+    assert_eq!(
+      err.to_string(),
+      "websocket connect to wss://example.invalid timed out after 20s",
+      "timeout error text"
+    );
+    assert_eq!(
+      started.elapsed(),
+      Duration::from_secs(20),
+      "stalled connect must give up after 20 s of paused time"
+    );
+  }
+
+  #[tokio::test(start_paused = true)]
+  async fn connect_error_keeps_its_cause() {
+    let err = bounded_connect::<(), _>("wss://example.invalid", CONNECT_TIMEOUT, async {
+      Err(std::io::Error::other("refused"))
+    })
+    .await
+    .expect_err("connect error must propagate");
+    assert_eq!(
+      err.to_string(),
+      "websocket connect to wss://example.invalid",
+      "connect error context"
+    );
+    assert_eq!(
+      err.root_cause().to_string(),
+      "refused",
+      "underlying error must stay reachable"
+    );
+  }
+
+  #[tokio::test(start_paused = true)]
+  async fn fast_connect_succeeds() {
+    let value =
+      bounded_connect::<_, std::io::Error>("wss://example.invalid", CONNECT_TIMEOUT, async {
+        Ok(7)
+      })
+      .await
+      .expect("connect within the limit must succeed");
+    assert_eq!(value, 7, "connected value must pass through");
+  }
 }
