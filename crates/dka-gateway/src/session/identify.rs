@@ -199,8 +199,8 @@ mod tests {
   use dka_presence::AccountKind;
   use serde_json::json;
 
-  use crate::properties::{ClientProperties, UserOptions};
   use crate::session::SessionParams;
+  use dka_presence::{ClientProperties, UserOptions};
 
   use super::identify_d;
 

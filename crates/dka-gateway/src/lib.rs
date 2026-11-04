@@ -1,13 +1,12 @@
 pub(crate) mod compress;
 pub(crate) mod heartbeat;
 pub(crate) mod payload;
-pub mod properties;
+pub(crate) mod properties;
 pub(crate) mod qos;
 pub(crate) mod reconnect;
 pub mod session;
 
 pub use payload::Token;
-pub use properties::{ClientProperties, Defaults};
 pub use session::{LiveSink, SessionParams, run_session};
 
 use tokio::sync::watch;

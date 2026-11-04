@@ -240,8 +240,8 @@ impl DefaultsProfile {
 
   pub fn resolved_mut(
     self,
-    defaults: &mut dka_gateway::properties::Defaults,
-  ) -> &mut dka_gateway::properties::ClientProperties {
+    defaults: &mut dka_presence::Defaults,
+  ) -> &mut dka_presence::ClientProperties {
     match self {
       Self::Bot => &mut defaults.bot,
       Self::Web => &mut defaults.web,
@@ -361,7 +361,7 @@ impl ClientPropField {
     }
   }
 
-  pub fn apply_override(self, dst: &mut dka_gateway::properties::ClientProperties, value: String) {
+  pub fn apply_override(self, dst: &mut dka_presence::ClientProperties, value: String) {
     match self.empty_policy() {
       ClientPropEmptyPolicy::SkipEmpty => {
         if !value.is_empty() {
@@ -424,10 +424,7 @@ string_fields! {
 }
 
 impl GlobalDefaultField {
-  pub fn resolved_mut(
-    self,
-    defaults: &mut dka_gateway::properties::Defaults,
-  ) -> &mut Option<String> {
+  pub fn resolved_mut(self, defaults: &mut dka_presence::Defaults) -> &mut Option<String> {
     match self {
       Self::HeartbeatVersion => &mut defaults.heartbeat_version,
       Self::Capabilities => &mut defaults.capabilities,

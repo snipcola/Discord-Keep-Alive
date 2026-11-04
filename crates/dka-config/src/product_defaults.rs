@@ -1,4 +1,4 @@
-use dka_gateway::properties::{ClientProperties, Defaults};
+use dka_presence::{ClientProperties, Defaults};
 
 const LOCALE: &str = "en-US";
 const CHANNEL: &str = "stable";

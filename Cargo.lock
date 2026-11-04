@@ -244,7 +244,6 @@ name = "dka-config"
 version = "0.6.0"
 dependencies = [
  "clap",
- "dka-gateway",
  "dka-presence",
  "figment",
  "secrecy",

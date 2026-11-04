@@ -19,10 +19,10 @@ use tokio_tungstenite::tungstenite::{
 use tracing::{debug, error, info};
 
 use crate::payload::{GatewayPayload, Token};
-use crate::properties::{ClientProperties, UserOptions};
 use crate::qos::DerivedQos;
 use crate::reconnect::{backoff_with_jitter, next_attempt, resume_ws_url};
 use crate::{GATEWAY_HOST, gateway_url, is_shutdown};
+use dka_presence::{ClientProperties, UserOptions};
 
 use self::connect::connect_and_run;
 

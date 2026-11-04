@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use dka_gateway::properties::{ClientProperties, Defaults};
 use dka_presence::{
   AccountKind, ActivityButton, ActivityConfig, ActivityParty, ActivityPlatform, ActivityType,
   CustomStatusConfig, Device, ImageAsset, Status,
 };
+use dka_presence::{ClientProperties, Defaults};
 
 use crate::error::ConfigError;
 use crate::model::partial::{

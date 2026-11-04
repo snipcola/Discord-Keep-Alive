@@ -1,64 +1,7 @@
 use std::fmt::Write;
 
-use dka_presence::{AccountKind, Device};
+use dka_presence::{AccountKind, ClientProperties};
 use serde_json::{Map, Value, json};
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ClientProperties {
-  pub os: String,
-  pub browser: Option<String>,
-  pub device: String,
-  pub user_agent: Option<String>,
-  pub client_version: Option<String>,
-  pub os_version: Option<String>,
-  pub os_arch: Option<String>,
-  pub app_arch: Option<String>,
-  pub system_locale: Option<String>,
-  pub release_channel: Option<String>,
-  pub browser_version: Option<String>,
-  pub os_sdk_version: Option<String>,
-  pub client_build_number: Option<String>,
-  pub native_build_number: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Defaults {
-  pub bot: ClientProperties,
-  pub web: ClientProperties,
-  pub desktop: ClientProperties,
-  pub mobile: ClientProperties,
-  pub heartbeat_version: Option<String>,
-  pub capabilities: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct UserOptions {
-  pub qos_heartbeat_version: Option<u64>,
-  pub capabilities: Option<u64>,
-}
-
-impl Defaults {
-  pub fn user_options(&self, kind: AccountKind) -> UserOptions {
-    match kind {
-      AccountKind::User => UserOptions {
-        qos_heartbeat_version: parse_u64(&self.heartbeat_version),
-        capabilities: parse_u64(&self.capabilities),
-      },
-      AccountKind::Bot => UserOptions::default(),
-    }
-  }
-
-  pub fn client_properties(&self, kind: AccountKind, device: Option<Device>) -> &ClientProperties {
-    match kind {
-      AccountKind::Bot => &self.bot,
-      AccountKind::User => match device.unwrap_or(Device::Web) {
-        Device::Web => &self.web,
-        Device::Desktop => &self.desktop,
-        Device::Mobile => &self.mobile,
-      },
-    }
-  }
-}
 
 fn hex_bytes(bytes: &[u8]) -> String {
   let mut s = String::with_capacity(bytes.len() * 2);
@@ -134,6 +77,7 @@ pub(crate) fn identify_properties(props: &ClientProperties, kind: AccountKind) -
 #[cfg(test)]
 mod tests {
   use super::*;
+  use dka_presence::{Defaults, Device};
 
   fn sample_defaults() -> Defaults {
     Defaults {
@@ -203,30 +147,6 @@ mod tests {
   }
 
   #[test]
-  fn user_options_are_user_only() {
-    let defaults = |v: Option<&str>| Defaults {
-      heartbeat_version: v.map(str::to_string),
-      capabilities: v.map(str::to_string),
-      ..sample_defaults()
-    };
-    assert_eq!(
-      defaults(Some("31")).user_options(AccountKind::User),
-      UserOptions {
-        qos_heartbeat_version: Some(31),
-        capabilities: Some(31),
-      }
-    );
-    assert_eq!(
-      defaults(Some("31")).user_options(AccountKind::Bot),
-      UserOptions::default()
-    );
-    assert_eq!(
-      defaults(None).user_options(AccountKind::User),
-      UserOptions::default()
-    );
-  }
-
-  #[test]
   fn client_property_templates() {
     let defaults = sample_defaults();
     let cases = [
@@ -290,101 +210,106 @@ mod tests {
   }
 
   #[test]
-  fn identify_properties_rich_desktop() {
-    let props = identify_properties(
-      &ClientProperties {
-        os: "Windows".into(),
-        browser: Some("Discord Client".into()),
-        device: "Discord Client".into(),
-        user_agent: Some("desktop-ua".into()),
-        client_version: Some("1.0.9000".into()),
-        os_version: Some("10.0.26100".into()),
-        os_arch: Some("x64".into()),
-        app_arch: Some("x64".into()),
-        system_locale: Some("en-US".into()),
-        release_channel: Some("stable".into()),
-        browser_version: Some("40.0.0".into()),
-        os_sdk_version: Some("26100".into()),
-        client_build_number: Some("500000".into()),
-        native_build_number: Some("80000".into()),
-      },
-      AccountKind::User,
-    );
-    assert_eq!(props["os"], "Windows");
-    assert_eq!(props["browser"], "Discord Client");
-    assert_eq!(props["device"], "Discord Client");
-    assert_eq!(props["client_version"], "1.0.9000");
-    assert_eq!(props["os_version"], "10.0.26100");
-    assert_eq!(props["os_arch"], "x64");
-    assert_eq!(props["app_arch"], "x64");
-    assert_eq!(props["system_locale"], "en-US");
-    assert_eq!(props["release_channel"], "stable");
-    assert_eq!(props["browser_version"], "40.0.0");
-    assert_eq!(props["os_sdk_version"], "26100");
-    assert_eq!(props["client_build_number"], 500000);
-    assert_eq!(props["native_build_number"], 80000);
-    assert_rich_common(&props, Some("desktop-ua"));
-  }
-
-  #[test]
-  fn identify_properties_rich_web() {
-    let props = identify_properties(
-      &ClientProperties {
-        os: "Windows".into(),
-        browser: Some("Firefox".into()),
-        device: String::new(),
-        user_agent: Some("web-ua".into()),
-        os_version: Some("10".into()),
-        system_locale: Some("en-US".into()),
-        release_channel: Some("stable".into()),
-        browser_version: Some("140.0".into()),
-        client_build_number: Some("500000".into()),
-        ..Default::default()
-      },
-      AccountKind::User,
-    );
-    assert_eq!(props["os"], "Windows");
-    assert_eq!(props["browser"], "Firefox");
-    assert_eq!(props["device"], "");
-    assert_eq!(props["os_version"], "10");
-    assert_eq!(props["system_locale"], "en-US");
-    assert_eq!(props["release_channel"], "stable");
-    assert_eq!(props["browser_version"], "140.0");
-    assert_eq!(props["client_build_number"], 500000);
-    assert!(props.get("os_arch").is_none());
-    assert!(props.get("app_arch").is_none());
-    assert!(props.get("client_version").is_none());
-    assert!(props.get("native_build_number").is_none());
-    assert!(props.get("os_sdk_version").is_none());
-    assert_rich_common(&props, Some("web-ua"));
-  }
-
-  #[test]
-  fn identify_properties_rich_mobile() {
-    let props = identify_properties(
-      &ClientProperties {
-        os: "iOS".into(),
-        browser: Some("Discord iOS".into()),
-        device: "iPhone".into(),
-        user_agent: None,
-        os_version: Some("18.0".into()),
-        system_locale: Some("en-US".into()),
-        release_channel: Some("stable".into()),
-        ..Default::default()
-      },
-      AccountKind::User,
-    );
-    assert_eq!(props["os"], "iOS");
-    assert_eq!(props["browser"], "Discord iOS");
-    assert_eq!(props["device"], "iPhone");
-    assert_eq!(props["os_version"], "18.0");
-    assert_eq!(props["system_locale"], "en-US");
-    assert_eq!(props["release_channel"], "stable");
-    assert!(props.get("client_build_number").is_none());
-    assert!(props.get("native_build_number").is_none());
-    assert!(props.get("browser_version").is_none());
-    assert!(props.get("client_version").is_none());
-    assert_rich_common(&props, None);
+  fn identify_properties_rich_profiles() {
+    let cases = [
+      (
+        "desktop",
+        ClientProperties {
+          os: "Windows".into(),
+          browser: Some("Discord Client".into()),
+          device: "Discord Client".into(),
+          user_agent: Some("desktop-ua".into()),
+          client_version: Some("1.0.9000".into()),
+          os_version: Some("10.0.26100".into()),
+          os_arch: Some("x64".into()),
+          app_arch: Some("x64".into()),
+          system_locale: Some("en-US".into()),
+          release_channel: Some("stable".into()),
+          browser_version: Some("40.0.0".into()),
+          os_sdk_version: Some("26100".into()),
+          client_build_number: Some("500000".into()),
+          native_build_number: Some("80000".into()),
+        },
+        json!({
+          "os": "Windows",
+          "browser": "Discord Client",
+          "device": "Discord Client",
+          "client_version": "1.0.9000",
+          "os_version": "10.0.26100",
+          "os_arch": "x64",
+          "app_arch": "x64",
+          "system_locale": "en-US",
+          "release_channel": "stable",
+          "browser_version": "40.0.0",
+          "os_sdk_version": "26100",
+          "client_build_number": 500000,
+          "native_build_number": 80000,
+          "has_client_mods": false,
+          "client_event_source": null,
+          "browser_user_agent": "desktop-ua",
+        }),
+      ),
+      (
+        "web",
+        ClientProperties {
+          os: "Windows".into(),
+          browser: Some("Firefox".into()),
+          device: String::new(),
+          user_agent: Some("web-ua".into()),
+          os_version: Some("10".into()),
+          system_locale: Some("en-US".into()),
+          release_channel: Some("stable".into()),
+          browser_version: Some("140.0".into()),
+          client_build_number: Some("500000".into()),
+          ..Default::default()
+        },
+        json!({
+          "os": "Windows",
+          "browser": "Firefox",
+          "device": "",
+          "os_version": "10",
+          "system_locale": "en-US",
+          "release_channel": "stable",
+          "browser_version": "140.0",
+          "client_build_number": 500000,
+          "has_client_mods": false,
+          "client_event_source": null,
+          "browser_user_agent": "web-ua",
+        }),
+      ),
+      (
+        "mobile",
+        ClientProperties {
+          os: "iOS".into(),
+          browser: Some("Discord iOS".into()),
+          device: "iPhone".into(),
+          user_agent: None,
+          os_version: Some("18.0".into()),
+          system_locale: Some("en-US".into()),
+          release_channel: Some("stable".into()),
+          ..Default::default()
+        },
+        json!({
+          "os": "iOS",
+          "browser": "Discord iOS",
+          "device": "iPhone",
+          "os_version": "18.0",
+          "system_locale": "en-US",
+          "release_channel": "stable",
+          "has_client_mods": false,
+          "client_event_source": null,
+        }),
+      ),
+    ];
+    for (label, raw, expected) in cases {
+      let mut props = identify_properties(&raw, AccountKind::User);
+      let launch_id = props
+        .as_object_mut()
+        .and_then(|obj| obj.remove("client_launch_id"))
+        .unwrap_or_else(|| panic!("{label}: client_launch_id"));
+      assert_uuid_v4(launch_id.as_str().expect("client_launch_id string"));
+      assert_eq!(props, expected, "{label}");
+    }
   }
 
   #[test]

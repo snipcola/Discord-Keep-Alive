@@ -1,4 +1,4 @@
-use dka_gateway::properties::Defaults;
+use dka_presence::Defaults;
 use dka_presence::{AccountKind, ActivityConfig, CustomStatusConfig, Device, Status};
 
 use crate::token::SecretString;

@@ -1,8 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dka_gateway::SessionParams;
-use dka_gateway::properties::Defaults;
-use dka_presence::{ActivityType, Status, build_presence_data, pin_default_activity_timestamps};
+use dka_presence::{
+  ActivityType, Defaults, Status, build_presence_data, pin_default_activity_timestamps,
+};
 use tracing::{debug, info};
 
 use dka_config::AccountConfig;

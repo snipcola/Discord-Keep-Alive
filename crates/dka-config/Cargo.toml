@@ -14,7 +14,6 @@ workspace = true
 
 [dependencies]
 dka-presence.workspace = true
-dka-gateway.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 secrecy.workspace = true
