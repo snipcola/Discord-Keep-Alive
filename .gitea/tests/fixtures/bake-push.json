@@ -1,0 +1,55 @@
+{
+  "group": {
+    "default": {
+      "targets": ["image-linux-arm64", "image-linux-amd64"]
+    }
+  },
+  "target": {
+    "image-linux-arm64": {
+      "context": "build/pkg-linux-arm64",
+      "dockerfile": "@DOCKERFILE@",
+      "platforms": ["linux/arm64"],
+      "args": { "BINARY": "pkg-bin" },
+      "labels": {
+        "org.opencontainers.image.title": "pkg",
+        "org.opencontainers.image.version": "1.2.3",
+        "org.opencontainers.image.revision": "deadbeef",
+        "org.opencontainers.image.created": "2026-01-02T03:04:05Z",
+        "org.opencontainers.image.source": "https://example.test/o/p",
+        "org.opencontainers.image.licenses": "MIT"
+      },
+      "output": [
+        {
+          "type": "image",
+          "name": "ghcr.io/o/p,docker.io/o/p",
+          "push-by-digest": "true",
+          "name-canonical": "true",
+          "push": "true"
+        }
+      ]
+    },
+    "image-linux-amd64": {
+      "context": "build/pkg-linux-x64",
+      "dockerfile": "@DOCKERFILE@",
+      "platforms": ["linux/amd64"],
+      "args": { "BINARY": "pkg-bin" },
+      "labels": {
+        "org.opencontainers.image.title": "pkg",
+        "org.opencontainers.image.version": "1.2.3",
+        "org.opencontainers.image.revision": "deadbeef",
+        "org.opencontainers.image.created": "2026-01-02T03:04:05Z",
+        "org.opencontainers.image.source": "https://example.test/o/p",
+        "org.opencontainers.image.licenses": "MIT"
+      },
+      "output": [
+        {
+          "type": "image",
+          "name": "ghcr.io/o/p,docker.io/o/p",
+          "push-by-digest": "true",
+          "name-canonical": "true",
+          "push": "true"
+        }
+      ]
+    }
+  }
+}

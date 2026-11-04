@@ -113,6 +113,10 @@ jobs:
             about.toml
         run: bash "${{ gitea.workspace }}/.gitea/scripts/changes.sh"
 
+      - name: Script tests
+        if: steps.changes.outputs.scripts == 'true'
+        run: bash "${{ gitea.workspace }}/.gitea/tests/run.sh"
+
       - name: Cache host target
         id: host-cache
         if: steps.changes.outputs.checks == 'true'

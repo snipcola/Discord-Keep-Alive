@@ -1,0 +1,35 @@
+{
+  "group": {
+    "default": {
+      "targets": ["image-linux-arm64", "image-linux-amd64"]
+    }
+  },
+  "target": {
+    "image-linux-arm64": {
+      "context": "build/pkg-linux-arm64",
+      "dockerfile": "@DOCKERFILE@",
+      "platforms": ["linux/arm64"],
+      "args": { "BINARY": "pkg-bin" },
+      "labels": {
+        "org.opencontainers.image.title": "pkg",
+        "org.opencontainers.image.version": "1.2.3",
+        "org.opencontainers.image.revision": "deadbeef",
+        "org.opencontainers.image.created": "2026-01-02T03:04:05Z"
+      },
+      "output": [{ "type": "cacheonly" }]
+    },
+    "image-linux-amd64": {
+      "context": "build/pkg-linux-x64",
+      "dockerfile": "@DOCKERFILE@",
+      "platforms": ["linux/amd64"],
+      "args": { "BINARY": "pkg-bin" },
+      "labels": {
+        "org.opencontainers.image.title": "pkg",
+        "org.opencontainers.image.version": "1.2.3",
+        "org.opencontainers.image.revision": "deadbeef",
+        "org.opencontainers.image.created": "2026-01-02T03:04:05Z"
+      },
+      "output": [{ "type": "cacheonly" }]
+    }
+  }
+}

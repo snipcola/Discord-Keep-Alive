@@ -1,0 +1,15 @@
+{
+  "packages": [
+    {
+      "name": "other",
+      "targets": [{ "kind": ["lib"], "name": "other" }]
+    },
+    {
+      "name": "pkg",
+      "targets": [
+        { "kind": ["lib"], "name": "pkg_lib" },
+        { "kind": ["bin"], "name": "pkg-bin" }
+      ]
+    }
+  ]
+}
