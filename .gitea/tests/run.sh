@@ -15,8 +15,16 @@ for tool in git jq gawk; do
   fi
 done
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "${tmp}"' EXIT
+root_tmp="$(mktemp -d)"
+trap 'rm -rf "${root_tmp}"' EXIT
+
+TEST_JOBS="${TEST_JOBS:-$(nproc 2>/dev/null || echo 4)}"
+
+export GIT_AUTHOR_NAME=test GIT_COMMITTER_NAME=test
+export GIT_AUTHOR_EMAIL=test@example.test GIT_COMMITTER_EMAIL=test@example.test
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false
+export GIT_CONFIG_KEY_1=tag.gpgsign GIT_CONFIG_VALUE_1=false
 
 passes=0
 failures=0
@@ -76,10 +84,6 @@ make_stub() {
 init_repo() {
   local dir="$1"
   git init -q -b main "${dir}"
-  git -C "${dir}" config user.name test
-  git -C "${dir}" config user.email test@example.test
-  git -C "${dir}" config commit.gpgsign false
-  git -C "${dir}" config tag.gpgsign false
 }
 
 SHIPPED_LIST="crates Cargo.toml Cargo.lock rust-toolchain.toml Dockerfile config.example.toml"
@@ -551,8 +555,9 @@ make_meta_repo() {
 }
 
 test_publish_meta_tag_check() {
-  local repo="$1" out="${tmp}/meta-output" base rc
+  local repo="${tmp}/meta-repo" out="${tmp}/meta-output" base rc
 
+  make_meta_repo "${repo}"
   base="$(git -C "${repo}" rev-parse HEAD~1)"
 
   run_publish_meta "${repo}" "${base}" "${out}"
@@ -778,8 +783,9 @@ test_publish_plan() {
 }
 
 test_publish_meta_flags() {
-  local repo="$1" out="${tmp}/meta-flags-output" base rc
+  local repo="${tmp}/meta-repo" out="${tmp}/meta-flags-output" base rc
 
+  make_meta_repo "${repo}"
   base="$(git -C "${repo}" rev-parse HEAD~1)"
 
   run_publish_meta "${repo}" "${base}" "${out}" FORCE_RELEASE=true GH_USER= DH_USER= PUBLISH_GHCR=false PUBLISH_DOCKERHUB=false
@@ -821,29 +827,79 @@ test_shellcheck() {
   fi
 }
 
-test_changelog_awk
-test_changelog_script
-test_targets_parse
-test_ref_is_base
-test_bg_wait
-test_docker_bake_plan
-test_prune_target
-test_package_xz_filters
-test_release_working_uploads
-test_publish_latest
-test_release_integrity
-make_meta_repo "${tmp}/meta-repo"
-test_publish_meta_flags "${tmp}/meta-repo"
-test_publish_meta_tag_check "${tmp}/meta-repo"
-test_changes
-test_ci_paths
-test_cache_key
-test_output_lines
-test_fingerprint
-test_gitea_api_init
-test_publish_plan
-test_licence_sync
-test_shellcheck
+run_job() {
+  tmp="${root_tmp}/$1"
+  mkdir -p "${tmp}"
+  trap 'printf "%s %s %s\n" "${passes}" "${failures}" "$?" >"${tmp}.counts"' EXIT
+  "$1"
+}
+
+tests=(
+  test_changelog_awk
+  test_changelog_script
+  test_targets_parse
+  test_ref_is_base
+  test_bg_wait
+  test_docker_bake_plan
+  test_prune_target
+  test_package_xz_filters
+  test_release_working_uploads
+  test_publish_latest
+  test_release_integrity
+  test_publish_meta_flags
+  test_publish_meta_tag_check
+  test_changes
+  test_ci_paths
+  test_cache_key
+  test_output_lines
+  test_fingerprint
+  test_gitea_api_init
+  test_publish_plan
+  test_licence_sync
+  test_shellcheck
+)
+
+jobs_slowest_first=(
+  test_publish_meta_tag_check
+  test_release_integrity
+  test_shellcheck
+  test_changes
+  test_publish_latest
+  test_release_working_uploads
+  test_changelog_script
+)
+
+start_order=("${jobs_slowest_first[@]}")
+for job in "${tests[@]}"; do
+  case " ${jobs_slowest_first[*]} " in
+  *" ${job} "*) ;;
+  *) start_order+=("${job}") ;;
+  esac
+done
+
+running=0
+for job in "${start_order[@]}"; do
+  if [ "${running}" -ge "${TEST_JOBS}" ]; then
+    wait -n || true
+    running=$((running - 1))
+  fi
+  run_job "${job}" >"${root_tmp}/${job}.log" 2>&1 &
+  running=$((running + 1))
+done
+wait
+
+for job in "${tests[@]}"; do
+  cat "${root_tmp}/${job}.log" >&2
+  job_passes=0 job_failures=0 job_rc=1
+  if [ -s "${root_tmp}/${job}.counts" ]; then
+    read -r job_passes job_failures job_rc <"${root_tmp}/${job}.counts"
+  fi
+  passes=$((passes + job_passes))
+  failures=$((failures + job_failures))
+  if [ "${job_rc}" -ne 0 ]; then
+    fail "${job}: job aborted with exit status ${job_rc}"
+  fi
+done
 
 echo "${passes} passed, ${failures} failed."
 [ "${failures}" -eq 0 ]
