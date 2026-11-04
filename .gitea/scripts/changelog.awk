@@ -1,5 +1,12 @@
-# Group conventional commits into release note sections.
 # Input: git log --format=$'\x01%h\x02%s\x02<Release-Note trailer>' --name-only
+
+BEGIN { shipped_count = split(SHIPPED, shipped_paths, " ") }
+
+function shipped(path,   i) {
+  for (i = 1; i <= shipped_count; i++)
+    if (path == shipped_paths[i] || index(path, shipped_paths[i] "/") == 1) return 1
+  return 0
+}
 
 function emit(  type, scope, desc, bucket, head, is_breaking, breaking_footer) {
   if (subject == "" || tolower(note) == "none" || listed(BUMP_SHAS)) return
@@ -38,7 +45,6 @@ function emit(  type, scope, desc, bucket, head, is_breaking, breaking_footer) {
   else if (type == "refactor") bucket = "refactor"
   else bucket = "chore"
 
-  # Breaking changes are always listed, even without code changes.
   if (!code && bucket != "breaking") bucket = "internal-" bucket
 
   lines[bucket, ++count[bucket]] = sprintf("- %s ([`%s`](%s/commit/%s))", \
@@ -104,7 +110,7 @@ substr($0, 1, 1) == RS_MARK {
   code = 0
   next
 }
-/^(crates\/|Cargo\.(toml|lock)|rust-toolchain\.toml)/ { code = 1 }
+shipped($0) { code = 1 }
 
 END {
   emit()

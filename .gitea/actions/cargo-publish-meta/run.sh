@@ -5,6 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../../scripts/common.sh"
 
 : "${MANIFEST_PATH:=Cargo.toml}"
+: "${PUBLISH_LOCAL:?PUBLISH_LOCAL is required}"
+: "${PUBLISH_GHCR:?PUBLISH_GHCR is required}"
+: "${PUBLISH_DOCKERHUB:?PUBLISH_DOCKERHUB is required}"
 
 cargo_metadata() {
   local root="$1"
@@ -180,6 +183,20 @@ else
   fi
 fi
 
+if [ -z "${reason}" ] &&
+  { [ "${PUBLISH_LOCAL}" = "true" ] || [ "${PUBLISH_GHCR}" = "true" ] || [ "${PUBLISH_DOCKERHUB}" = "true" ]; }; then
+  rc=0
+  git ls-remote --exit-code --tags origin "refs/tags/${version}" >/dev/null || rc=$?
+  case "${rc}" in
+  0) ;;
+  2) reason="untagged:${version}" ;;
+  *)
+    echo "Could not look up tag ${version} on origin; refusing to publish." >&2
+    exit 1
+    ;;
+  esac
+fi
+
 if [ -n "${reason}" ]; then
   changed=true
 else
@@ -197,7 +214,7 @@ local_registry="$(normalise_host "${local_registry}")"
 local_ref=""
 if [ -n "${local_registry}" ] && [ -n "${local_user}" ]; then
   local_ref="${local_registry}/${local_user}/${image_name}"
-elif [ "${PUBLISH_LOCAL:-true}" = "true" ]; then
+elif [ "${PUBLISH_LOCAL}" = "true" ]; then
   if [ -z "${local_registry}" ]; then
     echo "Local registry host is required (local_registry or SERVER_URL)." >&2
     exit 1
@@ -208,10 +225,16 @@ else
   local_registry=""
 fi
 
-: "${GH_USER:?GH_USER is required}"
-: "${DH_USER:?DH_USER is required}"
-ghcr_ref="ghcr.io/${GH_USER}/${image_name}"
-docker_ref="docker.io/${DH_USER}/${image_name}"
+ghcr_ref=""
+if [ "${PUBLISH_GHCR}" = "true" ]; then
+  : "${GH_USER:?GH_USER is required}"
+  ghcr_ref="ghcr.io/${GH_USER}/${image_name}"
+fi
+docker_ref=""
+if [ "${PUBLISH_DOCKERHUB}" = "true" ]; then
+  : "${DH_USER:?DH_USER is required}"
+  docker_ref="docker.io/${DH_USER}/${image_name}"
+fi
 
 {
   echo "package_name=${package_name}"
@@ -236,5 +259,5 @@ if [ "${changed}" = true ]; then
     echo "Publishing ${package_name}@${version} (${reason})."
   fi
 else
-  echo "Version ${version} is unchanged since ${base} and no commit since has a ${RELEASE_MARKER} subject or a '${RELEASE_TRAILER}: true' trailer; skipping image publish."
+  echo "Version ${version} is unchanged since ${base}, tagged, and no commit since has a ${RELEASE_MARKER} subject or a '${RELEASE_TRAILER}: true' trailer; skipping image publish."
 fi

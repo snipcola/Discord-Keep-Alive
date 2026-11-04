@@ -4,7 +4,6 @@ unmaintained = "all"
 unsound = "all"
 
 [licenses]
-# Licences used by dependencies also go in about.toml.
 allow = [
   "ISC",
   "MIT",

@@ -14,9 +14,13 @@ if [ -n "$(trim "${TARGETS-}")" ]; then
   profiles=(release "${TARGET_RUST[@]/%//release}")
 fi
 
+zig=none
+if command -v zig >/dev/null; then
+  zig="$(zig version)"
+fi
+
 {
-  echo "profiles<<EOF"
-  printf "%s\n" "${profiles[@]/#/${dir}/}"
-  echo "EOF"
-  echo "flags=$(printf '%s' "${RUSTFLAGS-}" | sha256sum | cut -c1-16)"
+  echo "zig=${zig}"
+  echo "flags=$(printf '%s' "${RUSTFLAGS-}" | fingerprint)"
 } >>"${GITEA_OUTPUT}"
+printf '%s\n' "${profiles[@]/#/${dir}/}" | output_lines profiles

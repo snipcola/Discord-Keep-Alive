@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Generate third-party licence notices covering every target.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Render release notes for the commits between the previous tag and TAG.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,21 +6,13 @@ source "${SCRIPT_DIR}/common.sh"
 
 require Tag "${TAG-}"
 require "Repository URL" "${REPO_URL-}"
+: "${SHIPPED_PATHS:?SHIPPED_PATHS is required}"
+
+shipped=()
+read_lines shipped "${SHIPPED_PATHS}"
 
 repo_url="${REPO_URL%/}"
 
-if ! command -v yq >/dev/null; then
-  echo "yq is required." >&2
-  exit 1
-fi
-
-if [[ ! ${TAG} =~ [0-9] ]]; then
-  echo "Tag ${TAG} has no version number." >&2
-  exit 1
-fi
-
-prefix="${TAG%%[0-9]*}"
-version="${TAG#"${prefix}"}"
 tag_ref="refs/tags/${TAG}"
 link_text="${TAG}"
 link_url="${repo_url}/commits/tag/${TAG}"
@@ -30,7 +21,24 @@ full_changelog() {
   printf '**Full changelog**: [%s](%s)\n' "${link_text}" "${link_url}"
 }
 
+fallback() {
+  echo "::warning::Release notes unavailable: $1" >&2
+  full_changelog
+  exit 0
+}
+
 # Release notes are optional; never fail a published release over them.
+trap 'fallback "generating them failed (exit $?)."' ERR
+
+for tool in yq gawk; do
+  command -v "${tool}" >/dev/null || fallback "${tool} is not installed."
+done
+
+[[ ${TAG} =~ [0-9] ]] || fallback "tag ${TAG} has no version number."
+
+prefix="${TAG%%[0-9]*}"
+version="${TAG#"${prefix}"}"
+
 unshallow 2>/dev/null || true
 git fetch --quiet --tags --force 2>/dev/null || true
 
@@ -64,7 +72,6 @@ fi
 
 log=(git -c core.quotePath=false log "${range}" --no-merges)
 
-# A BREAKING CHANGE footer counts the same as `!` after the type.
 breaking="$("${log[@]}" -E --grep='^BREAKING[- ]CHANGE:' --format='%h' | tr '\n' ' ')"
 
 manifest_expr='([.package.version, .workspace.package.version] | map(select(tag == "!!str")) | .[0] // ""),
@@ -99,10 +106,13 @@ while IFS= read -r sha; do
   is_bump "${sha}" 2>/dev/null && bumps+="${sha} "
 done < <("${log[@]}" --format='%h' -- Cargo.toml)
 
-"${log[@]}" --name-only \
-  --format=$'\x01%h\x02%s\x02%(trailers:key=Release-Note,valueonly,unfold,separator=%x20)' |
-  gawk -v repo="${repo_url}" -v BREAKING_SHAS=" ${breaking}" -v BUMP_SHAS=" ${bumps}" \
-    -v RS_MARK=$'\x01' -v FS_MARK=$'\x02' \
-    -f "${SCRIPT_DIR}/changelog.awk"
+notes="$(
+  "${log[@]}" --name-only \
+    --format=$'\x01%h\x02%s\x02%(trailers:key=Release-Note,valueonly,unfold,separator=%x20)' |
+    gawk -v repo="${repo_url}" -v BREAKING_SHAS=" ${breaking}" -v BUMP_SHAS=" ${bumps}" -v SHIPPED="${shipped[*]}" \
+      -v RS_MARK=$'\x01' -v FS_MARK=$'\x02' \
+      -f "${SCRIPT_DIR}/changelog.awk"
+)"
 
+printf '%s\n\n' "${notes}"
 full_changelog

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Shared helpers (source, or run to emit target lists).
 set -euo pipefail
 
 TARGET_PLATFORMS=()
@@ -45,6 +44,20 @@ csv() {
   local -n _csv_arr="$1"
   local IFS=,
   printf '%s' "${_csv_arr[*]}"
+}
+
+fingerprint() { sha256sum | cut -c1-16; }
+
+output_lines() {
+  local name="$1" delimiter content
+  : "${GITEA_OUTPUT:?GITEA_OUTPUT is required}"
+  delimiter="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+  content="$(cat)"
+  {
+    printf '%s<<%s\n' "${name}" "${delimiter}"
+    [ -z "${content}" ] || printf '%s\n' "${content}"
+    printf '%s\n' "${delimiter}"
+  } >>"${GITEA_OUTPUT}"
 }
 
 targets_parse() {
@@ -122,20 +135,10 @@ stage_name() { printf '%s' "${PACKAGE}-${TARGET_ASSETS[$1]}"; }
 
 archive_name() { printf '%s' "${PACKAGE}${2:+-${2}}-${TARGET_ASSETS[$1]}${TARGET_ARCHIVES[$1]}"; }
 
-# The binary takes its name from [[bin]], not the package.
 binary_name() {
   cargo metadata --format-version 1 --no-deps |
     jq -er --arg pkg "${PACKAGE}" \
       'first(.packages[] | select(.name == $pkg) | .targets[] | select(.kind[] == "bin") | .name)'
-}
-
-targets_emit_outputs() {
-  local out="${1-}"
-  {
-    echo "platforms=$(csv TARGET_PLATFORMS)"
-    echo "rust_targets=$(csv TARGET_RUST)"
-    echo "target_names=$(csv TARGET_NAMES)"
-  } | if [ -n "${out}" ]; then cat >>"${out}"; else cat; fi
 }
 
 targets_cargo_args() {
@@ -175,7 +178,6 @@ fork_point() {
   local base="$1" head points rc=0
   head="$(git rev-parse --verify HEAD)" || return 1
 
-  # No fetch needed when $1 is HEAD or its parent.
   if [[ ${base} == "${head}" || ${base} == "$(first_parent "${head}")" ]] &&
     git cat-file -e "${base}^{commit}" 2>/dev/null; then
     printf '%s\n' "${base}"
@@ -209,9 +211,9 @@ fork_point() {
 }
 
 BG_NAMES=()
+BG_PIDS=()
 BG_DIR=""
 
-# Jobs need `set -e`, so don't call this under `||` or `&&`.
 bg_start() {
   local name="$1" i="${#BG_NAMES[@]}"
   shift
@@ -219,22 +221,22 @@ bg_start() {
   while [ "${BG_MAX:-0}" -gt 0 ] && [ "$(jobs -rp | wc -l)" -ge "${BG_MAX}" ]; do
     wait -n || true
   done
-  (
-    "$@"
-    touch "${BG_DIR}/${i}.ok"
-  ) >"${BG_DIR}/${i}.log" 2>&1 &
+  ("$@") >"${BG_DIR}/${i}.log" 2>&1 &
+  BG_PIDS+=("$!")
   BG_NAMES+=("${name}")
 }
 
 bg_wait() {
-  local i failed=()
-  wait
+  local i rc failed=()
   for i in "${!BG_NAMES[@]}"; do
+    rc=0
+    wait "${BG_PIDS[$i]}" || rc=$?
     cat "${BG_DIR}/${i}.log"
-    [ -f "${BG_DIR}/${i}.ok" ] || failed+=("${BG_NAMES[$i]}")
+    [ "${rc}" -eq 0 ] || failed+=("${BG_NAMES[$i]}")
   done
   rm -rf "${BG_DIR}"
   BG_NAMES=()
+  BG_PIDS=()
   BG_DIR=""
   if [ "${#failed[@]}" -gt 0 ]; then
     echo "Failed: ${failed[*]}" >&2
@@ -242,14 +244,33 @@ bg_wait() {
   fi
 }
 
+gitea_api_init() {
+  require Token "${TOKEN-}"
+  require Repository "${REPOSITORY-}"
+  require "API URL" "${API_URL-}"
+  if [[ ${REPOSITORY} != */* ]]; then
+    echo "Repository must be owner/repo." >&2
+    exit 1
+  fi
+  api="${API_URL%/}/repos/${REPOSITORY}"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+  body="${tmp}/body"
+  auth_hdr=(-H "Authorization: token ${TOKEN}")
+  http_code=""
+}
+
 request() {
-  local method="$1" url="$2"
+  local method="$1" url="$2" retry=()
   shift 2
+  case "${method}" in
+  GET | DELETE) retry=(--retry 3 --retry-connrefused) ;;
+  esac
   http_code="$(
     curl -sS -o "${body}" -w "%{http_code}" \
       --connect-timeout 10 \
       --speed-limit 1024 --speed-time 60 \
-      --retry 3 --retry-connrefused \
+      "${retry[@]+"${retry[@]}"}" \
       -X "${method}" \
       "${auth_hdr[@]}" \
       "$@" \
@@ -328,9 +349,3 @@ refs_parse() {
     fi
   done
 }
-
-if [[ ${BASH_SOURCE[0]} == "${0}" ]]; then
-  : "${TARGETS:?TARGETS is required}"
-  targets_parse "${TARGETS}"
-  targets_emit_outputs "${GITEA_OUTPUT-}"
-fi

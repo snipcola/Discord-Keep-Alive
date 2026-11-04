@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Write a run summary describing the publish decision and its outputs.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

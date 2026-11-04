@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Resolve tool names to install specs, cache paths, and a cache fingerprint.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,9 +47,6 @@ done
   echo "rust_targets=${rust_targets}"
   echo "zig=${zig}"
   echo "specs=$(csv specs)"
-  # Sorted, so the key doesn't depend on request order.
-  echo "fingerprint=$(printf '%s\n' "${specs[@]+"${specs[@]}"}" | sort | sha256sum | cut -c1-16)"
-  echo "paths<<EOF"
-  printf '%s\n' "${paths[@]+"${paths[@]}"}"
-  echo "EOF"
+  echo "fingerprint=$(printf '%s\n' "${specs[@]+"${specs[@]}"}" | sort | fingerprint)"
 } >>"${GITEA_OUTPUT}"
+printf '%s\n' "${paths[@]+"${paths[@]}"}" | output_lines paths

@@ -39,13 +39,11 @@ if [ -z "${full_key}" ]; then
   exit 1
 fi
 
+echo "key=${full_key}" >>"${GITEA_OUTPUT}"
 {
-  echo "key=${full_key}"
-  echo "restore-keys<<EOF"
   while IFS= read -r line || [ -n "${line}" ]; do
     line="$(trim "${line}")"
     [ -n "${line}" ] || continue
     printf '%s\n' "$(join_segments "${prefix}" "${platform_seg}" "${line}" "${suffix}")"
   done <<<"${INPUT_RESTORE_KEYS-}"
-  echo "EOF"
-} >>"${GITEA_OUTPUT}"
+} | output_lines restore-keys

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Create multi-arch tags from bake digests.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

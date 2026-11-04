@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Run Clippy, with cargo-deny and cargo-shear alongside it.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

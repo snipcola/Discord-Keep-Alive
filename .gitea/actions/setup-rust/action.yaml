@@ -17,7 +17,9 @@ runs:
       shell: bash
       env:
         TARGETS: ${{ inputs.targets }}
-      run: echo "targets=$(printf '%s' "${TARGETS}" | sha256sum | cut -c1-16)" >>"${GITEA_OUTPUT}"
+      run: |
+        source "${{ gitea.action_path }}/../../scripts/common.sh"
+        echo "targets=$(printf '%s' "${TARGETS}" | fingerprint)" >>"${GITEA_OUTPUT}"
 
     - uses: ./.gitea/actions/cache
       with:

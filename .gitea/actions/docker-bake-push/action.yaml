@@ -45,18 +45,6 @@ inputs:
     required: false
     default: "false"
 
-outputs:
-  bake_file:
-    value: ${{ steps.plan.outputs.bake_file }}
-  platforms:
-    value: ${{ steps.plan.outputs.platforms }}
-  rust_targets:
-    value: ${{ steps.plan.outputs.rust_targets }}
-  target_names:
-    value: ${{ steps.plan.outputs.target_names }}
-  metadata:
-    value: ${{ steps.bake.outputs.metadata }}
-
 runs:
   using: composite
   steps:
@@ -74,7 +62,7 @@ runs:
         REFS: ${{ inputs.refs }}
         PUSH: ${{ inputs.push }}
         BAKE_FILE: ${{ runner.temp }}/docker-bake.json
-      run: bash "${{ gitea.workspace }}/.gitea/scripts/docker-bake-plan.sh"
+      run: bash "${{ gitea.action_path }}/../../scripts/docker-bake-plan.sh"
 
     - id: bake
       uses: ${{ inputs.bake_image }}
@@ -98,4 +86,4 @@ runs:
         REFS: ${{ inputs.refs }}
         VERSION: ${{ inputs.version }}
         ALSO_LATEST: ${{ inputs.also_latest }}
-      run: bash "${{ gitea.workspace }}/.gitea/scripts/docker-manifest.sh"
+      run: bash "${{ gitea.action_path }}/../../scripts/docker-manifest.sh"

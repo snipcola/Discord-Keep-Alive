@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Cross-compile release binaries for every target into its BUILD_DIR stage dir.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

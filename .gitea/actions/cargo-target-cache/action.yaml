@@ -28,5 +28,5 @@ runs:
       uses: ./.gitea/actions/cache
       with:
         path: ${{ steps.paths.outputs.profiles }}
-        key: cargo-target-${{ inputs.key }}-${{ steps.paths.outputs.flags }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-        restore-keys: cargo-target-${{ inputs.key }}-${{ steps.paths.outputs.flags }}-
+        key: cargo-target-${{ inputs.key }}-${{ steps.paths.outputs.flags }}-zig${{ steps.paths.outputs.zig }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+        restore-keys: cargo-target-${{ inputs.key }}-${{ steps.paths.outputs.flags }}-zig${{ steps.paths.outputs.zig }}-

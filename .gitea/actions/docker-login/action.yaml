@@ -1,12 +1,15 @@
 name: Docker Login
-description: Log in to container registries
+description: Log in to a container registry
 
 inputs:
   image:
     required: false
     default: https://github.com/docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-  registry-auth:
-    description: YAML list of registry, username, and password entries
+  registry:
+    required: true
+  username:
+    required: true
+  password:
     required: true
 
 runs:
@@ -14,4 +17,6 @@ runs:
   steps:
     - uses: ${{ inputs.image }}
       with:
-        registry-auth: ${{ inputs.registry-auth }}
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}

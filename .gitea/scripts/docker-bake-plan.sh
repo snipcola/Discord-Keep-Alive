@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Build docker bake JSON from TARGETS + REFS.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -109,7 +108,6 @@ jq -nc \
 
 if [ -n "${GITEA_OUTPUT-}" ]; then
   echo "bake_file=${BAKE_FILE}" >>"${GITEA_OUTPUT}"
-  targets_emit_outputs "${GITEA_OUTPUT}"
 fi
 
 echo "Bake plan: ${#TARGET_PLATFORMS[@]} target(s) -> ${BAKE_FILE}"

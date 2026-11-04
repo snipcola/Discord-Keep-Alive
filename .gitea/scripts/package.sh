@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Complete each BUILD_DIR stage dir and pack it into a reproducible archive.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +13,7 @@ source "${SCRIPT_DIR}/common.sh"
 targets_parse "${TARGETS}"
 
 XZ_LZMA2=lzma2:preset=9e
-declare -A XZ_FILTERS=([linux/amd64]="x86 ${XZ_LZMA2}")
+declare -A XZ_FILTERS=(["linux/amd64"]="x86 ${XZ_LZMA2}")
 
 tarball() {
   tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@${SOURCE_DATE_EPOCH}" \

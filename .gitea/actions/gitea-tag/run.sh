@@ -5,9 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../../scripts/common.sh"
 
 require Version "${VERSION}"
-require Token "${TOKEN}"
-require Repository "${REPOSITORY}"
-require "API URL" "${API_URL}"
+gitea_api_init
+auth_hdr+=(-H "Content-Type: application/json")
 
 target="${TARGET-}"
 require "Target commit" "${target}"
@@ -19,19 +18,6 @@ skip | fail | override) ;;
   exit 1
   ;;
 esac
-
-if [[ ${REPOSITORY} != */* ]]; then
-  echo "Repository must be owner/repo." >&2
-  exit 1
-fi
-
-owner="${REPOSITORY%%/*}"
-repo="${REPOSITORY#*/}"
-api="${API_URL%/}/repos/${owner}/${repo}"
-
-body="$(mktemp)"
-trap 'rm -f "${body}"' EXIT
-auth_hdr=(-H "Authorization: token ${TOKEN}" -H "Content-Type: application/json")
 
 tag="${PREFIX}${VERSION}"
 message="${MESSAGE:-${tag}}"

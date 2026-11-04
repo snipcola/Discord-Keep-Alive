@@ -35,11 +35,21 @@ inputs:
     required: false
     default: ""
   gh_user:
-    required: true
+    required: false
+    default: ""
   dh_user:
-    required: true
+    required: false
+    default: ""
   publish_local:
     description: Require local registry host and user
+    required: false
+    default: "true"
+  publish_ghcr:
+    description: Require gh_user and build the GHCR ref
+    required: false
+    default: "true"
+  publish_dockerhub:
+    description: Require dh_user and build the Docker Hub ref
     required: false
     default: "true"
 
@@ -90,4 +100,6 @@ runs:
         GH_USER: ${{ inputs.gh_user }}
         DH_USER: ${{ inputs.dh_user }}
         PUBLISH_LOCAL: ${{ inputs.publish_local }}
+        PUBLISH_GHCR: ${{ inputs.publish_ghcr }}
+        PUBLISH_DOCKERHUB: ${{ inputs.publish_dockerhub }}
       run: bash "${{ gitea.action_path }}/run.sh"

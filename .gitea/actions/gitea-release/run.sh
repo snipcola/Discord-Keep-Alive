@@ -7,13 +7,12 @@ source "${SCRIPT_DIR}/../../scripts/common.sh"
 require Version "${VERSION}"
 require Tag "${TAG}"
 require Package "${PACKAGE}"
-require Token "${TOKEN}"
-require Repository "${REPOSITORY}"
-require "API URL" "${API_URL}"
+gitea_api_init
 
 : "${BUILD_DIR:=build}"
 : "${LATEST:=true}"
 : "${UPLOAD_JOBS:=5}"
+: "${UPLOAD_RETRY_DELAY:=2}"
 
 if [[ ! ${UPLOAD_JOBS} =~ ^[1-9][0-9]*$ ]]; then
   echo "UPLOAD_JOBS must be a positive integer." >&2
@@ -23,11 +22,6 @@ BG_MAX="${UPLOAD_JOBS}"
 
 if [ "${LATEST}" = "true" ]; then
   require "Repository URL" "${REPO_URL}"
-fi
-
-if [[ ${REPOSITORY} != */* ]]; then
-  echo "Repository must be owner/repo." >&2
-  exit 1
 fi
 
 targets_parse "${TARGETS}"
@@ -47,15 +41,6 @@ for i in "${!TARGET_RUST[@]}"; do
   fi
   archives+=("${file}")
 done
-
-owner="${REPOSITORY%%/*}"
-repo="${REPOSITORY#*/}"
-api="${API_URL%/}/repos/${owner}/${repo}"
-
-tmp="$(mktemp -d)"
-trap 'rm -rf "${tmp}"' EXIT
-body="${tmp}/body"
-auth_hdr=(-H "Authorization: token ${TOKEN}")
 
 create_release() {
   local tag="$1" name="$2" notes="$3" is_draft="$4" is_prerelease="$5" target="${6-}" payload
@@ -77,14 +62,14 @@ create_release() {
 }
 
 edit_release() {
-  local release_id="$1" tag="$2" target="$3" notes="$4" draft="${5-null}" payload
+  local release_id="$1" tag="$2" target="$3" notes="$4" is_draft="${5-null}" payload
   payload="$(
     jq -nc \
       --arg tag "${tag}" \
       --arg target "${target}" \
       --arg body "${notes}" \
-      --argjson draft "${draft}" \
-      '{tag_name: $tag, target_commitish: $target, body: $body, draft: $draft}'
+      --argjson draft "${is_draft}" \
+      '{tag_name: $tag, target_commitish: $target, body: $body, draft: $draft} | del(.target_commitish | select(. == ""))'
   )"
   request PATCH "${api}/releases/${release_id}" -H "Content-Type: application/json" -d "${payload}" || return 1
   case "${http_code}" in
@@ -108,14 +93,40 @@ own_body() {
   "$@"
 }
 
-upload_asset() {
-  local release_id="$1" file="$2" name="$3"
-  request POST "${api}/releases/${release_id}/assets?name=$(uri "${name}")" \
-    -F "attachment=@${file}" || return 1
+new_asset_id() {
+  local release_id="$1" name="$2" known="$3" body http_code
+  body="$(mktemp -p "${tmp}")"
+  request GET "${api}/releases/${release_id}/assets" || return 1
   case "${http_code}" in
-  201) echo "Uploaded ${name}" ;;
-  *) fail_http "Failed to upload ${name}" ;;
+  200)
+    jq -r --arg name "${name}" --arg known "${known}" '
+      ($known | split("\n")) as $old
+      | first(.[] | select(.name == $name and ((.id | tostring) | IN($old[]) | not)) | .id) // empty
+    ' "${body}"
+    ;;
+  *) fail_http "Failed to list assets for release ${release_id}" ;;
   esac
+}
+
+upload_asset() {
+  local release_id="$1" file="$2" name="$3" known="$4" attempt stored
+  for attempt in 1 2 3; do
+    if request POST "${api}/releases/${release_id}/assets?name=$(uri "${name}")" \
+      -F "attachment=@${file}" && [ "${http_code}" = 201 ]; then
+      echo "Uploaded ${name}"
+      return 0
+    fi
+    stored="$(new_asset_id "${release_id}" "${name}" "${known}")" || return 1
+    if [ -n "${stored}" ]; then
+      echo "Uploaded ${name} (stored as asset ${stored} despite a failed response)"
+      return 0
+    fi
+    case "${http_code}" in
+    4??) break ;;
+    esac
+    [ "${attempt}" -eq 3 ] || sleep "${UPLOAD_RETRY_DELAY}"
+  done
+  fail_http "Failed to upload ${name}"
 }
 
 delete_asset() {
@@ -141,7 +152,7 @@ sync_assets() {
   read_lines stale "${ids}"
 
   for i in "${!files[@]}"; do
-    bg_start "${names[$i]}" own_body upload_asset "${release_id}" "${files[$i]}" "${names[$i]}"
+    bg_start "${names[$i]}" own_body upload_asset "${release_id}" "${files[$i]}" "${names[$i]}" "${ids}"
   done
   bg_wait || return 1
 
@@ -192,6 +203,7 @@ if [ -z "${release_id}" ]; then
   echo "Created release ${TAG}."
 else
   echo "Reusing existing release ${TAG} (${release_id})."
+  edit_release "${release_id}" "${TAG}" "" "${BODY-}" || exit 1
 fi
 
 sync_assets "${release_id}" "${VERSION}"

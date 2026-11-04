@@ -48,6 +48,16 @@ jobs:
         windows/arm64=aarch64-pc-windows-gnullvm
         windows/amd64=x86_64-pc-windows-gnu
       BUILD_DIR: build
+      SHIPPED_PATHS: |
+        crates
+        Cargo.toml
+        Cargo.lock
+        rust-toolchain.toml
+        Dockerfile
+        config.example.toml
+      PUBLISH_LOCAL: ${{ vars.PUBLISH_LOCAL || 'true' }}
+      PUBLISH_GHCR: ${{ vars.PUBLISH_GHCR || 'true' }}
+      PUBLISH_DOCKERHUB: ${{ vars.PUBLISH_DOCKERHUB || 'true' }}
     steps:
       - name: Checkout
         uses: builtin:checkout
@@ -80,6 +90,9 @@ jobs:
           base: ${{ gitea.event_name == 'push' && gitea.event.before || '' }}
           gh_user: ${{ vars.GH_USERNAME }}
           dh_user: ${{ vars.DH_USERNAME }}
+          publish_local: ${{ env.PUBLISH_LOCAL }}
+          publish_ghcr: ${{ env.PUBLISH_GHCR }}
+          publish_dockerhub: ${{ env.PUBLISH_DOCKERHUB }}
 
       - name: Changes
         id: changes
@@ -91,11 +104,13 @@ jobs:
             .gitignore
             about.hbs
             about.toml
-            config.example.toml
             docker-compose.example.yaml
-            Dockerfile
             LICENSE
             README.md
+          SCRIPT_PATHS: |
+            .gitea
+            deny.toml
+            about.toml
         run: bash "${{ gitea.workspace }}/.gitea/scripts/changes.sh"
 
       - name: Cache host target
@@ -133,9 +148,6 @@ jobs:
         id: plan
         if: steps.meta.outputs.changed == 'true'
         env:
-          PUBLISH_LOCAL: true
-          PUBLISH_GHCR: true
-          PUBLISH_DOCKERHUB: true
           LOCAL_REF: ${{ steps.meta.outputs.local }}
           GHCR_REF: ${{ steps.meta.outputs.ghcr }}
           DOCKER_REF: ${{ steps.meta.outputs.docker }}
@@ -148,7 +160,6 @@ jobs:
           rust: "false"
           tools: cargo-about, cargo-zigbuild
 
-      # Only runs that build release targets write this cache entry.
       - name: Cache release targets
         id: release-cache
         if: steps.meta.outputs.changed == 'true'
@@ -167,9 +178,7 @@ jobs:
           scripts="${{ gitea.workspace }}/.gitea/scripts"
           source "${scripts}/common.sh"
 
-          # Licence generation only takes CPU the build leaves idle.
           bg_start Licences nice -n 10 bash "${scripts}/licences.sh"
-
           bash "${scripts}/build-binaries.sh"
           bg_wait
 
@@ -193,20 +202,29 @@ jobs:
         with:
           driver-opts: ${{ steps.plan.outputs.driver_opts }}
 
-      - name: Login
-        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run
+      - name: Login (local)
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run && env.PUBLISH_LOCAL == 'true'
         uses: ./.gitea/actions/docker-login
         with:
-          registry-auth: |
-            - registry: ${{ steps.meta.outputs.local_registry }}
-              username: ${{ steps.meta.outputs.local_user }}
-              password: ${{ toJSON(secrets.AUTH || gitea.token) }}
-            - registry: ghcr.io
-              username: ${{ vars.GH_USERNAME }}
-              password: ${{ toJSON(secrets.GH_AUTH) }}
-            - registry: docker.io
-              username: ${{ vars.DH_USERNAME }}
-              password: ${{ toJSON(secrets.DH_AUTH) }}
+          registry: ${{ steps.meta.outputs.local_registry }}
+          username: ${{ steps.meta.outputs.local_user }}
+          password: ${{ secrets.AUTH || gitea.token }}
+
+      - name: Login (GHCR)
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run && env.PUBLISH_GHCR == 'true'
+        uses: ./.gitea/actions/docker-login
+        with:
+          registry: ghcr.io
+          username: ${{ vars.GH_USERNAME }}
+          password: ${{ secrets.GH_AUTH }}
+
+      - name: Login (Docker Hub)
+        if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true' && !inputs.dry_run && env.PUBLISH_DOCKERHUB == 'true'
+        uses: ./.gitea/actions/docker-login
+        with:
+          registry: docker.io
+          username: ${{ vars.DH_USERNAME }}
+          password: ${{ secrets.DH_AUTH }}
 
       - name: Bake & push
         if: steps.meta.outputs.changed == 'true' && steps.plan.outputs.any == 'true'
@@ -241,6 +259,7 @@ jobs:
           build_dir: ${{ env.BUILD_DIR }}
           targets: ${{ env.TARGETS }}
           repo_url: ${{ steps.meta.outputs.repository }}
+          shipped_paths: ${{ env.SHIPPED_PATHS }}
 
       - name: Summary
         if: always() && steps.meta.conclusion == 'success'

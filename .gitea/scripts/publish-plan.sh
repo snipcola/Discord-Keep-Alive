@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Resolve publish refs and Buildx driver opts.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,15 +36,10 @@ if [ "${PUBLISH_DOCKERHUB}" = "true" ]; then
   add_dest "${DOCKER_REF-}"
 fi
 
-DOCKER_NETWORK="${INPUT_DOCKER_NETWORK:-${DOCKER_NETWORK-}}"
 driver_opts="${DOCKER_NETWORK:+network=${DOCKER_NETWORK}}"
 
 {
   echo "any=${any}"
   echo "driver_opts=${driver_opts}"
-  echo "refs<<EOF"
-  if [ "${#refs[@]}" -gt 0 ]; then
-    printf '%s\n' "${refs[@]}"
-  fi
-  echo "EOF"
 } >>"${GITEA_OUTPUT}"
+printf '%s\n' "${refs[@]+"${refs[@]}"}" | output_lines refs
