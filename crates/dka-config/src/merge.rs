@@ -6,38 +6,56 @@ use crate::model::partial::{
 };
 use crate::schema::fields::{
   AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
-  GlobalDefaultField,
+  GlobalDefaultField, RootField,
 };
 
 fn merge_set_fields<F, T>(
   dst: &mut T,
   mut src: T,
   fields: &[F],
-  get_mut: impl Fn(F, &mut T) -> &mut Option<String>,
+  take: impl Fn(F, &mut T) -> Option<String>,
+  set: impl Fn(F, &mut T, String),
 ) where
   F: Copy,
 {
   for &field in fields {
-    let v = get_mut(field, &mut src).take();
-    if v.is_some() {
-      *get_mut(field, dst) = v;
+    if let Some(v) = take(field, &mut src) {
+      set(field, dst, v);
     }
   }
 }
 
 pub(crate) fn merge_custom_status(dst: &mut PartialCustomStatus, src: PartialCustomStatus) {
-  merge_set_fields(dst, src, CustomStatusField::ALL, |f, t| f.get_mut(t));
+  merge_set_fields(
+    dst,
+    src,
+    CustomStatusField::ALL,
+    CustomStatusField::take,
+    CustomStatusField::set,
+  );
 }
 
 pub(crate) fn merge_activity(dst: &mut PartialActivity, src: PartialActivity) {
-  merge_set_fields(dst, src, ActivityField::ALL, |f, t| f.get_mut(t));
+  merge_set_fields(
+    dst,
+    src,
+    ActivityField::ALL,
+    ActivityField::take,
+    ActivityField::set,
+  );
 }
 
 pub(crate) fn merge_client_properties(
   dst: &mut PartialClientProperties,
   src: PartialClientProperties,
 ) {
-  merge_set_fields(dst, src, ClientPropField::ALL, |f, t| f.get_mut(t));
+  merge_set_fields(
+    dst,
+    src,
+    ClientPropField::ALL,
+    ClientPropField::take,
+    ClientPropField::set,
+  );
 }
 
 pub(crate) fn merge_defaults(dst: &mut PartialDefaults, src: PartialDefaults) {
@@ -48,9 +66,13 @@ pub(crate) fn merge_defaults(dst: &mut PartialDefaults, src: PartialDefaults) {
     mobile,
     global,
   } = src;
-  merge_set_fields(&mut dst.global, global, GlobalDefaultField::ALL, |f, t| {
-    f.get_mut(t)
-  });
+  merge_set_fields(
+    &mut dst.global,
+    global,
+    GlobalDefaultField::ALL,
+    GlobalDefaultField::take,
+    GlobalDefaultField::set,
+  );
   for (profile, props) in [
     (DefaultsProfile::Bot, bot),
     (DefaultsProfile::Web, web),
@@ -125,23 +147,28 @@ pub(crate) fn merge_account(dst: &mut PartialAccount, mut src: PartialAccount) {
   append_missing_keys(&mut dst.activity_order, dst.activities.keys());
 }
 
-// Overlays src onto dst field by field. Maps merge by id; new ids are appended
-// and existing ones are never renumbered.
 pub(crate) fn merge_partial(dst: &mut PartialConfig, src: PartialConfig) {
-  if src.log_level.is_some() {
-    dst.log_level = src.log_level;
-  }
-  if src.health_socket.is_some() {
-    dst.health_socket = src.health_socket;
-  }
-  merge_defaults(&mut dst.defaults, src.defaults);
+  let PartialConfig {
+    root,
+    defaults,
+    accounts,
+    account_order,
+  } = src;
+  merge_set_fields(
+    &mut dst.root,
+    root,
+    RootField::ALL,
+    RootField::take,
+    RootField::set,
+  );
+  merge_defaults(&mut dst.defaults, defaults);
   merge_map_by_id(
     &mut dst.accounts,
-    src.accounts,
+    accounts,
     any_account_field_set,
     merge_account,
   );
-  merge_order(&mut dst.account_order, &src.account_order);
+  merge_order(&mut dst.account_order, &account_order);
   append_missing_keys(&mut dst.account_order, dst.accounts.keys());
 }
 
@@ -151,7 +178,6 @@ mod tests {
   use crate::model::partial::{
     PartialAccount, PartialActivity, PartialConfig, PartialCustomStatus,
   };
-  use crate::schema::fields::{ActivityField, CustomStatusField};
   use crate::test_support::*;
 
   fn activity_details(details: &str) -> PartialActivity {
@@ -296,50 +322,78 @@ mod tests {
     );
   }
 
-  /// Catalogue leaves merge by field id; a `None` in src doesn't wipe dst.
   #[test]
-  fn catalogue_activity_and_custom_merge_field_level() {
-    for_each_catalogue_field(
-      |_| {},
-      |field| {
-        let mut dst = PartialCustomStatus::default();
-        *field.get_mut(&mut dst) = Some("keep".into());
-        let mut src = PartialCustomStatus::default();
-        for &other in CustomStatusField::ALL {
-          if other != field {
-            *other.get_mut(&mut src) = Some(format!("src-{}", other.spec().set_suffix));
-          }
+  fn catalogue_leaves_merge_field_level() {
+    for &field in AccountScalarField::ALL {
+      let mut dst = PartialAccount::default();
+      field.set(&mut dst, "keep".into());
+      let mut src = PartialAccount::default();
+      for &other in AccountScalarField::ALL {
+        if other != field {
+          other.set(&mut src, format!("src-{}", other.spec().toml));
         }
-        merge_custom_status(&mut dst, src);
-        assert_eq!(
-          field.get_mut(&mut dst).as_deref(),
-          Some("keep"),
-          "dst leaf {}",
-          field.spec().set_suffix
-        );
-      },
-      |field| {
-        let mut dst = PartialActivity::default();
-        *field.get_mut(&mut dst) = Some("keep".into());
-        let mut src = PartialActivity::default();
-        // Sets another leaf on src so the merge isn't empty, without touching `field`.
-        if let Some(&other) = ActivityField::ALL.iter().find(|&&f| f != field) {
-          *other.get_mut(&mut src) = Some("from-src".into());
-          merge_activity(&mut dst, src);
+      }
+      merge_account(&mut dst, src);
+      let name = field.spec().toml;
+      assert_eq!(
+        field.take(&mut dst).as_deref(),
+        Some("keep"),
+        "account scalar {name} wiped by an unset src"
+      );
+      for &other in AccountScalarField::ALL {
+        if other != field {
           assert_eq!(
-            field.get_mut(&mut dst).as_deref(),
-            Some("keep"),
-            "dst leaf {}",
-            field.spec().set_suffix
-          );
-          assert_eq!(
-            other.get_mut(&mut dst).as_deref(),
-            Some("from-src"),
-            "src leaf {}",
-            other.spec().set_suffix
+            other.take(&mut dst),
+            Some(format!("src-{}", other.spec().toml)),
+            "account scalar {} not merged from src",
+            other.spec().toml
           );
         }
-      },
-    );
+      }
+    }
+    for &field in CustomStatusField::ALL {
+      let mut dst = PartialCustomStatus::default();
+      field.set(&mut dst, "keep".into());
+      let mut src = PartialCustomStatus::default();
+      for &other in CustomStatusField::ALL {
+        if other != field {
+          other.set(&mut src, format!("src-{}", other.spec().toml));
+        }
+      }
+      merge_custom_status(&mut dst, src);
+      assert_eq!(
+        field.take(&mut dst).as_deref(),
+        Some("keep"),
+        "custom_status {} wiped by an unset src",
+        field.spec().toml
+      );
+    }
+    for &field in ActivityField::ALL {
+      let mut dst = PartialActivity::default();
+      field.set(&mut dst, "keep".into());
+      let mut src = PartialActivity::default();
+      for &other in ActivityField::ALL {
+        if other != field {
+          other.set(&mut src, format!("src-{}", other.spec().toml));
+        }
+      }
+      merge_activity(&mut dst, src);
+      assert_eq!(
+        field.take(&mut dst).as_deref(),
+        Some("keep"),
+        "activity {} wiped by an unset src",
+        field.spec().toml
+      );
+      for &other in ActivityField::ALL {
+        if other != field {
+          assert_eq!(
+            other.take(&mut dst),
+            Some(format!("src-{}", other.spec().toml)),
+            "activity {} not merged from src",
+            other.spec().toml
+          );
+        }
+      }
+    }
   }
 }

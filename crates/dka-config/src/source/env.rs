@@ -1,20 +1,28 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::sync::LazyLock;
 
 use crate::model::partial::PartialConfig;
 use crate::schema::fields::{
-  AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
-  GlobalDefaultField,
+  AccountScalarField, ActivityField, ClientPropEmptyPolicy, ClientPropField, CustomStatusField,
+  DefaultsProfile, GlobalDefaultField, RootField,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR, parse_user_id};
 use crate::schema::path::{
-  ConfigPath, account_scalar_path, activity_field_path, apply_path, custom_status_path,
+  AccountPath, ConfigPath, account_scalar_path, activity_field_path, apply_path, custom_status_path,
 };
-use crate::util::trim_nonempty;
+use crate::util::{near_miss, trim_nonempty};
+use crate::warning::ConfigWarning;
 
-const ENV_LOG_LEVEL: &str = "LOG_LEVEL";
-const ENV_HEALTH_SOCKET: &str = "HEALTH_SOCKET";
 const ENV_DEFAULTS_PREFIX: &str = "DEFAULTS_";
+const ENV_ACCOUNT_PREFIX: &str = "ACCOUNT_";
+const ENV_ACTIVITY_WORD: &str = "ACTIVITY";
+const ENV_NESTED_ACTIVITY: &str = "_ACTIVITY";
+
+pub struct EnvLayer {
+  pub partial: PartialConfig,
+  pub warnings: Vec<ConfigWarning>,
+}
 
 #[derive(Clone, Copy)]
 enum AccountEnvField {
@@ -27,23 +35,22 @@ static ACCOUNT_SUFFIXES_LONGEST_FIRST: LazyLock<Vec<(&'static str, AccountEnvFie
   LazyLock::new(|| {
     let mut v: Vec<_> = AccountScalarField::ALL
       .iter()
-      .filter_map(|&f| f.env_suffix().map(|s| (s, AccountEnvField::Scalar(f))))
+      .filter_map(|&f| f.spec().env_suffix.map(|s| (s, AccountEnvField::Scalar(f))))
       .chain(
         CustomStatusField::ALL
           .iter()
-          .map(|&f| (f.env_suffix(), AccountEnvField::Custom(f))),
+          .filter_map(|&f| f.spec().env_suffix.map(|s| (s, AccountEnvField::Custom(f)))),
       )
       .collect();
     v.sort_by_key(|(s, _)| std::cmp::Reverse(s.len()));
     v
   });
 
-// Longest first, same as the account suffixes.
 static ACTIVITY_SUFFIXES_LONGEST_FIRST: LazyLock<Vec<(ActivityField, &'static str)>> =
   LazyLock::new(|| {
     let mut v: Vec<_> = ActivityField::ALL
       .iter()
-      .filter_map(|&f| f.env_suffix().map(|s| (f, s)))
+      .filter_map(|&f| f.spec().env_suffix.map(|s| (f, s)))
       .collect();
     v.sort_by_key(|(_, s)| std::cmp::Reverse(s.len()));
     v
@@ -57,66 +64,25 @@ fn activity_suffixes_longest_first() -> &'static [(ActivityField, &'static str)]
   &ACTIVITY_SUFFIXES_LONGEST_FIRST
 }
 
-pub fn from_env() -> PartialConfig {
-  let map: HashMap<String, String> = std::env::vars().collect();
-  from_env_map(&map)
+pub fn from_env() -> EnvLayer {
+  from_env_vars(std::env::vars_os())
+}
+
+pub(crate) fn from_env_vars(vars: impl IntoIterator<Item = (OsString, OsString)>) -> EnvLayer {
+  let map: HashMap<String, String> = vars
+    .into_iter()
+    .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+    .collect();
+  EnvLayer {
+    partial: from_env_map(&map),
+    warnings: env_warnings(&map),
+  }
 }
 
 pub fn from_env_map(map: &HashMap<String, String>) -> PartialConfig {
   let mut pairs: Vec<(&str, &str)> = map.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
   pairs.sort_by(|a, b| a.0.cmp(b.0));
   from_env_pairs(pairs)
-}
-
-#[cfg(test)]
-pub fn from_env_lookup(lookup: impl Fn(&str) -> Option<String>) -> PartialConfig {
-  let mut map = HashMap::new();
-  for (k, _) in std::env::vars() {
-    if let Some(v) = lookup(&k) {
-      map.insert(k, v);
-    }
-  }
-  for key in probe_flat_keys() {
-    if map.contains_key(&key) {
-      continue;
-    }
-    if let Some(v) = lookup(&key) {
-      map.insert(key, v);
-    }
-  }
-  from_env_map(&map)
-}
-
-#[cfg(test)]
-fn probe_flat_keys() -> Vec<String> {
-  let mut keys = vec![
-    ENV_LOG_LEVEL.into(),
-    ENV_HEALTH_SOCKET.into(),
-    "ACCOUNT".into(),
-    "ACTIVITY".into(),
-  ];
-  for &field in AccountScalarField::ALL {
-    if let Some(suffix) = field.env_suffix() {
-      keys.push(suffix.into());
-    }
-  }
-  for &field in CustomStatusField::ALL {
-    keys.push(field.env_suffix().into());
-  }
-  for &field in ActivityField::ALL {
-    if let Some(suffix) = field.env_suffix() {
-      keys.push(format!("ACTIVITY_{suffix}"));
-    }
-  }
-  for &profile in DefaultsProfile::ALL {
-    for &field in ClientPropField::ALL {
-      keys.push(format!("{}{}", profile.env_prefix(), field.env_suffix()));
-    }
-  }
-  for &field in GlobalDefaultField::ALL {
-    keys.push(format!("{}{}", ENV_DEFAULTS_PREFIX, field.env_suffix()));
-  }
-  keys
 }
 
 fn from_env_pairs<'a, I>(pairs: I) -> PartialConfig
@@ -128,15 +94,25 @@ where
     if !is_ascii_env_key(key) {
       continue;
     }
-    let Some(value) = trim_nonempty(value).map(str::to_string) else {
-      continue;
-    };
     let Some(path) = parse_env_key(key) else {
       continue;
     };
-    apply_path(&mut partial, &path, value);
+    match trim_nonempty(value) {
+      Some(value) => apply_path(&mut partial, &path, value.to_string()),
+      None if empty_disables(&path) => apply_path(&mut partial, &path, String::new()),
+      None => {}
+    }
   }
   partial
+}
+
+fn empty_disables(path: &ConfigPath) -> bool {
+  match path {
+    ConfigPath::Root(field) => *field == RootField::HealthSocket,
+    ConfigPath::GlobalDefault(_) => true,
+    ConfigPath::Defaults(_, field) => field.empty_policy() != ClientPropEmptyPolicy::SkipEmpty,
+    ConfigPath::Account(..) => false,
+  }
 }
 
 fn is_ascii_env_key(key: &str) -> bool {
@@ -147,19 +123,149 @@ fn is_ascii_env_key(key: &str) -> bool {
 }
 
 fn parse_env_key(key: &str) -> Option<ConfigPath> {
+  if let Some(&field) = RootField::ALL
+    .iter()
+    .find(|f| f.spec().env_suffix == Some(key))
+  {
+    return Some(ConfigPath::Root(field));
+  }
   match key {
-    ENV_LOG_LEVEL => Some(ConfigPath::LogLevel),
-    ENV_HEALTH_SOCKET => Some(ConfigPath::HealthSocket),
     "ACCOUNT" => Some(account_scalar_path(ACCOUNT_FLAT, AccountScalarField::Name)),
     k if k.starts_with(ENV_DEFAULTS_PREFIX) => parse_defaults_key(k),
-    k if k.starts_with("ACTIVITY") => {
-      let rest = &k["ACTIVITY".len()..];
+    k if k.starts_with(ENV_ACTIVITY_WORD) => {
+      let rest = &k[ENV_ACTIVITY_WORD.len()..];
       let (act_id, field) = parse_activity_token(rest)?;
       Some(activity_field_path(ACCOUNT_FLAT, act_id, field))
     }
-    k if k.starts_with("ACCOUNT_") => parse_account_rest(&k["ACCOUNT_".len()..]),
+    k if k.starts_with(ENV_ACCOUNT_PREFIX) => parse_account_rest(&k[ENV_ACCOUNT_PREFIX.len()..]),
     _ => parse_flat_account_env_key(key),
   }
+}
+
+fn in_diagnosed_family(key: &str) -> bool {
+  key.starts_with(ENV_ACCOUNT_PREFIX)
+    || key.starts_with(ENV_DEFAULTS_PREFIX)
+    || key
+      .strip_prefix(ENV_ACTIVITY_WORD)
+      .is_some_and(|rest| rest.starts_with('_'))
+}
+
+fn account_suffix_names() -> impl Iterator<Item = &'static str> {
+  account_suffixes_longest_first()
+    .iter()
+    .map(|&(suffix, _)| suffix)
+}
+
+fn activity_suffix_names() -> impl Iterator<Item = &'static str> {
+  activity_suffixes_longest_first()
+    .iter()
+    .map(|&(_, suffix)| suffix)
+}
+
+fn closest<T: AsRef<str>>(input: &str, candidates: impl IntoIterator<Item = T>) -> Option<T> {
+  candidates
+    .into_iter()
+    .filter_map(|candidate| near_miss(input, candidate.as_ref()).map(|edits| (edits, candidate)))
+    .min_by_key(|&(edits, _)| edits)
+    .map(|(_, candidate)| candidate)
+}
+
+pub(crate) fn env_warnings(map: &HashMap<String, String>) -> Vec<ConfigWarning> {
+  let mut keys: Vec<&str> = map
+    .keys()
+    .map(String::as_str)
+    .filter(|key| is_ascii_env_key(key))
+    .collect();
+  keys.sort_unstable();
+  keys.into_iter().filter_map(diagnose_key).collect()
+}
+
+fn diagnose_key(key: &str) -> Option<ConfigWarning> {
+  if !in_diagnosed_family(key) {
+    return None;
+  }
+  match parse_env_key(key) {
+    Some(ConfigPath::Account(id, AccountPath::Scalar(AccountScalarField::Name)))
+      if id != ACCOUNT_FLAT =>
+    {
+      suspect_id_key(key, "account", id, account_suffix_names())
+    }
+    Some(ConfigPath::Account(_, AccountPath::Activity(id, ActivityField::Name)))
+      if id != ACTIVITY_SINGULAR =>
+    {
+      suspect_id_key(key, "activity", id, activity_suffix_names())
+    }
+    Some(_) => None,
+    None => Some(ConfigWarning::UnknownEnvKey {
+      key: key.to_string(),
+      suggestion: suggest_key(key),
+    }),
+  }
+}
+
+fn suspect_id_key(
+  key: &str,
+  kind: &'static str,
+  id: String,
+  suffixes: impl Iterator<Item = &'static str>,
+) -> Option<ConfigWarning> {
+  let suffix = closest(&id, suffixes)?;
+  let prefix = &key[..key.len() - id.len()];
+  Some(ConfigWarning::SuspectEnvKey {
+    key: key.to_string(),
+    kind,
+    id,
+    suggestion: format!("{prefix}{suffix}"),
+  })
+}
+
+fn suggest_key(key: &str) -> Option<String> {
+  if key.starts_with(ENV_DEFAULTS_PREFIX) {
+    return closest(key, defaults_keys());
+  }
+  if let Some(rest) = key.strip_prefix(ENV_ACCOUNT_PREFIX) {
+    return match rest.split_once(ENV_NESTED_ACTIVITY) {
+      Some((account, activity)) => {
+        let activity = activity.strip_prefix('_')?;
+        let prefix = format!("{ENV_ACCOUNT_PREFIX}{account}{ENV_NESTED_ACTIVITY}_");
+        suggest_after_id(&prefix, activity, activity_suffix_names())
+      }
+      None => suggest_after_id(ENV_ACCOUNT_PREFIX, rest, account_suffix_names()),
+    };
+  }
+  let rest = key.strip_prefix(ENV_ACTIVITY_WORD)?.strip_prefix('_')?;
+  suggest_after_id(
+    &format!("{ENV_ACTIVITY_WORD}_"),
+    rest,
+    activity_suffix_names(),
+  )
+}
+
+fn suggest_after_id(
+  prefix: &str,
+  rest: &str,
+  suffixes: impl Iterator<Item = &'static str>,
+) -> Option<String> {
+  let (id, tail) = rest.split_once('_')?;
+  parse_user_id(id).ok()?;
+  closest(tail, suffixes).map(|suffix| format!("{prefix}{id}_{suffix}"))
+}
+
+fn defaults_keys() -> Vec<String> {
+  let globals = GlobalDefaultField::ALL
+    .iter()
+    .filter_map(|field| field.spec().env_suffix)
+    .map(|suffix| (ENV_DEFAULTS_PREFIX, suffix));
+  let profiles = DefaultsProfile::ALL.iter().flat_map(|&profile| {
+    ClientPropField::ALL
+      .iter()
+      .filter_map(|field| field.spec().env_suffix)
+      .map(move |suffix| (profile.env_prefix(), suffix))
+  });
+  globals
+    .chain(profiles)
+    .map(|(prefix, suffix)| format!("{prefix}{suffix}"))
+    .collect()
 }
 
 fn parse_flat_account_env_key(key: &str) -> Option<ConfigPath> {
@@ -178,7 +284,7 @@ fn parse_defaults_key(key: &str) -> Option<ConfigPath> {
   let global = key.strip_prefix(ENV_DEFAULTS_PREFIX)?;
   if let Some(&field) = GlobalDefaultField::ALL
     .iter()
-    .find(|f| f.env_suffix() == global)
+    .find(|f| f.spec().env_suffix == Some(global))
   {
     return Some(ConfigPath::GlobalDefault(field));
   }
@@ -187,7 +293,7 @@ fn parse_defaults_key(key: &str) -> Option<ConfigPath> {
       continue;
     };
     for &field in ClientPropField::ALL {
-      if field.env_suffix() == field_part {
+      if field.spec().env_suffix == Some(field_part) {
         return Some(ConfigPath::Defaults(profile, field));
       }
     }
@@ -196,9 +302,9 @@ fn parse_defaults_key(key: &str) -> Option<ConfigPath> {
 }
 
 fn parse_account_rest(rest: &str) -> Option<ConfigPath> {
-  if let Some(idx) = rest.find("_ACTIVITY") {
+  if let Some(idx) = rest.find(ENV_NESTED_ACTIVITY) {
     let left = &rest[..idx];
-    let right = &rest[idx + "_ACTIVITY".len()..];
+    let right = &rest[idx + ENV_NESTED_ACTIVITY.len()..];
     let account_id = parse_user_id(left).ok()?;
     let (act_id, field) = parse_activity_token(right)?;
     return Some(activity_field_path(account_id, act_id, field));
@@ -206,7 +312,6 @@ fn parse_account_rest(rest: &str) -> Option<ConfigPath> {
 
   for &(suffix, field) in account_suffixes_longest_first() {
     if rest == suffix {
-      // A bare ACCOUNT_TOKEN has no id, so it's ignored (use TOKEN).
       return None;
     }
     let patterned = format!("_{suffix}");
@@ -368,6 +473,37 @@ mod tests {
   }
 
   #[test]
+  fn empty_value_disables_only_keys_that_support_disabling() {
+    let p = from_env_map(&env_map(&[
+      ("DEFAULTS_CAPABILITIES", ""),
+      ("DEFAULTS_HEARTBEAT_VERSION", "  "),
+      ("DEFAULTS_WEB_BROWSER", ""),
+      ("DEFAULTS_WEB_DEVICE", ""),
+      ("DEFAULTS_WEB_OS", ""),
+      ("HEALTH_SOCKET", ""),
+      ("LOG_LEVEL", ""),
+      ("TOKEN", ""),
+      ("STATUS", ""),
+      ("ACTIVITY_DETAILS", ""),
+    ]));
+    assert_eq!(p.defaults.global.capabilities.as_deref(), Some(""));
+    assert_eq!(p.defaults.global.heartbeat_version.as_deref(), Some(""));
+    assert_eq!(p.defaults.web.browser.as_deref(), Some(""));
+    assert_eq!(p.defaults.web.device.as_deref(), Some(""));
+    assert_eq!(p.root.health_socket.as_deref(), Some(""));
+    assert_eq!(
+      p.defaults.web.os, None,
+      "DEFAULTS_WEB_OS cannot be disabled"
+    );
+    assert_eq!(p.root.log_level, None, "LOG_LEVEL cannot be disabled");
+    assert!(
+      p.accounts.is_empty(),
+      "empty TOKEN, STATUS and ACTIVITY_DETAILS must stay unset: {:?}",
+      p.accounts
+    );
+  }
+
+  #[test]
   fn account_activity_nested_keys() {
     let p = from_env_map(&env_map(&[
       ("ACCOUNT_main_TOKEN", "t"),
@@ -412,185 +548,355 @@ mod tests {
     assert_eq!(p.defaults.bot.browser.as_deref(), Some("bot-browser"));
   }
 
+  #[cfg(windows)]
+  fn non_unicode() -> OsString {
+    std::os::windows::ffi::OsStringExt::from_wide(&[0x0066, 0xD800, 0x0067])
+  }
+
+  #[cfg(unix)]
+  fn non_unicode() -> OsString {
+    std::os::unix::ffi::OsStringExt::from_vec(vec![0x66, 0xFF, 0x67])
+  }
+
   #[test]
-  fn from_env_lookup_well_known() {
-    let p = from_env_lookup(|key| match key {
-      "LOG_LEVEL" => Some("debug".into()),
-      "HEALTH_SOCKET" => Some("/tmp/h".into()),
-      "TOKEN" => Some("tok".into()),
-      _ => None,
-    });
-    assert_eq!(p.log_level.as_deref(), Some("debug"));
-    assert_eq!(p.health_socket.as_deref(), Some("/tmp/h"));
-    assert_eq!(token_of(&p, ACCOUNT_FLAT), Some("tok"));
+  fn non_unicode_entries_are_skipped() {
+    assert!(non_unicode().to_str().is_none());
+    let p = from_env_vars([
+      (OsString::from("TOKEN"), OsString::from("tok")),
+      (non_unicode(), OsString::from("ignored-key")),
+      (OsString::from("STATUS"), non_unicode()),
+      (OsString::from("LOG_LEVEL"), OsString::from("debug")),
+    ])
+    .partial;
+    assert_eq!(
+      token_of(&p, ACCOUNT_FLAT),
+      Some("tok"),
+      "TOKEN survives a non-Unicode neighbour"
+    );
+    assert_eq!(
+      status_of(&p, ACCOUNT_FLAT),
+      None,
+      "STATUS with a non-Unicode value is skipped"
+    );
+    assert_eq!(
+      p.root.log_level.as_deref(),
+      Some("debug"),
+      "LOG_LEVEL survives a non-Unicode neighbour"
+    );
   }
 
   #[test]
   fn discover_account_without_token() {
-    // Non-token keys still create the account; resolve checks for the token later.
     let p = from_env_map(&env_map(&[("ACCOUNT_x_STATUS", "idle")]));
     assert!(p.accounts.contains_key("x"));
     assert_eq!(status_of(&p, "x"), Some("idle"));
+  }
+
+  fn warnings_for(pairs: &[(&str, &str)]) -> Vec<String> {
+    env_warnings(&env_map(pairs))
+      .iter()
+      .map(ToString::to_string)
+      .collect()
+  }
+
+  #[test]
+  fn existing_id_forms_and_settings_do_not_warn() {
+    let keys = [
+      "TOKEN",
+      "STATUS",
+      "CUSTOM_STATUS_EMOJI",
+      "LOG_LEVEL",
+      "CONFIG_PATH",
+      "RUST_LOG",
+      "PATH",
+      "ACCOUNT",
+      "ACCOUNT_0",
+      "ACCOUNT_1",
+      "ACCOUNT_main",
+      "ACCOUNT_primary",
+      "ACCOUNT_alt-2",
+      "ACCOUNT_0_TOKEN",
+      "ACCOUNT_test_TOKEN",
+      "ACCOUNT_acc-1_STATUS",
+      "ACCOUNT_main_CUSTOM_STATUS_EMOJI",
+      "ACCOUNT_main_ACTIVITY",
+      "ACCOUNT_main_ACTIVITY_TYPE",
+      "ACCOUNT_main_ACTIVITY_1",
+      "ACCOUNT_main_ACTIVITY_1_DETAILS",
+      "ACCOUNT_main_ACTIVITY_LARGE_IMAGE_TEXT",
+      "ACTIVITY",
+      "ACTIVITY_TYPE",
+      "ACTIVITY_0",
+      "ACTIVITY_foo",
+      "ACTIVITY_foo_TYPE",
+      "ACTIVITY_LARGE_IMAGE_TEXT",
+      "DEFAULTS_CAPABILITIES",
+      "DEFAULTS_WEB_OS",
+      "DEFAULTS_BOT_BROWSER",
+    ];
+    let pairs: Vec<(&str, &str)> = keys.iter().map(|&key| (key, "x")).collect();
+    assert_eq!(warnings_for(&pairs), Vec::<String>::new());
+
+    let p = from_env_map(&env_map(&pairs));
+    for id in ["0", "1", "main", "primary", "alt-2", "test", "acc-1"] {
+      assert!(p.accounts.contains_key(id), "account id {id} still parsed");
+    }
+    for id in ["0", "foo"] {
+      assert!(
+        p.accounts[ACCOUNT_FLAT].activities.contains_key(id),
+        "activity id {id} still parsed"
+      );
+    }
+    assert!(p.accounts["main"].activities.contains_key("1"));
+  }
+
+  #[test]
+  fn warnings_follow_key_order_and_skip_non_ascii_keys() {
+    assert_eq!(
+      warnings_for(&[
+        ("ACCOUNT_STAUTS", "x"),
+        ("ACCOUNT_0_STATUZ", "x"),
+        ("ACCOUNT_é_STATUS", "x"),
+      ]),
+      [
+        "environment variable ACCOUNT_0_STATUZ matches no setting and is ignored (did you mean 'ACCOUNT_0_STATUS'?)",
+        "environment variable ACCOUNT_STAUTS defines account 'STAUTS', not a setting (did you mean 'ACCOUNT_STATUS'?)",
+      ]
+    );
+  }
+
+  fn compose_env_names(yaml: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut env_indent = None;
+    for line in yaml.lines() {
+      let trimmed = line.trim_start();
+      let indent = line.len() - trimmed.len();
+      if trimmed == "environment:" {
+        env_indent = Some(indent);
+        continue;
+      }
+      let body = match trimmed.strip_prefix('#') {
+        Some(commented) => commented.trim_start(),
+        None if trimmed.is_empty() => continue,
+        None if env_indent.is_some_and(|start| indent <= start) => {
+          env_indent = None;
+          continue;
+        }
+        None => trimmed,
+      };
+      let Some((name, _)) = body.split_once(':') else {
+        continue;
+      };
+      let is_env_name = name.starts_with(|c: char| c.is_ascii_uppercase())
+        && name
+          .bytes()
+          .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+      if env_indent.is_some() && is_env_name {
+        names.push(name.to_string());
+      }
+    }
+    names
+  }
+
+  #[test]
+  fn compose_example_has_one_environment_block() {
+    let yaml = include_str!("../../../../docker-compose.example.yaml");
+    let blocks = yaml
+      .lines()
+      .filter(|line| line.trim_start() == "environment:")
+      .count();
+    assert_eq!(
+      blocks, 1,
+      "docker-compose.example.yaml must have a single uncommented environment: key"
+    );
+  }
+
+  #[test]
+  fn compose_example_env_names_map_to_known_settings() {
+    let yaml = include_str!("../../../../docker-compose.example.yaml");
+    let names = compose_env_names(yaml);
+    for expected in [
+      "TOKEN",
+      "LOG_LEVEL",
+      "ACCOUNT_0_ACTIVITY_0_TYPE",
+      "ACCOUNT_1_STATUS",
+    ] {
+      assert!(
+        names.iter().any(|name| name == expected),
+        "docker-compose.example.yaml: expected env name {expected} was not found; parsed {names:?}"
+      );
+    }
+    for name in &names {
+      assert!(
+        name == crate::load::CONFIG_PATH_ENV || parse_env_key(name).is_some(),
+        "docker-compose.example.yaml: env name {name} maps to no known setting"
+      );
+    }
+    let warnings: Vec<String> =
+      env_warnings(&names.iter().map(|n| (n.clone(), "x".into())).collect())
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+      warnings.is_empty(),
+      "docker-compose.example.yaml: names that would warn at startup: {warnings:?}"
+    );
   }
 
   #[test]
   fn catalogue_env_suffixes_are_reachable() {
     let account_suffixes = account_suffixes_longest_first();
     let act_suffixes = activity_suffixes_longest_first();
-    for_each_catalogue_field(
-      |field| {
-        let Some(suffix) = field.env_suffix() else {
-          return;
-        };
-        assert!(
-          account_suffixes
-            .iter()
-            .any(|(s, f)| *s == suffix && matches!(f, AccountEnvField::Scalar(x) if *x == field)),
-          "AccountScalarField env_suffix {suffix} missing from account_suffixes"
-        );
-        let path = parse_env_key(suffix).expect(suffix);
-        assert_eq!(
-          path,
-          account_scalar_path(ACCOUNT_FLAT, field),
-          "flat env key {suffix}"
-        );
-        let key = format!("ACCOUNT_0_{suffix}");
-        let path = parse_env_key(&key).expect(&key);
-        assert_eq!(path, account_scalar_path("0", field), "indexed {key}");
-      },
-      |field| {
-        let suffix = field.env_suffix();
-        assert!(
-          account_suffixes
-            .iter()
-            .any(|(s, f)| *s == suffix && matches!(f, AccountEnvField::Custom(x) if *x == field)),
-          "CustomStatusField env_suffix {suffix} missing"
-        );
-        let path = parse_env_key(suffix).expect(suffix);
-        assert_eq!(path, custom_status_path(ACCOUNT_FLAT, field));
-        let key = format!("ACCOUNT_0_{suffix}");
-        let path = parse_env_key(&key).expect(&key);
-        assert_eq!(path, custom_status_path("0", field));
-      },
-      |field| {
-        let Some(suffix) = field.env_suffix() else {
-          return;
-        };
-        assert!(
-          act_suffixes
-            .iter()
-            .any(|(f, s)| *f == field && *s == suffix),
-          "ActivityField env_suffix {suffix} missing from activity_suffixes"
-        );
-        let key = format!("ACTIVITY_{suffix}");
-        let path = parse_env_key(&key).expect(&key);
-        assert_eq!(
-          path,
-          activity_field_path(ACCOUNT_FLAT, ACTIVITY_SINGULAR, field)
-        );
-      },
-    );
+    for &field in AccountScalarField::ALL {
+      let Some(suffix) = field.spec().env_suffix else {
+        continue;
+      };
+      assert!(
+        account_suffixes
+          .iter()
+          .any(|(s, f)| *s == suffix && matches!(f, AccountEnvField::Scalar(x) if *x == field)),
+        "AccountScalarField env_suffix {suffix} missing from account_suffixes"
+      );
+      let path = parse_env_key(suffix).expect(suffix);
+      assert_eq!(
+        path,
+        account_scalar_path(ACCOUNT_FLAT, field),
+        "flat env key {suffix}"
+      );
+      let key = format!("ACCOUNT_0_{suffix}");
+      let path = parse_env_key(&key).expect(&key);
+      assert_eq!(path, account_scalar_path("0", field), "indexed {key}");
+    }
+    for &field in CustomStatusField::ALL {
+      let suffix = field.spec().env_suffix.expect("custom_status env suffix");
+      assert!(
+        account_suffixes
+          .iter()
+          .any(|(s, f)| *s == suffix && matches!(f, AccountEnvField::Custom(x) if *x == field)),
+        "CustomStatusField env_suffix {suffix} missing"
+      );
+      let path = parse_env_key(suffix).expect(suffix);
+      assert_eq!(path, custom_status_path(ACCOUNT_FLAT, field));
+      let key = format!("ACCOUNT_0_{suffix}");
+      let path = parse_env_key(&key).expect(&key);
+      assert_eq!(path, custom_status_path("0", field));
+    }
+    for &field in ActivityField::ALL {
+      let Some(suffix) = field.spec().env_suffix else {
+        continue;
+      };
+      assert!(
+        act_suffixes
+          .iter()
+          .any(|(f, s)| *f == field && *s == suffix),
+        "ActivityField env_suffix {suffix} missing from activity_suffixes"
+      );
+      let key = format!("ACTIVITY_{suffix}");
+      let path = parse_env_key(&key).expect(&key);
+      assert_eq!(
+        path,
+        activity_field_path(ACCOUNT_FLAT, ACTIVITY_SINGULAR, field)
+      );
+    }
   }
 
   #[test]
   fn catalogue_env_suffixes_apply_into_partial() {
-    for_each_catalogue_field(
-      |field| {
-        let Some(suffix) = field.env_suffix() else {
-          return;
-        };
-        let sample = catalogue_sample_value(suffix);
-        let p = from_env_map(&env_map(&[(suffix, sample.as_str())]));
-        let mut acc = p
-          .accounts
-          .get(ACCOUNT_FLAT)
-          .cloned()
-          .unwrap_or_else(|| panic!("{suffix}: no flat account"));
-        assert_eq!(
-          field.take(&mut acc).as_deref(),
-          Some(sample.as_str()),
-          "flat {suffix}"
-        );
+    for &field in AccountScalarField::ALL {
+      let Some(suffix) = field.spec().env_suffix else {
+        continue;
+      };
+      let sample = account_sample(field);
+      let p = from_env_map(&env_map(&[(suffix, sample.as_str())]));
+      let mut acc = p
+        .accounts
+        .get(ACCOUNT_FLAT)
+        .cloned()
+        .unwrap_or_else(|| panic!("{suffix}: no flat account"));
+      assert_eq!(
+        field.take(&mut acc).as_deref(),
+        Some(sample.as_str()),
+        "flat {suffix}"
+      );
 
-        let key = format!("ACCOUNT_main_{suffix}");
-        let p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
-        let mut acc = p
-          .accounts
-          .get("main")
-          .cloned()
-          .unwrap_or_else(|| panic!("{key}: no account"));
-        assert_eq!(
-          field.take(&mut acc).as_deref(),
-          Some(sample.as_str()),
-          "{key}"
-        );
-      },
-      |field| {
-        let suffix = field.env_suffix();
-        let sample = catalogue_sample_value(suffix);
-        let p = from_env_map(&env_map(&[(suffix, sample.as_str())]));
-        let mut cs = p
-          .accounts
-          .get(ACCOUNT_FLAT)
-          .and_then(|a| a.custom_status.clone())
-          .unwrap_or_else(|| panic!("{suffix}: no custom_status"));
-        assert_eq!(
-          field.get_mut(&mut cs).as_deref(),
-          Some(sample.as_str()),
-          "{suffix}"
-        );
-      },
-      |field| {
-        let Some(suffix) = field.env_suffix() else {
-          return;
-        };
-        let sample = catalogue_sample_value(suffix);
-        let key = format!("ACTIVITY_{suffix}");
-        let p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
-        let mut act = p
-          .accounts
-          .get(ACCOUNT_FLAT)
-          .and_then(|a| a.activities.get(ACTIVITY_SINGULAR).cloned())
-          .unwrap_or_else(|| panic!("{key}: no activity"));
-        assert_eq!(
-          field.get_mut(&mut act).as_deref(),
-          Some(sample.as_str()),
-          "{key}"
-        );
-      },
-    );
+      let key = format!("ACCOUNT_main_{suffix}");
+      let p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
+      let mut acc = p
+        .accounts
+        .get("main")
+        .cloned()
+        .unwrap_or_else(|| panic!("{key}: no account"));
+      assert_eq!(
+        field.take(&mut acc).as_deref(),
+        Some(sample.as_str()),
+        "{key}"
+      );
+    }
+    for &field in CustomStatusField::ALL {
+      let suffix = field.spec().env_suffix.expect("custom_status env suffix");
+      let sample = plain_sample(suffix);
+      let p = from_env_map(&env_map(&[(suffix, sample.as_str())]));
+      let mut cs = p
+        .accounts
+        .get(ACCOUNT_FLAT)
+        .and_then(|a| a.custom_status.clone())
+        .unwrap_or_else(|| panic!("{suffix}: no custom_status"));
+      assert_eq!(
+        field.take(&mut cs).as_deref(),
+        Some(sample.as_str()),
+        "{suffix}"
+      );
+    }
+    for &field in ActivityField::ALL {
+      let Some(suffix) = field.spec().env_suffix else {
+        continue;
+      };
+      let sample = activity_sample(field);
+      let key = format!("ACTIVITY_{suffix}");
+      let p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
+      let mut act = p
+        .accounts
+        .get(ACCOUNT_FLAT)
+        .and_then(|a| a.activities.get(ACTIVITY_SINGULAR).cloned())
+        .unwrap_or_else(|| panic!("{key}: no activity"));
+      assert_eq!(
+        field.take(&mut act).as_deref(),
+        Some(sample.as_str()),
+        "{key}"
+      );
+    }
   }
 
   #[test]
   fn catalogue_defaults_env_keys_are_reachable() {
-    for_each_defaults_field(|profile, field| {
-      let key = format!("{}{}", profile.env_prefix(), field.env_suffix());
-      let path = parse_env_key(&key).unwrap_or_else(|| panic!("parse {key}"));
-      assert_eq!(path, ConfigPath::Defaults(profile, field), "{key}");
-      let sample = catalogue_sample_value(field.env_suffix());
-      let mut p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
-      let props = profile.props_mut(&mut p.defaults);
-      assert_eq!(
-        field.get_mut(props).as_deref(),
-        Some(sample.as_str()),
-        "{key}"
-      );
-    });
+    for &profile in DefaultsProfile::ALL {
+      for &field in ClientPropField::ALL {
+        let suffix = field.spec().env_suffix.expect("client property env suffix");
+        let key = format!("{}{}", profile.env_prefix(), suffix);
+        let path = parse_env_key(&key).unwrap_or_else(|| panic!("parse {key}"));
+        assert_eq!(path, ConfigPath::Defaults(profile, field), "{key}");
+        let sample = plain_sample(suffix);
+        let mut p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
+        let props = profile.props_mut(&mut p.defaults);
+        assert_eq!(field.take(props).as_deref(), Some(sample.as_str()), "{key}");
+      }
+    }
   }
 
   #[test]
   fn catalogue_global_defaults_env_keys_are_reachable() {
     for &field in GlobalDefaultField::ALL {
-      let key = format!("{}{}", ENV_DEFAULTS_PREFIX, field.env_suffix());
+      let suffix = field.spec().env_suffix.expect("defaults env suffix");
+      let key = format!("{}{}", ENV_DEFAULTS_PREFIX, suffix);
       assert_eq!(
         parse_env_key(&key),
         Some(ConfigPath::GlobalDefault(field)),
         "{key}"
       );
-      let sample = catalogue_sample_value(field.env_suffix());
+      let sample = plain_sample(suffix);
       let mut p = from_env_map(&env_map(&[(key.as_str(), sample.as_str())]));
       assert_eq!(
-        field.get_mut(&mut p.defaults.global).as_deref(),
+        field.take(&mut p.defaults.global).as_deref(),
         Some(sample.as_str()),
         "{key}"
       );

@@ -11,20 +11,16 @@ use serde::Deserialize;
 use crate::error::ConfigError;
 use crate::model::partial::{
   AccountScalars, PartialAccount, PartialActivity, PartialConfig, PartialCustomStatus,
-  PartialDefaults, any_account_field_set, any_activity_field_set,
+  PartialDefaults, RootScalars, any_account_field_set, any_activity_field_set,
 };
 use crate::schema::fields::{
   ACCOUNT_KEYS, AccountScalarField, ActivityField, ClientPropField, CustomStatusField,
-  DefaultsProfile, GlobalDefaultField, ROOT_KEYS,
+  DefaultsProfile, GlobalDefaultField, ROOT_TABLES, RootField,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct FileConfig {
-  #[serde(default)]
-  log_level: Option<String>,
-  #[serde(default)]
-  health_socket: Option<String>,
   #[serde(default)]
   defaults: PartialDefaults,
   #[serde(default)]
@@ -33,7 +29,6 @@ struct FileConfig {
   account: FileAccount,
 }
 
-// Scalars shared with PartialAccount. The two activity containers are file-only.
 #[derive(Debug, Clone, Default, Deserialize)]
 struct FileAccount {
   #[serde(flatten)]
@@ -65,14 +60,18 @@ fn parse(figment: &Figment, file: &Path) -> Result<PartialConfig, ConfigError> {
   let to_error = |err: figment::Error| ConfigError::from_figment(file, &err);
   let raw: Dict = figment.extract().map_err(to_error)?;
   check_keys(&raw, file)?;
+  let root: RootScalars = Value::Dict(Tag::default(), raw.clone())
+    .deserialize()
+    .map_err(to_error)?;
   let dto: FileConfig = Value::Dict(Tag::default(), raw)
     .deserialize()
     .map_err(to_error)?;
-  Ok(file_config_to_partial(dto))
+  Ok(file_config_to_partial(root, dto))
 }
 
 fn check_keys(root: &Dict, file: &Path) -> Result<(), ConfigError> {
-  check_account(root, "", &ROOT_KEYS, file)?;
+  let extra: Vec<&str> = RootField::keys().chain(ROOT_TABLES).collect();
+  check_account(root, "", &extra, file)?;
 
   if let Some(defaults) = section(root, "defaults") {
     let profiles = DefaultsProfile::ALL.iter().map(|p| p.toml());
@@ -155,7 +154,7 @@ fn entries<'a>(table: &'a Dict, key: &str) -> impl Iterator<Item = &'a Dict> {
     .filter_map(Value::as_dict)
 }
 
-fn file_config_to_partial(file: FileConfig) -> PartialConfig {
+fn file_config_to_partial(root: RootScalars, file: FileConfig) -> PartialConfig {
   let mut accounts = BTreeMap::new();
   let mut account_order = Vec::new();
 
@@ -165,7 +164,6 @@ fn file_config_to_partial(file: FileConfig) -> PartialConfig {
     account_order.push(ACCOUNT_FLAT.into());
   }
 
-  // Non-empty [[accounts]] entries get ids "0", "1", … in file order.
   let mut next_account_id = 0usize;
   for acc in file.accounts {
     let partial = file_account_to_partial(acc);
@@ -178,8 +176,7 @@ fn file_config_to_partial(file: FileConfig) -> PartialConfig {
   }
 
   PartialConfig {
-    log_level: file.log_level,
-    health_socket: file.health_socket,
+    root,
     defaults: file.defaults,
     accounts,
     account_order,
@@ -389,29 +386,77 @@ type = "playing"
     );
   }
 
+  fn is_example_key_or_table(line: &str) -> bool {
+    line.starts_with('[')
+      || line.split_once(" = ").is_some_and(|(key, _)| {
+        key
+          .chars()
+          .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+      })
+  }
+
   #[test]
-  fn every_catalogue_key_is_accepted() {
-    fn assign(keys: impl Iterator<Item = &'static str>) -> String {
-      keys.map(|key| format!("{key} = \"x\"\n")).collect()
+  fn example_file_loads_when_uncommented_and_lists_every_key() {
+    let toml: String = include_str!("../../../../config.example.toml")
+      .lines()
+      .map(|line| match line.strip_prefix("# ") {
+        Some(rest) if is_example_key_or_table(rest) => rest,
+        _ => line,
+      })
+      .collect::<Vec<_>>()
+      .join("\n");
+    let mut partial = load_toml_str(&toml).unwrap_or_else(|err| panic!("{err}\n{toml}"));
+
+    for &field in RootField::ALL {
+      assert!(
+        field.take(&mut partial.root).is_some(),
+        "example sets no root key '{}'",
+        field.spec().toml
+      );
     }
-    let sections = |prefix: &str| {
-      format!(
-        "[{prefix}custom_status]\n{}[{prefix}activity]\n{}[[{prefix}activities]]\n{}",
-        assign(CustomStatusField::keys()),
-        assign(ActivityField::keys()),
-        assign(ActivityField::keys()),
-      )
-    };
-    let toml = format!(
-      "{}{}[defaults]\n{}[defaults.web]\n{}[[accounts]]\n{}{}",
-      assign(AccountScalarField::keys()),
-      sections(""),
-      assign(GlobalDefaultField::keys()),
-      assign(ClientPropField::keys()),
-      assign(AccountScalarField::keys()),
-      sections("accounts."),
-    );
-    load_toml_str(&toml).unwrap_or_else(|err| panic!("{err}\n{toml}"));
+    let mut flat = partial.accounts.remove(ACCOUNT_FLAT).expect("flat account");
+    for &field in AccountScalarField::ALL {
+      assert!(
+        field.take(&mut flat).is_some(),
+        "example sets no account key '{}'",
+        field.spec().toml
+      );
+    }
+    let mut custom_status = flat.custom_status.expect("example has no [custom_status]");
+    for &field in CustomStatusField::ALL {
+      assert!(
+        field.take(&mut custom_status).is_some(),
+        "example sets no custom_status key '{}'",
+        field.spec().toml
+      );
+    }
+    let mut activity = flat
+      .activities
+      .remove(ACTIVITY_SINGULAR)
+      .expect("example has no [activity]");
+    for &field in ActivityField::ALL {
+      assert!(
+        field.take(&mut activity).is_some(),
+        "example sets no activity key '{}'",
+        field.spec().toml
+      );
+    }
+    for &field in GlobalDefaultField::ALL {
+      assert!(
+        field.take(&mut partial.defaults.global).is_some(),
+        "example sets no defaults key '{}'",
+        field.spec().toml
+      );
+    }
+    for &field in ClientPropField::ALL {
+      assert!(
+        DefaultsProfile::ALL.iter().any(|profile| field
+          .take(profile.props_mut(&mut partial.defaults))
+          .is_some()),
+        "example sets no [defaults.*] key '{}'",
+        field.spec().toml
+      );
+    }
   }
 
   #[test]

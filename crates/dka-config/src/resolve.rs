@@ -9,21 +9,26 @@ use dka_presence::{ClientProperties, Defaults};
 use crate::error::ConfigError;
 use crate::model::partial::{
   AccountScalars, PartialAccount, PartialActivity, PartialClientProperties, PartialConfig,
-  PartialCustomStatus, PartialDefaults, any_account_field_set,
+  PartialCustomStatus, PartialDefaults, RootScalars, any_account_field_set,
 };
 use crate::model::resolved::{AccountConfig, AppConfig};
 use crate::product_defaults::product_defaults;
 use crate::schema::fields::{
-  DefaultsProfile, GlobalDefaultField, activity_type_names, empty_to_none,
+  AccountScalarField, ActivityField, DefaultsProfile, GlobalDefaultField, RootField,
+  activity_type_names, empty_to_none,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
-use crate::source::defaults::DEFAULT_LOG_LEVEL;
+use crate::source::defaults::{DEFAULT_LOG_LEVEL, LOG_LEVELS};
 use crate::token::SecretString;
 use crate::util::{hint, trim_opt, trim_owned};
 
 pub(crate) fn resolve_config(partial: PartialConfig) -> Result<AppConfig, ConfigError> {
-  let log_level = trim_owned(partial.log_level).unwrap_or_else(|| DEFAULT_LOG_LEVEL.into());
-  let health_socket = trim_owned(partial.health_socket);
+  let RootScalars {
+    log_level,
+    health_socket,
+  } = partial.root;
+  let log_level = resolve_log_level(log_level)?;
+  let health_socket = trim_owned(health_socket);
   let defaults = resolve_defaults(partial.defaults);
   let accounts = resolve_accounts(partial.accounts, &partial.account_order)?;
   Ok(AppConfig {
@@ -32,6 +37,22 @@ pub(crate) fn resolve_config(partial: PartialConfig) -> Result<AppConfig, Config
     defaults,
     accounts,
   })
+}
+
+fn resolve_log_level(raw: Option<String>) -> Result<String, ConfigError> {
+  let Some(raw) = trim_owned(raw) else {
+    return Ok(DEFAULT_LOG_LEVEL.into());
+  };
+  let level = raw.to_ascii_lowercase();
+  if LOG_LEVELS.contains(&level.as_str()) {
+    Ok(level)
+  } else {
+    Err(ConfigError::invalid_value(
+      RootField::LogLevel.spec().toml,
+      &raw,
+      &LOG_LEVELS,
+    ))
+  }
 }
 
 fn resolve_defaults(raw: PartialDefaults) -> Defaults {
@@ -44,7 +65,7 @@ fn resolve_defaults(raw: PartialDefaults) -> Defaults {
     mut global,
   } = raw;
   for &field in GlobalDefaultField::ALL {
-    if let Some(value) = field.get_mut(&mut global).take() {
+    if let Some(value) = field.take(&mut global) {
       *field.resolved_mut(&mut defaults) = empty_to_none(value);
     }
   }
@@ -62,7 +83,7 @@ fn resolve_defaults(raw: PartialDefaults) -> Defaults {
 fn apply_client_property_overrides(dst: &mut ClientProperties, mut src: PartialClientProperties) {
   use crate::schema::fields::ClientPropField;
   for &field in ClientPropField::ALL {
-    if let Some(value) = field.get_mut(&mut src).take() {
+    if let Some(value) = field.take(&mut src) {
       field.apply_override(dst, value);
     }
   }
@@ -164,16 +185,34 @@ fn resolve_one_account(index: usize, raw: PartialAccount) -> Result<AccountConfi
     .map(SecretString::new)
     .ok_or_else(|| ConfigError::MissingToken(name.clone()))?;
 
-  let kind = parse_enum_field(&name, "kind", kind, AccountKind::parse, AccountKind::names)?
-    .unwrap_or(AccountKind::User);
+  let kind = parse_enum_field(
+    &name,
+    AccountScalarField::Kind.spec().toml,
+    kind,
+    AccountKind::parse,
+    AccountKind::names,
+  )?
+  .unwrap_or(AccountKind::User);
 
   let device = if kind == AccountKind::Bot {
     None
   } else {
-    parse_enum_field(&name, "device", device, Device::parse, Device::names)?
+    parse_enum_field(
+      &name,
+      AccountScalarField::Device.spec().toml,
+      device,
+      Device::parse,
+      Device::names,
+    )?
   };
 
-  let status = parse_enum_field(&name, "status", status, Status::parse, Status::names)?;
+  let status = parse_enum_field(
+    &name,
+    AccountScalarField::Status.spec().toml,
+    status,
+    Status::parse,
+    Status::names,
+  )?;
 
   let custom_status = match custom_status {
     Some(cs) if custom_status_configured(&cs) && kind == AccountKind::User => {
@@ -219,10 +258,15 @@ fn resolve_activities(
 }
 
 fn parse_custom_status(raw: PartialCustomStatus) -> CustomStatusConfig {
+  let PartialCustomStatus { text, emoji } = raw;
   CustomStatusConfig {
-    text: trim_opt(raw.text.as_deref()).map(str::to_string),
-    emoji: trim_opt(raw.emoji.as_deref()).map(str::to_string),
+    text: trim_owned(text),
+    emoji: trim_owned(emoji),
   }
+}
+
+fn activity_label(field: ActivityField) -> String {
+  format!("activity.{}", field.spec().toml)
 }
 
 fn parse_enum_field<T, N>(
@@ -277,43 +321,74 @@ fn parse_activity(
   raw: PartialActivity,
   default_id: &str,
 ) -> Result<ActivityConfig, ConfigError> {
+  let PartialActivity {
+    name,
+    activity_type,
+    platform,
+    timestamp,
+    application_id,
+    details,
+    url,
+    large_image,
+    large_image_text,
+    small_image,
+    small_image_text,
+    button,
+    button_url,
+    button_2,
+    button_2_url,
+    party_id,
+    party_current,
+    party_max,
+  } = raw;
   let mut activity = ActivityConfig::new();
-  activity.name = trim_owned(raw.name);
+  activity.name = trim_owned(name);
 
   activity.activity_type = parse_enum_field(
     account,
-    "activity type",
-    raw.activity_type,
+    &activity_label(ActivityField::Type),
+    activity_type,
     ActivityType::parse,
     activity_type_names,
   )?;
   if activity.activity_type == Some(ActivityType::Custom) {
     return Err(ConfigError::invalid(
       account,
-      "activity type 'custom' is not valid here; use [custom_status]",
+      format!(
+        "{} 'custom' is not valid here; use [custom_status]",
+        activity_label(ActivityField::Type)
+      ),
     ));
   }
 
   activity.platform = parse_enum_field(
     account,
-    "activity platform",
-    raw.platform,
+    &activity_label(ActivityField::Platform),
+    platform,
     ActivityPlatform::parse,
     ActivityPlatform::names,
   )?;
 
-  activity.timestamp = parse_i64_field(account, "activity timestamp", raw.timestamp)?;
-  activity.application_id = trim_owned(raw.application_id).unwrap_or_else(|| default_id.into());
-  activity.details = trim_owned(raw.details);
-  activity.url = trim_owned(raw.url);
-  activity.large_image = image_asset(raw.large_image, raw.large_image_text);
-  activity.small_image = image_asset(raw.small_image, raw.small_image_text);
-  activity.button = activity_button(raw.button, raw.button_url);
-  activity.button_2 = activity_button(raw.button_2, raw.button_2_url);
+  activity.timestamp = parse_i64_field(
+    account,
+    &activity_label(ActivityField::Timestamp),
+    timestamp,
+  )?;
+  activity.application_id = trim_owned(application_id).unwrap_or_else(|| default_id.into());
+  activity.details = trim_owned(details);
+  activity.url = trim_owned(url);
+  activity.large_image = image_asset(large_image, large_image_text);
+  activity.small_image = image_asset(small_image, small_image_text);
+  activity.button = activity_button(button, button_url);
+  activity.button_2 = activity_button(button_2, button_2_url);
   activity.party = ActivityParty {
-    id: trim_owned(raw.party_id).unwrap_or_else(|| default_id.into()),
-    current: parse_i64_field(account, "party_current", raw.party_current)?,
-    max: parse_i64_field(account, "party_max", raw.party_max)?,
+    id: trim_owned(party_id).unwrap_or_else(|| default_id.into()),
+    current: parse_i64_field(
+      account,
+      &activity_label(ActivityField::PartyCurrent),
+      party_current,
+    )?,
+    max: parse_i64_field(account, &activity_label(ActivityField::PartyMax), party_max)?,
   };
 
   if activity.activity_type == Some(ActivityType::Streaming)
@@ -321,7 +396,11 @@ fn parse_activity(
   {
     return Err(ConfigError::invalid(
       account,
-      "streaming activity requires a url",
+      format!(
+        "{} is required when {} is 'streaming'",
+        activity_label(ActivityField::Url),
+        activity_label(ActivityField::Type)
+      ),
     ));
   }
 
@@ -708,11 +787,102 @@ mod tests {
   }
 
   #[test]
+  fn log_level_is_validated_and_lowercased() {
+    let with_level = |level: Option<&str>| {
+      let mut partial = partial_flat(account_with_token("t"));
+      partial.root.log_level = level.map(Into::into);
+      resolve_config(partial)
+    };
+    for (input, want) in [
+      (None, "info"),
+      (Some("  "), "info"),
+      (Some("debug"), "debug"),
+      (Some("WARN"), "warn"),
+      (Some(" Trace "), "trace"),
+    ] {
+      let got = with_level(input).unwrap_or_else(|e| panic!("log_level {input:?}: {e}"));
+      assert_eq!(got.log_level, want, "log_level {input:?}");
+    }
+    assert_eq!(
+      with_level(Some("bogus")).unwrap_err().to_string(),
+      "invalid log_level 'bogus' (allowed: error, warn, info, debug, trace)"
+    );
+    assert_eq!(
+      with_level(Some("Debgu")).unwrap_err().to_string(),
+      "invalid log_level 'Debgu' (did you mean 'debug'? allowed: error, warn, info, debug, trace)"
+    );
+  }
+
+  #[test]
+  fn field_labels_use_toml_keys() {
+    let activity = |tweak: fn(&mut PartialActivity)| {
+      let mut act = named_activity("x");
+      tweak(&mut act);
+      flat_with_activities(
+        BTreeMap::from([(ACTIVITY_SINGULAR.into(), act)]),
+        vec![ACTIVITY_SINGULAR.into()],
+      )
+    };
+    let cases: Vec<(&str, PartialConfig, &str)> = vec![
+      (
+        "account kind",
+        partial_flat(account_with("t", |a| a.kind = Some("alien".into()))),
+        "account 'account-0': invalid kind 'alien' (expected user, bot)",
+      ),
+      (
+        "activity.type",
+        activity(|a| a.activity_type = Some("nope".into())),
+        "invalid activity.type 'nope'",
+      ),
+      (
+        "activity.type custom",
+        activity(|a| a.activity_type = Some("custom".into())),
+        "activity.type 'custom' is not valid here",
+      ),
+      (
+        "activity.platform",
+        activity(|a| a.platform = Some("nope".into())),
+        "invalid activity.platform 'nope'",
+      ),
+      (
+        "activity.timestamp",
+        activity(|a| a.timestamp = Some("x".into())),
+        "invalid activity.timestamp 'x' (expected an integer)",
+      ),
+      (
+        "activity.party_current",
+        activity(|a| a.party_current = Some("x".into())),
+        "invalid activity.party_current 'x' (expected an integer)",
+      ),
+      (
+        "activity.party_max",
+        activity(|a| a.party_max = Some("x".into())),
+        "invalid activity.party_max 'x' (expected an integer)",
+      ),
+      (
+        "activity.url",
+        activity(|a| a.activity_type = Some("streaming".into())),
+        "activity.url is required when activity.type is 'streaming'",
+      ),
+    ];
+    for (label, partial, needle) in cases {
+      let msg = resolve_config(partial).unwrap_err().to_string();
+      assert!(
+        msg.contains(needle),
+        "{label}: expected {needle:?} in {msg:?}"
+      );
+    }
+  }
+
+  #[test]
   fn global_defaults_override_and_empty_disables() {
     for &field in GlobalDefaultField::ALL {
       let resolve = |v: Option<&str>| {
         let mut partial = partial_flat(account_with_token("t"));
-        *field.get_mut(&mut partial.defaults.global) = v.map(str::to_string);
+        partial.defaults.global = Default::default();
+        if let Some(v) = v {
+          field.set(&mut partial.defaults.global, v.to_string());
+        }
         let mut defaults = resolve_config(partial).unwrap().defaults;
         field.resolved_mut(&mut defaults).take()
       };

@@ -1,49 +1,40 @@
+use std::fmt;
 use std::path::PathBuf;
 
+use clap::Parser;
 use clap::builder::PossibleValuesParser;
-use clap::{Arg, Parser};
-use dka_presence::{AccountKind, ActivityPlatform, Device, Status};
 
 use crate::error::ConfigError;
 use crate::model::partial::PartialConfig;
 use crate::schema::fields::{
-  ACCOUNT_KEYS, AccountScalarCliArgs, AccountScalarField, ActivityCliArgs, ActivityField,
-  ClientPropField, CustomStatusCliArgs, CustomStatusField, DefaultsProfile, GlobalDefaultField,
-  ROOT_KEYS, activity_type_names, apply_account_scalar_cli, apply_activity_cli,
-  apply_custom_status_cli,
+  ACCOUNT_KEYS, AccountScalarField, AccountScalars, ActivityField, ClientPropField,
+  CustomStatusField, DefaultsProfile, GlobalDefaultField, PartialActivity, PartialCustomStatus,
+  ROOT_TABLES, RootField,
 };
 use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
 use crate::schema::path::{
-  AccountPath, ConfigPath, apply_path, parse_account_id, parse_activity_id,
+  AccountPath, ConfigPath, account_scalar_path, activity_field_path, apply_path,
+  custom_status_path, parse_account_id, parse_activity_id,
 };
 use crate::source::defaults::LOG_LEVELS;
 use crate::util::trim_to_string;
 
 pub const DEFAULT_CONFIG_PATH: &str = "config.toml";
 
-fn one_of(arg: Arg, values: impl IntoIterator<Item = &'static str>) -> Arg {
-  arg
-    .value_parser(PossibleValuesParser::new(values))
-    .ignore_case(true)
-}
-
-// No clap `env=`: only the env source reads the process environment.
-// The flat flags live in flattened `Args` groups, as macros can't expand into struct fields.
-#[derive(Debug, Parser)]
+#[derive(Parser)]
 #[command(
   name = "discord-keep-alive",
   about = "Keep Discord accounts online with optional presence",
-  version,
-  mut_arg("kind", |a| one_of(a, AccountKind::names())),
-  mut_arg("device", |a| one_of(a, Device::names())),
-  mut_arg("status", |a| one_of(a, Status::names())),
-  mut_arg("activity_type", |a| one_of(a, activity_type_names())),
-  mut_arg("activity_platform", |a| one_of(a, ActivityPlatform::names())),
+  version
 )]
 pub struct Cli {
-  /// TOML config path.
-  #[arg(long, short = 'c', global = true, default_value = DEFAULT_CONFIG_PATH)]
-  pub config: PathBuf,
+  #[arg(
+    long,
+    short = 'c',
+    global = true,
+    help = format!("TOML config path [default: {DEFAULT_CONFIG_PATH}]")
+  )]
+  pub config: Option<PathBuf>,
 
   /// Log level.
   #[arg(long, value_parser = PossibleValuesParser::new(LOG_LEVELS), ignore_case = true)]
@@ -54,13 +45,13 @@ pub struct Cli {
   pub health_socket: Option<String>,
 
   #[command(flatten, next_help_heading = "Account")]
-  pub account: AccountScalarCliArgs,
+  pub account: AccountScalars,
 
   #[command(flatten, next_help_heading = "Custom status")]
-  pub custom_status: CustomStatusCliArgs,
+  pub custom_status: PartialCustomStatus,
 
   #[command(flatten, next_help_heading = "Activity")]
-  pub activity: ActivityCliArgs,
+  pub activity: PartialActivity,
 
   /// Set a field on a specific account: `ID.PATH=VALUE` (e.g. `main.token=AAA`).
   #[arg(
@@ -84,6 +75,41 @@ pub struct Cli {
   pub command: Option<Command>,
 }
 
+impl fmt::Debug for Cli {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let Self {
+      config,
+      log_level,
+      health_socket,
+      account,
+      custom_status,
+      activity,
+      account_set,
+      set,
+      command,
+    } = self;
+    let redact = |specs: &[String]| specs.iter().map(|s| redacted_spec(s)).collect::<Vec<_>>();
+    f.debug_struct("Cli")
+      .field("config", config)
+      .field("log_level", log_level)
+      .field("health_socket", health_socket)
+      .field("account", account)
+      .field("custom_status", custom_status)
+      .field("activity", activity)
+      .field("account_set", &redact(account_set))
+      .field("set", &redact(set))
+      .field("command", command)
+      .finish()
+  }
+}
+
+fn redacted_spec(spec: &str) -> String {
+  match spec.split_once('=') {
+    Some((path, _)) => format!("{path}=<redacted>"),
+    None => "<redacted>".to_string(),
+  }
+}
+
 #[derive(Debug, Clone, clap::Subcommand)]
 pub enum Command {
   /// Check that a running instance is healthy
@@ -96,7 +122,6 @@ pub enum Command {
   Health,
 }
 
-/// Builds the CLI layer. Later sources win: flat flags, then `--account-set`, then `--set`.
 pub fn cli_partial(cli: &Cli) -> Result<PartialConfig, ConfigError> {
   let mut partial = PartialConfig::default();
 
@@ -117,16 +142,31 @@ pub fn cli_partial(cli: &Cli) -> Result<PartialConfig, ConfigError> {
 
 fn apply_flat_flags(partial: &mut PartialConfig, cli: &Cli) {
   if let Some(v) = trim_to_string(cli.log_level.as_deref()) {
-    apply_path(partial, &ConfigPath::LogLevel, v);
+    apply_path(partial, &ConfigPath::Root(RootField::LogLevel), v);
   }
-  // An empty health_socket disables it, so don't trim it away.
   if let Some(v) = cli.health_socket.clone() {
-    apply_path(partial, &ConfigPath::HealthSocket, v);
+    apply_path(partial, &ConfigPath::Root(RootField::HealthSocket), v);
   }
 
-  apply_account_scalar_cli(partial, &cli.account);
-  apply_custom_status_cli(partial, &cli.custom_status);
-  apply_activity_cli(partial, &cli.activity);
+  let mut account = cli.account.clone();
+  for &field in AccountScalarField::ALL {
+    if let Some(v) = trim_to_string(field.take(&mut account).as_deref()) {
+      apply_path(partial, &account_scalar_path(ACCOUNT_FLAT, field), v);
+    }
+  }
+  let mut custom_status = cli.custom_status.clone();
+  for &field in CustomStatusField::ALL {
+    if let Some(v) = trim_to_string(field.take(&mut custom_status).as_deref()) {
+      apply_path(partial, &custom_status_path(ACCOUNT_FLAT, field), v);
+    }
+  }
+  let mut activity = cli.activity.clone();
+  for &field in ActivityField::ALL {
+    if let Some(v) = trim_to_string(field.take(&mut activity).as_deref()) {
+      let path = activity_field_path(ACCOUNT_FLAT, ACTIVITY_SINGULAR, field);
+      apply_path(partial, &path, v);
+    }
+  }
 }
 
 fn split_kv(spec: &str) -> Option<(&str, String)> {
@@ -135,14 +175,20 @@ fn split_kv(spec: &str) -> Option<(&str, String)> {
 }
 
 pub fn parse_set_spec(spec: &str) -> Result<(ConfigPath, String), ConfigError> {
-  let (path, value) = split_kv(spec)
-    .ok_or_else(|| ConfigError::InvalidPath(format!("--set '{spec}': expected PATH=VALUE")))?;
+  let (path, value) = split_kv(spec).ok_or_else(|| malformed_spec("--set", spec, "PATH=VALUE"))?;
   Ok((parse_set_path(path)?, value))
 }
 
+fn malformed_spec(flag: &str, spec: &str, expected: &str) -> ConfigError {
+  let subject = match split_kv(spec) {
+    Some((path, _)) => format!("{flag} '{path}'"),
+    None => flag.to_string(),
+  };
+  ConfigError::InvalidPath(format!("{subject}: expected {expected}"))
+}
+
 pub fn parse_account_set_spec(spec: &str) -> Result<(ConfigPath, String), ConfigError> {
-  let malformed =
-    || ConfigError::InvalidPath(format!("--account-set '{spec}': expected ID.PATH=VALUE"));
+  let malformed = || malformed_spec("--account-set", spec, "ID.PATH=VALUE");
   let (path, value) = split_kv(spec).ok_or_else(malformed)?;
   let (id, rest) = path
     .split_once('.')
@@ -154,29 +200,37 @@ pub fn parse_account_set_spec(spec: &str) -> Result<(ConfigPath, String), Config
 }
 
 fn account_paths() -> impl Iterator<Item = &'static str> {
-  AccountScalarField::set_suffixes().chain(ACCOUNT_KEYS)
+  AccountScalarField::keys().chain(ACCOUNT_KEYS)
 }
 
 fn root_paths() -> impl Iterator<Item = &'static str> {
-  ROOT_KEYS.into_iter().chain(account_paths())
+  RootField::keys().chain(ROOT_TABLES).chain(account_paths())
 }
 
 pub fn parse_set_path(path: &str) -> Result<ConfigPath, ConfigError> {
   let segs: Vec<&str> = path.split('.').collect();
+  if let [key] = segs.as_slice()
+    && let Some(field) = RootField::from_toml(key)
+  {
+    return Ok(ConfigPath::Root(field));
+  }
   match segs.as_slice() {
-    ["log_level"] => Ok(ConfigPath::LogLevel),
-    ["health_socket"] => Ok(ConfigPath::HealthSocket),
-    ["defaults", field] => parse_by_set_suffix(
-      GlobalDefaultField::ALL,
+    ["defaults", field] => parse_field(
+      GlobalDefaultField::from_toml,
+      GlobalDefaultField::keys,
       field,
-      |f| f.spec().set_suffix,
       "defaults field",
     )
     .map(ConfigPath::GlobalDefault),
 
     ["defaults", profile, field] => {
       let p = parse_defaults_profile(profile)?;
-      let f = parse_client_prop_field(field)?;
+      let f = parse_field(
+        ClientPropField::from_toml,
+        ClientPropField::keys,
+        field,
+        "client property",
+      )?;
       Ok(ConfigPath::Defaults(p, f))
     }
 
@@ -187,7 +241,6 @@ pub fn parse_set_path(path: &str) -> Result<ConfigPath, ConfigError> {
       Ok(ConfigPath::Account(account_id, account_path))
     }
 
-    // Bare paths like `token` or `activity.name` target the flat account.
     _ => match parse_account_relative_segs(&segs) {
       Some(Ok(account_path)) => Ok(ConfigPath::Account(ACCOUNT_FLAT.into(), account_path)),
       Some(Err(e)) => Err(e),
@@ -202,22 +255,22 @@ fn parse_account_relative_path(path: &str) -> Result<AccountPath, ConfigError> {
     .unwrap_or_else(|| Err(ConfigError::unknown("path", path, account_paths())))
 }
 
-/// Parses account-relative path segments. Returns `None` if they aren't an account
-/// path at all, and `Some(Err)` if they are but a field or id is invalid.
 fn parse_account_relative_segs(segs: &[&str]) -> Option<Result<AccountPath, ConfigError>> {
   match segs {
     [seg] => parse_account_scalar_token(seg).map(|f| Ok(AccountPath::Scalar(f))),
-    ["custom_status", field] => {
-      Some(parse_custom_status_field(field).map(AccountPath::CustomStatus))
-    }
+    ["custom_status", field] => Some(
+      parse_field(
+        CustomStatusField::from_toml,
+        CustomStatusField::keys,
+        field,
+        "custom_status field",
+      )
+      .map(AccountPath::CustomStatus),
+    ),
     ["activity", field] => {
       Some(parse_activity_field(field).map(|f| AccountPath::Activity(ACTIVITY_SINGULAR.into(), f)))
     }
-    ["activity", aid, field] => Some(
-      parse_activity_id(aid)
-        .and_then(|id| parse_activity_field(field).map(|f| AccountPath::Activity(id, f))),
-    ),
-    ["activities", aid, field] => Some(
+    ["activity", aid, field] | ["activities", aid, field] => Some(
       parse_activity_id(aid)
         .and_then(|id| parse_activity_field(field).map(|f| AccountPath::Activity(id, f))),
     ),
@@ -226,52 +279,27 @@ fn parse_account_relative_segs(segs: &[&str]) -> Option<Result<AccountPath, Conf
 }
 
 fn parse_account_scalar_token(raw: &str) -> Option<AccountScalarField> {
-  if raw == "account" {
-    return Some(AccountScalarField::Name);
+  match raw {
+    "account" => Some(AccountScalarField::Name),
+    _ => AccountScalarField::from_toml(raw),
   }
-  AccountScalarField::ALL
-    .iter()
-    .find(|&&f| f.spec().set_suffix == raw)
-    .copied()
 }
 
-fn parse_by_set_suffix<F: Copy>(
-  all: &[F],
+fn parse_field<F, K: Iterator<Item = &'static str>>(
+  from_toml: fn(&str) -> Option<F>,
+  keys: fn() -> K,
   raw: &str,
-  set_suffix: impl Fn(F) -> &'static str,
   kind: &str,
 ) -> Result<F, ConfigError> {
-  all
-    .iter()
-    .find(|&&f| set_suffix(f) == raw)
-    .copied()
-    .ok_or_else(|| ConfigError::unknown(kind, raw, all.iter().map(|&f| set_suffix(f))))
-}
-
-fn parse_custom_status_field(raw: &str) -> Result<CustomStatusField, ConfigError> {
-  parse_by_set_suffix(
-    CustomStatusField::ALL,
-    raw,
-    |f| f.spec().set_suffix,
-    "custom_status field",
-  )
+  from_toml(raw).ok_or_else(|| ConfigError::unknown(kind, raw, keys()))
 }
 
 fn parse_activity_field(raw: &str) -> Result<ActivityField, ConfigError> {
-  parse_by_set_suffix(
-    ActivityField::ALL,
+  parse_field(
+    ActivityField::from_toml,
+    ActivityField::keys,
     raw,
-    |f| f.spec().set_suffix,
     "activity field",
-  )
-}
-
-fn parse_client_prop_field(raw: &str) -> Result<ClientPropField, ConfigError> {
-  parse_by_set_suffix(
-    ClientPropField::ALL,
-    raw,
-    |f| f.spec().set_suffix,
-    "client property",
   )
 }
 
@@ -304,17 +332,17 @@ mod tests {
     cli.account.kind = Some("user".into());
     cli.account.device = Some("mobile".into());
     cli.account.status = Some("dnd".into());
-    cli.custom_status.custom_status = Some("brb".into());
-    cli.custom_status.custom_status_emoji = Some("💤".into());
-    cli.activity.activity = Some("Game".into());
+    cli.custom_status.text = Some("brb".into());
+    cli.custom_status.emoji = Some("💤".into());
+    cli.activity.name = Some("Game".into());
     cli.activity.activity_type = Some("playing".into());
-    cli.activity.activity_details = Some("level 1".into());
+    cli.activity.details = Some("level 1".into());
     cli.log_level = Some("debug".into());
     cli.health_socket = Some("/tmp/cli-h".into());
 
     let p = cli_partial(&cli).unwrap();
-    assert_eq!(p.log_level.as_deref(), Some("debug"));
-    assert_eq!(p.health_socket.as_deref(), Some("/tmp/cli-h"));
+    assert_eq!(p.root.log_level.as_deref(), Some("debug"));
+    assert_eq!(p.root.health_socket.as_deref(), Some("/tmp/cli-h"));
     let acc = p.accounts.get(ACCOUNT_FLAT).unwrap();
     assert_eq!(acc.token.as_deref(), Some("cli-tok"));
     assert_eq!(acc.name.as_deref(), Some("cli-name"));
@@ -346,7 +374,7 @@ mod tests {
     );
     let cases: &[Case] = &[
       ("log_level", &["log_level=debug"], &[], |p| {
-        assert_eq!(p.log_level.as_deref(), Some("debug"));
+        assert_eq!(p.root.log_level.as_deref(), Some("debug"));
       }),
       (
         "accounts_main_token",
@@ -443,28 +471,37 @@ mod tests {
   }
 
   #[test]
-  fn set_unknown_path_errors() {
+  fn set_unknown_path_lists_roots() {
     let mut cli = empty_cli();
     cli.set = vec!["nope.field=1".into()];
     let err = cli_partial(&cli).unwrap_err();
-    assert!(matches!(err, ConfigError::UnknownField(_)));
+    assert!(matches!(err, ConfigError::UnknownField(_)), "{err:?}");
+    let msg = err.to_string();
+    assert!(
+      msg.starts_with("unknown path 'nope.field' (expected "),
+      "{msg}"
+    );
+    assert!(msg.contains("log_level"), "{msg}");
   }
 
   #[test]
   fn malformed_specs_name_their_flag() {
     let msg = |err: ConfigError| err.to_string();
-    assert_eq!(
-      msg(parse_set_spec("log_level").unwrap_err()),
-      "--set 'log_level': expected PATH=VALUE"
-    );
-    assert_eq!(
-      msg(parse_set_spec("=x").unwrap_err()),
-      "--set '=x': expected PATH=VALUE"
-    );
-    for spec in ["main=1", "main.=1", "x"] {
+    for (spec, want) in [
+      ("log_level", "--set: expected PATH=VALUE"),
+      ("=x", "--set: expected PATH=VALUE"),
+    ] {
+      assert_eq!(msg(parse_set_spec(spec).unwrap_err()), want, "--set {spec}");
+    }
+    for (spec, want) in [
+      ("main=1", "--account-set 'main': expected ID.PATH=VALUE"),
+      ("main.=1", "--account-set 'main.': expected ID.PATH=VALUE"),
+      ("x", "--account-set: expected ID.PATH=VALUE"),
+    ] {
       assert_eq!(
         msg(parse_account_set_spec(spec).unwrap_err()),
-        format!("--account-set '{spec}': expected ID.PATH=VALUE")
+        want,
+        "--account-set {spec}"
       );
     }
   }
@@ -498,7 +535,7 @@ mod tests {
       ["dka", "health", "-c", "a.toml", "--health-socket", "s"],
     ] {
       let cli = Cli::try_parse_from(args).unwrap();
-      assert_eq!(cli.config, PathBuf::from("a.toml"));
+      assert_eq!(cli.config, Some(PathBuf::from("a.toml")));
       assert_eq!(cli.health_socket.as_deref(), Some("s"));
       assert!(matches!(cli.command, Some(Command::Health)));
     }
@@ -507,8 +544,8 @@ mod tests {
   #[test]
   fn cli_partial_omits_unset() {
     let p = cli_partial(&empty_cli()).unwrap();
-    assert!(p.log_level.is_none());
-    assert!(p.health_socket.is_none());
+    assert!(p.root.log_level.is_none());
+    assert!(p.root.health_socket.is_none());
     assert!(p.accounts.is_empty());
   }
 
@@ -523,159 +560,141 @@ mod tests {
 
   #[test]
   fn catalogue_set_suffixes_and_cli_longs_reachable_via_path_parser() {
-    for_each_catalogue_field(
-      |field| {
-        let suffix = field.spec().set_suffix;
-        let path = parse_set_path(suffix).unwrap_or_else(|e| panic!("{suffix}: {e}"));
+    for &field in AccountScalarField::ALL {
+      let suffix = field.spec().toml;
+      let path = parse_set_path(suffix).unwrap_or_else(|e| panic!("{suffix}: {e}"));
+      assert_eq!(path, account_scalar_path(ACCOUNT_FLAT, field));
+      let relative =
+        parse_account_relative_path(suffix).unwrap_or_else(|e| panic!("relative {suffix}: {e}"));
+      assert_eq!(relative, AccountPath::Scalar(field));
+      if let Some(cli_long) = field.spec().cli_long {
+        let flat_token = if cli_long == "account" {
+          "account"
+        } else {
+          suffix
+        };
+        let path = parse_set_path(flat_token).unwrap_or_else(|e| panic!("{flat_token}: {e}"));
         assert_eq!(path, account_scalar_path(ACCOUNT_FLAT, field));
-        let relative =
-          parse_account_relative_path(suffix).unwrap_or_else(|e| panic!("relative {suffix}: {e}"));
-        assert_eq!(relative, AccountPath::Scalar(field));
-        if let Some(cli_long) = field.spec().cli_long {
-          let flat_token = if cli_long == "account" {
-            "account"
-          } else {
-            suffix
-          };
-          let path = parse_set_path(flat_token).unwrap_or_else(|e| panic!("{flat_token}: {e}"));
-          assert_eq!(path, account_scalar_path(ACCOUNT_FLAT, field));
-        }
-      },
-      |field| {
-        let suffix = field.spec().set_suffix;
-        let path = format!("custom_status.{suffix}");
-        let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
-        assert_eq!(got, custom_status_path(ACCOUNT_FLAT, field));
-        let relative =
-          parse_account_relative_path(&path).unwrap_or_else(|e| panic!("relative {path}: {e}"));
-        assert_eq!(relative, AccountPath::CustomStatus(field));
-      },
-      |field| {
-        let suffix = field.spec().set_suffix;
-        let path = format!("activity.{suffix}");
-        let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
-        assert_eq!(
-          got,
-          activity_field_path(ACCOUNT_FLAT, ACTIVITY_SINGULAR, field)
-        );
-        let relative =
-          parse_account_relative_path(&path).unwrap_or_else(|e| panic!("relative {path}: {e}"));
-        assert_eq!(
-          relative,
-          AccountPath::Activity(ACTIVITY_SINGULAR.into(), field)
-        );
-        let path = format!("activities.foo.{suffix}");
-        let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
-        assert_eq!(got, activity_field_path(ACCOUNT_FLAT, "foo", field));
-      },
-    );
+      }
+    }
+    for &field in CustomStatusField::ALL {
+      let suffix = field.spec().toml;
+      let path = format!("custom_status.{suffix}");
+      let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+      assert_eq!(got, custom_status_path(ACCOUNT_FLAT, field));
+      let relative =
+        parse_account_relative_path(&path).unwrap_or_else(|e| panic!("relative {path}: {e}"));
+      assert_eq!(relative, AccountPath::CustomStatus(field));
+    }
+    for &field in ActivityField::ALL {
+      let suffix = field.spec().toml;
+      let path = format!("activity.{suffix}");
+      let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+      assert_eq!(
+        got,
+        activity_field_path(ACCOUNT_FLAT, ACTIVITY_SINGULAR, field)
+      );
+      let relative =
+        parse_account_relative_path(&path).unwrap_or_else(|e| panic!("relative {path}: {e}"));
+      assert_eq!(
+        relative,
+        AccountPath::Activity(ACTIVITY_SINGULAR.into(), field)
+      );
+      let path = format!("activities.foo.{suffix}");
+      let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+      assert_eq!(got, activity_field_path(ACCOUNT_FLAT, "foo", field));
+    }
+  }
+
+  fn parse_flag(long: &str, sample: &str) -> PartialConfig {
+    let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), sample])
+      .unwrap_or_else(|e| panic!("--{long}: {e}"));
+    cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"))
   }
 
   #[test]
   fn catalogue_cli_longs_parse_and_apply_flat_account() {
-    for_each_catalogue_field(
-      |field| {
-        let Some(long) = field.spec().cli_long else {
-          return;
-        };
-        let sample = catalogue_sample_value(field.spec().set_suffix);
-        let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
-          .unwrap_or_else(|e| panic!("--{long}: {e}"));
-        let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
-        let mut acc = p
-          .accounts
-          .get(ACCOUNT_FLAT)
-          .cloned()
-          .unwrap_or_else(|| panic!("--{long}: no flat account"));
-        assert_eq!(
-          field.take(&mut acc).as_deref(),
-          Some(sample.as_str()),
-          "--{long}"
-        );
-      },
-      |field| {
-        let long = field.cli_long();
-        let sample = catalogue_sample_value(field.spec().set_suffix);
-        let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
-          .unwrap_or_else(|e| panic!("--{long}: {e}"));
-        let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
-        let mut cs = p
-          .accounts
-          .get(ACCOUNT_FLAT)
-          .and_then(|a| a.custom_status.clone())
-          .unwrap_or_else(|| panic!("--{long}: no custom_status"));
-        assert_eq!(
-          field.get_mut(&mut cs).as_deref(),
-          Some(sample.as_str()),
-          "--{long}"
-        );
-      },
-      |field| {
-        let long = field.cli_long();
-        let sample = catalogue_sample_value(field.spec().set_suffix);
-        let cli = Cli::try_parse_from(["discord-keep-alive", &format!("--{long}"), &sample])
-          .unwrap_or_else(|e| panic!("--{long}: {e}"));
-        let p = cli_partial(&cli).unwrap_or_else(|e| panic!("partial --{long}: {e}"));
-        let mut act = p
-          .accounts
-          .get(ACCOUNT_FLAT)
-          .and_then(|a| a.activities.get(ACTIVITY_SINGULAR).cloned())
-          .unwrap_or_else(|| panic!("--{long}: no singular activity"));
-        assert_eq!(
-          field.get_mut(&mut act).as_deref(),
-          Some(sample.as_str()),
-          "--{long}"
-        );
-      },
-    );
+    for &field in AccountScalarField::ALL {
+      let long = field.spec().cli_long.expect("account flag");
+      let sample = account_sample(field);
+      let mut acc = parse_flag(long, &sample)
+        .accounts
+        .get(ACCOUNT_FLAT)
+        .cloned()
+        .unwrap_or_else(|| panic!("--{long}: no flat account"));
+      assert_eq!(
+        field.take(&mut acc).as_deref(),
+        Some(sample.as_str()),
+        "--{long}"
+      );
+    }
+    for &field in CustomStatusField::ALL {
+      let long = field.spec().cli_long.expect("custom_status flag");
+      let sample = plain_sample(field.spec().toml);
+      let mut cs = parse_flag(long, &sample)
+        .accounts
+        .get(ACCOUNT_FLAT)
+        .and_then(|a| a.custom_status.clone())
+        .unwrap_or_else(|| panic!("--{long}: no custom_status"));
+      assert_eq!(
+        field.take(&mut cs).as_deref(),
+        Some(sample.as_str()),
+        "--{long}"
+      );
+    }
+    for &field in ActivityField::ALL {
+      let long = field.spec().cli_long.expect("activity flag");
+      let sample = activity_sample(field);
+      let mut act = parse_flag(long, &sample)
+        .accounts
+        .get(ACCOUNT_FLAT)
+        .and_then(|a| a.activities.get(ACTIVITY_SINGULAR).cloned())
+        .unwrap_or_else(|| panic!("--{long}: no singular activity"));
+      assert_eq!(
+        field.take(&mut act).as_deref(),
+        Some(sample.as_str()),
+        "--{long}"
+      );
+    }
   }
 
   #[test]
   fn catalogue_defaults_set_paths_reachable() {
-    for_each_defaults_field(|profile, field| {
-      let path = format!("defaults.{}.{}", profile.toml(), field.spec().set_suffix);
-      let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
-      assert_eq!(got, ConfigPath::Defaults(profile, field), "{path}");
-      let sample = catalogue_sample_value(field.spec().set_suffix);
-      let mut cli = empty_cli();
-      cli.set = vec![format!("{path}={sample}")];
-      let mut p = cli_partial(&cli).unwrap_or_else(|e| panic!("{path}: {e}"));
-      let props = profile.props_mut(&mut p.defaults);
-      assert_eq!(
-        field.get_mut(props).as_deref(),
-        Some(sample.as_str()),
-        "{path}"
-      );
-    });
+    for &profile in DefaultsProfile::ALL {
+      for &field in ClientPropField::ALL {
+        let path = format!("defaults.{}.{}", profile.toml(), field.spec().toml);
+        let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        assert_eq!(got, ConfigPath::Defaults(profile, field), "{path}");
+        let sample = plain_sample(field.spec().toml);
+        let mut cli = empty_cli();
+        cli.set = vec![format!("{path}={sample}")];
+        let mut p = cli_partial(&cli).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let props = profile.props_mut(&mut p.defaults);
+        assert_eq!(
+          field.take(props).as_deref(),
+          Some(sample.as_str()),
+          "{path}"
+        );
+      }
+    }
   }
 
   #[test]
   fn catalogue_global_defaults_set_paths_reachable() {
     for &field in GlobalDefaultField::ALL {
-      let path = format!("defaults.{}", field.spec().set_suffix);
+      let path = format!("defaults.{}", field.spec().toml);
       let got = parse_set_path(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
       assert_eq!(got, ConfigPath::GlobalDefault(field), "{path}");
-      let sample = catalogue_sample_value(field.spec().set_suffix);
+      let sample = plain_sample(field.spec().toml);
       let mut cli = empty_cli();
       cli.set = vec![format!("{path}={sample}")];
       let mut p = cli_partial(&cli).unwrap_or_else(|e| panic!("{path}: {e}"));
       assert_eq!(
-        field.get_mut(&mut p.defaults.global).as_deref(),
+        field.take(&mut p.defaults.global).as_deref(),
         Some(sample.as_str()),
         "{path}"
       );
     }
     assert!(parse_set_path("defaults.nope").is_err());
-  }
-
-  #[test]
-  fn unknown_path_lists_roots() {
-    let err = parse_set_path("nope.field").unwrap_err();
-    let msg = err.to_string();
-    assert!(
-      msg.starts_with("unknown path 'nope.field' (expected "),
-      "{msg}"
-    );
-    assert!(msg.contains("log_level"), "{msg}");
   }
 }

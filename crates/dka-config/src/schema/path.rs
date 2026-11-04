@@ -3,14 +3,13 @@ use crate::merge::ensure_id_in_order;
 use crate::model::partial::{PartialAccount, PartialConfig, PartialCustomStatus};
 use crate::schema::fields::{
   AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
-  GlobalDefaultField,
+  GlobalDefaultField, RootField,
 };
 use crate::schema::id::{self, AccountId, ActivityId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigPath {
-  LogLevel,
-  HealthSocket,
+  Root(RootField),
   GlobalDefault(GlobalDefaultField),
   Defaults(DefaultsProfile, ClientPropField),
   Account(AccountId, AccountPath),
@@ -25,18 +24,10 @@ pub enum AccountPath {
 
 pub fn apply_path(partial: &mut PartialConfig, path: &ConfigPath, value: String) {
   match path {
-    ConfigPath::LogLevel => {
-      partial.log_level = Some(value);
-    }
-    ConfigPath::HealthSocket => {
-      partial.health_socket = Some(value);
-    }
-    ConfigPath::GlobalDefault(field) => {
-      *field.get_mut(&mut partial.defaults.global) = Some(value);
-    }
+    ConfigPath::Root(field) => field.set(&mut partial.root, value),
+    ConfigPath::GlobalDefault(field) => field.set(&mut partial.defaults.global, value),
     ConfigPath::Defaults(profile, field) => {
-      let props = profile.props_mut(&mut partial.defaults);
-      *field.get_mut(props) = Some(value);
+      field.set(profile.props_mut(&mut partial.defaults), value);
     }
     ConfigPath::Account(account_id, account_path) => {
       ensure_id_in_order(&mut partial.account_order, account_id);
@@ -53,12 +44,12 @@ fn apply_account_path(account: &mut PartialAccount, path: &AccountPath, value: S
       let cs = account
         .custom_status
         .get_or_insert_with(PartialCustomStatus::default);
-      *field.get_mut(cs) = Some(value);
+      field.set(cs, value);
     }
     AccountPath::Activity(activity_id, field) => {
       ensure_id_in_order(&mut account.activity_order, activity_id);
       let act = account.activities.entry(activity_id.clone()).or_default();
-      *field.get_mut(act) = Some(value);
+      field.set(act, value);
     }
   }
 }
@@ -170,8 +161,16 @@ mod tests {
   #[test]
   fn apply_path_defaults_and_scalars() {
     let mut partial = PartialConfig::default();
-    apply_path(&mut partial, &ConfigPath::LogLevel, "debug".into());
-    apply_path(&mut partial, &ConfigPath::HealthSocket, "/tmp/h".into());
+    apply_path(
+      &mut partial,
+      &ConfigPath::Root(RootField::LogLevel),
+      "debug".into(),
+    );
+    apply_path(
+      &mut partial,
+      &ConfigPath::Root(RootField::HealthSocket),
+      "/tmp/h".into(),
+    );
     apply_path(
       &mut partial,
       &ConfigPath::Defaults(DefaultsProfile::Web, ClientPropField::Os),
@@ -183,8 +182,8 @@ mod tests {
       "flat-tok".into(),
     );
 
-    assert_eq!(partial.log_level.as_deref(), Some("debug"));
-    assert_eq!(partial.health_socket.as_deref(), Some("/tmp/h"));
+    assert_eq!(partial.root.log_level.as_deref(), Some("debug"));
+    assert_eq!(partial.root.health_socket.as_deref(), Some("/tmp/h"));
     assert_eq!(partial.defaults.web.os.as_deref(), Some("Linux"));
     assert_eq!(
       partial

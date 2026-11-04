@@ -3,9 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use clap::Parser;
 
 use crate::model::partial::{AccountScalars, PartialAccount, PartialActivity, PartialConfig};
-use crate::schema::fields::{
-  AccountScalarField, ActivityField, ClientPropField, CustomStatusField, DefaultsProfile,
-};
+use crate::schema::fields::{AccountScalarField, ActivityField};
 use crate::schema::id::ACCOUNT_FLAT;
 use crate::source::cli::Cli;
 
@@ -84,39 +82,23 @@ pub fn name_of<'a>(p: &'a PartialConfig, id: &str) -> Option<&'a str> {
   p.accounts.get(id).and_then(|a| a.name.as_deref())
 }
 
-pub fn for_each_catalogue_field(
-  mut on_account: impl FnMut(AccountScalarField),
-  mut on_custom: impl FnMut(CustomStatusField),
-  mut on_activity: impl FnMut(ActivityField),
-) {
-  for &field in AccountScalarField::ALL {
-    on_account(field);
-  }
-  for &field in CustomStatusField::ALL {
-    on_custom(field);
-  }
-  for &field in ActivityField::ALL {
-    on_activity(field);
+pub fn plain_sample(label: &str) -> String {
+  format!("cat-{label}")
+}
+
+pub fn account_sample(field: AccountScalarField) -> String {
+  match field {
+    AccountScalarField::Kind => "bot".into(),
+    AccountScalarField::Device => "web".into(),
+    AccountScalarField::Status => "idle".into(),
+    AccountScalarField::Token | AccountScalarField::Name => plain_sample(field.spec().toml),
   }
 }
 
-/// Visits every defaults profile × client property (no flat CLI, by design).
-pub fn for_each_defaults_field(mut on_field: impl FnMut(DefaultsProfile, ClientPropField)) {
-  for &profile in DefaultsProfile::ALL {
-    for &field in ClientPropField::ALL {
-      on_field(profile, field);
-    }
-  }
-}
-
-/// Stable sample value for catalogue tests; valid for enum fields, arbitrary otherwise.
-pub fn catalogue_sample_value(label: &str) -> String {
-  match label {
-    "kind" => "bot".into(),
-    "device" => "web".into(),
-    "status" => "idle".into(),
-    "type" => "playing".into(),
-    "platform" => "xbox".into(),
-    _ => format!("cat-{label}"),
+pub fn activity_sample(field: ActivityField) -> String {
+  match field {
+    ActivityField::Type => "playing".into(),
+    ActivityField::Platform => "xbox".into(),
+    _ => plain_sample(field.spec().toml),
   }
 }

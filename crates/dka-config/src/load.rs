@@ -1,4 +1,5 @@
-use std::path::{Path, PathBuf};
+use std::ffi::OsString;
+use std::path::PathBuf;
 
 use crate::error::ConfigError;
 use crate::merge::merge_partial;
@@ -7,94 +8,103 @@ use crate::model::resolved::AppConfig;
 use crate::resolve::resolve_config;
 use crate::source::cli::{Cli, DEFAULT_CONFIG_PATH, cli_partial};
 use crate::source::defaults::defaults_partial;
-use crate::source::env;
+use crate::source::env::{self, EnvLayer};
 use crate::source::file::load_file;
 use crate::util::trim_owned;
+use crate::warning::ConfigWarning;
 
-// --config wins, unless it's still the default and CONFIG_PATH is set.
-fn resolve_config_path_arg(cli_path: &Path) -> PathBuf {
-  resolve_config_path(cli_path, std::env::var_os("CONFIG_PATH"))
+pub(crate) const CONFIG_PATH_ENV: &str = "CONFIG_PATH";
+
+struct ConfigFile {
+  path: PathBuf,
+  required: bool,
 }
 
-pub(crate) fn resolve_config_path(
-  cli_path: &Path,
-  config_path_env: Option<std::ffi::OsString>,
-) -> PathBuf {
-  if cli_path.as_os_str() != DEFAULT_CONFIG_PATH {
-    return cli_path.to_path_buf();
+fn config_file(cli: &Cli, config_path_env: Option<OsString>) -> ConfigFile {
+  match (&cli.config, config_path_env) {
+    (Some(path), _) => ConfigFile {
+      path: path.clone(),
+      required: true,
+    },
+    (None, Some(path)) if !path.is_empty() => ConfigFile {
+      path: path.into(),
+      required: true,
+    },
+    (None, _) => ConfigFile {
+      path: DEFAULT_CONFIG_PATH.into(),
+      required: false,
+    },
   }
-  match config_path_env {
-    Some(p) if !p.is_empty() => PathBuf::from(p),
-    _ => PathBuf::from(DEFAULT_CONFIG_PATH),
-  }
 }
 
-fn is_default_config_path(path: &Path) -> bool {
-  path.as_os_str() == DEFAULT_CONFIG_PATH
-}
-
-fn load_file_layer(path: &Path) -> Result<PartialConfig, ConfigError> {
-  if path.exists() {
-    load_file(path)
-  } else if is_default_config_path(path) {
-    Ok(PartialConfig::default())
+fn load_file_layer(file: &ConfigFile) -> Result<PartialConfig, ConfigError> {
+  if file.path.exists() {
+    load_file(&file.path)
+  } else if file.required {
+    Err(ConfigError::ConfigNotFound(file.path.clone()))
   } else {
-    Err(ConfigError::ConfigNotFound(path.to_path_buf()))
+    Ok(PartialConfig::default())
   }
 }
 
-pub fn load(cli: &Cli) -> Result<AppConfig, ConfigError> {
-  let path = resolve_config_path_arg(&cli.config);
-  load_with(&path, env::from_env(), cli_partial(cli)?)
-}
-
-fn merge_partial_layers(
-  config_path: &Path,
-  layers: impl IntoIterator<Item = PartialConfig>,
-) -> Result<PartialConfig, ConfigError> {
+fn layers(
+  cli: &Cli,
+  config_path_env: Option<OsString>,
+  env_layer: PartialConfig,
+) -> Result<(PartialConfig, ConfigFile), ConfigError> {
+  let file = config_file(cli, config_path_env);
   let mut partial = defaults_partial();
-  merge_partial(&mut partial, load_file_layer(config_path)?);
-  for layer in layers {
-    merge_partial(&mut partial, layer);
-  }
-  Ok(partial)
+  merge_partial(&mut partial, load_file_layer(&file)?);
+  merge_partial(&mut partial, env_layer);
+  merge_partial(&mut partial, cli_partial(cli)?);
+  Ok((partial, file))
+}
+
+fn resolve_layers(partial: PartialConfig, file: &ConfigFile) -> Result<AppConfig, ConfigError> {
+  resolve_config(partial).map_err(|err| match err {
+    ConfigError::NoAccounts if !file.path.exists() => {
+      ConfigError::NoAccountsMissingConfig(file.path.clone())
+    }
+    err => err,
+  })
+}
+
+#[derive(Debug)]
+pub struct LoadedConfig {
+  pub config: AppConfig,
+  pub warnings: Vec<ConfigWarning>,
 }
 
 pub(crate) fn load_with(
-  config_path: &Path,
-  env_layer: PartialConfig,
-  cli_layer: PartialConfig,
-) -> Result<AppConfig, ConfigError> {
-  resolve_config(merge_partial_layers(config_path, [env_layer, cli_layer])?).map_err(
-    |err| match err {
-      ConfigError::NoAccounts if !config_path.exists() => {
-        ConfigError::NoAccountsMissingConfig(config_path.to_path_buf())
-      }
-      err => err,
-    },
-  )
-}
-
-// Loads only the health socket, skipping account resolution. The CLI override wins; empty disables.
-pub fn load_health_endpoint(
-  config_path: &Path,
-  cli_override: Option<&str>,
-) -> Result<Option<String>, ConfigError> {
-  let path = resolve_config_path_arg(config_path);
-  load_health_endpoint_with(&path, cli_override, env::from_env())
+  cli: &Cli,
+  config_path_env: Option<OsString>,
+  env_layer: EnvLayer,
+) -> Result<LoadedConfig, ConfigError> {
+  let EnvLayer { partial, warnings } = env_layer;
+  let (partial, file) = layers(cli, config_path_env, partial)?;
+  let config = resolve_layers(partial, &file)?;
+  Ok(LoadedConfig { config, warnings })
 }
 
 pub(crate) fn load_health_endpoint_with(
-  config_path: &Path,
-  cli_override: Option<&str>,
+  cli: &Cli,
+  config_path_env: Option<OsString>,
   env_layer: PartialConfig,
 ) -> Result<Option<String>, ConfigError> {
-  if let Some(raw) = cli_override {
-    return Ok(trim_owned(Some(raw.to_string())));
-  }
+  let (partial, _) = layers(cli, config_path_env, env_layer)?;
+  Ok(trim_owned(partial.root.health_socket))
+}
 
-  let partial = merge_partial_layers(config_path, [env_layer])?;
-  Ok(trim_owned(partial.health_socket))
+pub fn load(cli: &Cli) -> Result<LoadedConfig, ConfigError> {
+  load_with(cli, std::env::var_os(CONFIG_PATH_ENV), env::from_env())
+}
+
+pub fn load_health_endpoint(cli: &Cli) -> Result<Option<String>, ConfigError> {
+  load_health_endpoint_with(
+    cli,
+    std::env::var_os(CONFIG_PATH_ENV),
+    env::from_env().partial,
+  )
 }
 
 #[cfg(test)]
@@ -102,15 +112,21 @@ mod tests {
   use super::*;
   use crate::model::partial::PartialActivity;
   use crate::schema::id::{ACCOUNT_FLAT, ACTIVITY_SINGULAR};
-  use crate::source::cli::cli_partial;
   use crate::source::defaults::DEFAULT_LOG_LEVEL;
   use crate::source::env as env_src;
   use crate::test_support::*;
+  use dka_presence::Status;
   use std::fs;
+  use std::path::Path;
   use std::sync::atomic::{AtomicU64, Ordering};
 
   static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
   const TOKEN_T: &str = "token = \"t\"\n";
+
+  fn unused_temp_path() -> PathBuf {
+    let n = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("dka-cfg-{n}-{}.toml", std::process::id()))
+  }
 
   struct TempToml {
     path: PathBuf,
@@ -118,8 +134,7 @@ mod tests {
 
   impl TempToml {
     fn write(contents: &str) -> Self {
-      let n = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-      let path = std::env::temp_dir().join(format!("dka-cfg-{n}-{}.toml", std::process::id()));
+      let path = unused_temp_path();
       fs::write(&path, contents).unwrap();
       Self { path }
     }
@@ -135,122 +150,195 @@ mod tests {
     }
   }
 
-  fn with_token(mut p: PartialConfig) -> PartialConfig {
-    if !p.accounts.values().any(|a| a.token.is_some()) {
-      p.accounts.entry(ACCOUNT_FLAT.into()).or_default().token = Some("test-token".into());
-      if !p.account_order.iter().any(|id| id == ACCOUNT_FLAT) {
-        p.account_order.push(ACCOUNT_FLAT.into());
-      }
-    }
-    p
-  }
-
-  #[test]
-  fn load_with_file_env_cli_precedence() {
-    let file = TempToml::write("log_level = \"warn\"\ntoken = \"file-tok\"\n");
-    let env_layer = PartialConfig {
-      log_level: Some("debug".into()),
-      accounts: {
-        let mut m = std::collections::BTreeMap::new();
-        m.insert(
-          ACCOUNT_FLAT.into(),
-          account_with("env-tok", |a| a.status = Some("online".into())),
-        );
-        m
-      },
-      account_order: vec![ACCOUNT_FLAT.into()],
-      ..Default::default()
-    };
+  fn cli_for(file: &TempToml) -> Cli {
     let mut cli = empty_cli();
-    cli.log_level = Some("trace".into());
-    cli.account.token = Some("cli-tok".into());
-    let app = load_with(file.path(), env_layer, cli_partial(&cli).unwrap()).unwrap();
-    assert_eq!(app.log_level, "trace");
-    assert_eq!(app.accounts.len(), 1);
-    assert_eq!(app.accounts[0].token, "cli-tok");
-    assert_eq!(app.accounts[0].status, Some(dka_presence::Status::Online));
+    cli.config = Some(file.path().to_path_buf());
+    cli
   }
 
-  #[test]
-  fn health_endpoint_cli_empty_disables() {
-    let file = TempToml::write(r#"health_socket = "/tmp/file""#);
-    let env = PartialConfig {
-      health_socket: Some("/tmp/env".into()),
-      ..Default::default()
+  fn no_env() -> PartialConfig {
+    PartialConfig::default()
+  }
+
+  fn load_config(
+    cli: &Cli,
+    config_path_env: Option<OsString>,
+    partial: PartialConfig,
+  ) -> Result<AppConfig, ConfigError> {
+    let env_layer = EnvLayer {
+      partial,
+      warnings: Vec::new(),
     };
-    for (label, cli, want) in [
-      ("cli_wins", Some("/tmp/cli"), Some("/tmp/cli")),
-      ("env_over_file", None, Some("/tmp/env")),
-      ("empty_cli", Some(""), None),
-      ("ws_cli", Some("   "), None),
+    load_with(cli, config_path_env, env_layer).map(|loaded| loaded.config)
+  }
+
+  #[test]
+  fn file_env_cli_precedence() {
+    struct Case {
+      label: &'static str,
+      env: &'static [(&'static str, &'static str)],
+      cli_log_level: Option<&'static str>,
+      cli_token: Option<&'static str>,
+      log_level: &'static str,
+      token: &'static str,
+      status: Option<Status>,
+    }
+    let file_toml = "log_level = \"warn\"\ntoken = \"file-tok\"\n";
+    let env = &[
+      ("LOG_LEVEL", "debug"),
+      ("TOKEN", "env-tok"),
+      ("STATUS", "online"),
+    ];
+    for case in [
+      Case {
+        label: "file only",
+        env: &[],
+        cli_log_level: None,
+        cli_token: None,
+        log_level: "warn",
+        token: "file-tok",
+        status: None,
+      },
+      Case {
+        label: "env over file",
+        env,
+        cli_log_level: None,
+        cli_token: None,
+        log_level: "debug",
+        token: "env-tok",
+        status: Some(Status::Online),
+      },
+      Case {
+        label: "cli over env",
+        env,
+        cli_log_level: Some("trace"),
+        cli_token: Some("cli-tok"),
+        log_level: "trace",
+        token: "cli-tok",
+        status: Some(Status::Online),
+      },
     ] {
-      let ep = load_health_endpoint_with(file.path(), cli, env.clone()).unwrap();
-      assert_eq!(ep.as_deref(), want, "{label}");
-    }
-    let file = TempToml::write(r#"health_socket = "/tmp/health-only""#);
-    let ep = load_health_endpoint_with(file.path(), None, PartialConfig::default()).unwrap();
-    assert_eq!(ep.as_deref(), Some("/tmp/health-only"));
-  }
-
-  #[test]
-  fn missing_default_path_ok() {
-    let path = Path::new(DEFAULT_CONFIG_PATH);
-    if path.exists() {
-      let env_layer = with_token(PartialConfig::default());
-      let _ = load_with(path, env_layer, PartialConfig::default());
-      return;
-    }
-    let env_layer = with_token(PartialConfig::default());
-    let app = load_with(path, env_layer, PartialConfig::default()).unwrap();
-    assert_eq!(app.log_level, DEFAULT_LOG_LEVEL);
-    assert!(app.health_socket.is_none());
-  }
-
-  #[test]
-  fn explicit_missing_path_errors() {
-    for (label, path, is_health) in [
-      ("load", "definitely-missing-config-xyz.toml", false),
-      ("health", "definitely-missing-health-config-xyz.toml", true),
-    ] {
-      let path = Path::new(path);
-      assert!(!path.exists(), "{label}");
-      let err = if is_health {
-        load_health_endpoint_with(path, None, PartialConfig::default()).unwrap_err()
-      } else {
-        load_with(path, PartialConfig::default(), PartialConfig::default()).unwrap_err()
-      };
-      assert!(matches!(err, ConfigError::ConfigNotFound(_)), "{label}");
+      let file = TempToml::write(file_toml);
+      let mut cli = cli_for(&file);
+      cli.log_level = case.cli_log_level.map(Into::into);
+      cli.account.token = case.cli_token.map(Into::into);
+      let app = load_config(&cli, None, env_src::from_env_map(&env_map(case.env)))
+        .unwrap_or_else(|e| panic!("{}: {e}", case.label));
+      assert_eq!(app.log_level, case.log_level, "{}", case.label);
+      assert_eq!(app.accounts.len(), 1, "{}", case.label);
+      assert_eq!(app.accounts[0].token, case.token, "{}", case.label);
+      assert_eq!(app.accounts[0].status, case.status, "{}", case.label);
     }
   }
 
   #[test]
-  fn resolve_config_path_cases() {
-    let env = || Some(std::ffi::OsString::from("/tmp/from-config-path-env.toml"));
-    for (label, cli, env, want) in [
+  fn health_endpoint_follows_the_full_precedence() {
+    let file = TempToml::write(r#"health_socket = "/tmp/file""#);
+    let env = env_src::from_env_map(&env_map(&[("HEALTH_SOCKET", "/tmp/env")]));
+    for (label, flag, set, with_env, want) in [
+      ("file only", None, None, false, Some("/tmp/file")),
+      ("env over file", None, None, true, Some("/tmp/env")),
       (
-        "cli_wins",
-        Path::new("/tmp/explicit-cli-config.toml"),
-        env(),
-        "/tmp/explicit-cli-config.toml",
-      ),
-      (
-        "default_uses_env",
-        Path::new(DEFAULT_CONFIG_PATH),
-        env(),
-        "/tmp/from-config-path-env.toml",
-      ),
-      (
-        "default_without_env",
-        Path::new(DEFAULT_CONFIG_PATH),
+        "flag over env",
+        Some("/tmp/flag"),
         None,
-        DEFAULT_CONFIG_PATH,
+        true,
+        Some("/tmp/flag"),
+      ),
+      (
+        "--set over env",
+        None,
+        Some("health_socket=/tmp/set"),
+        true,
+        Some("/tmp/set"),
+      ),
+      ("empty flag disables", Some(""), None, true, None),
+      ("blank flag disables", Some("   "), None, true, None),
+      (
+        "empty --set disables",
+        None,
+        Some("health_socket="),
+        true,
+        None,
       ),
     ] {
-      assert_eq!(
-        resolve_config_path(cli, env),
-        PathBuf::from(want),
-        "{label}"
-      );
+      let mut cli = cli_for(&file);
+      cli.health_socket = flag.map(Into::into);
+      cli.set = set.map(Into::into).into_iter().collect();
+      let env_layer = if with_env { env.clone() } else { no_env() };
+      let got =
+        load_health_endpoint_with(&cli, None, env_layer).unwrap_or_else(|e| panic!("{label}: {e}"));
+      assert_eq!(got.as_deref(), want, "{label}");
+    }
+  }
+
+  #[test]
+  fn health_endpoint_fails_on_a_malformed_set_spec() {
+    let file = TempToml::write("");
+    let mut cli = cli_for(&file);
+    cli.set = vec!["no-equals-sign".into()];
+    let err = load_health_endpoint_with(&cli, None, no_env()).unwrap_err();
+    assert!(
+      matches!(err, ConfigError::InvalidPath(_)),
+      "a malformed --set must fail the health probe: {err:?}"
+    );
+  }
+
+  #[test]
+  fn missing_default_file_is_skipped_but_an_explicit_one_is_required() {
+    let missing = unused_temp_path();
+    let optional = ConfigFile {
+      path: missing.clone(),
+      required: false,
+    };
+    let layer = load_file_layer(&optional).expect("optional missing file");
+    assert_eq!(layer.root, Default::default(), "optional file");
+
+    let required = ConfigFile {
+      path: missing.clone(),
+      required: true,
+    };
+    let err = load_file_layer(&required).unwrap_err();
+    assert!(
+      matches!(err, ConfigError::ConfigNotFound(ref p) if *p == missing),
+      "required file: {err:?}"
+    );
+  }
+
+  #[test]
+  fn config_file_selection() {
+    let from_env = || Some(OsString::from("/tmp/from-config-path-env.toml"));
+    let mut flagged = empty_cli();
+    flagged.config = Some("/tmp/explicit-cli-config.toml".into());
+    let mut flagged_default_name = empty_cli();
+    flagged_default_name.config = Some(DEFAULT_CONFIG_PATH.into());
+    for (label, cli, env, want, required) in [
+      (
+        "-c equal to the default name still beats CONFIG_PATH",
+        &flagged_default_name,
+        from_env(),
+        DEFAULT_CONFIG_PATH,
+        true,
+      ),
+      (
+        "-c alone",
+        &flagged,
+        None,
+        "/tmp/explicit-cli-config.toml",
+        true,
+      ),
+      (
+        "empty CONFIG_PATH",
+        &empty_cli(),
+        Some(OsString::new()),
+        DEFAULT_CONFIG_PATH,
+        false,
+      ),
+      ("neither", &empty_cli(), None, DEFAULT_CONFIG_PATH, false),
+    ] {
+      let file = config_file(cli, env);
+      assert_eq!(file.path, PathBuf::from(want), "{label}: path");
+      assert_eq!(file.required, required, "{label}: required");
     }
   }
 
@@ -271,10 +359,10 @@ token = "file-0"
       ("ACCOUNT_main", "Main"),
       ("ACCOUNT_main_STATUS", "dnd"),
     ]));
-    let mut cli = empty_cli();
+    let mut cli = cli_for(&file);
     cli.account_set = vec!["extra.token=cli-extra".into(), "extra.name=Extra".into()];
     cli.set = vec!["accounts.main.device=mobile".into()];
-    let app = load_with(file.path(), env_layer, cli_partial(&cli).unwrap()).unwrap();
+    let app = load_config(&cli, None, env_layer).unwrap();
 
     let names: Vec<_> = app.accounts.iter().map(|a| a.name.as_str()).collect();
     assert!(names.contains(&"from-file"));
@@ -288,7 +376,7 @@ token = "file-0"
       .find(|a| a.name == "Main")
       .expect("main");
     assert_eq!(main.token, "env-main");
-    assert_eq!(main.status, Some(dka_presence::Status::Dnd));
+    assert_eq!(main.status, Some(Status::Dnd));
     assert_eq!(main.device, Some(dka_presence::Device::Mobile));
 
     let extra = app
@@ -323,13 +411,10 @@ token = "file-0"
       account_order: vec![ACCOUNT_FLAT.into()],
       ..Default::default()
     };
-    let mut cli = empty_cli();
-    cli.activity.activity = Some("from-cli".into());
+    let mut cli = cli_for(&file);
+    cli.activity.name = Some("from-cli".into());
     cli.activity.activity_type = Some("watching".into());
-    let act = &load_with(file.path(), env_layer, cli_partial(&cli).unwrap())
-      .unwrap()
-      .accounts[0]
-      .activities;
+    let act = &load_config(&cli, None, env_layer).unwrap().accounts[0].activities;
     assert_eq!(act.len(), 1);
     assert_eq!(act[0].name.as_deref(), Some("from-cli"));
     assert_eq!(
@@ -343,38 +428,34 @@ token = "file-0"
   #[test]
   fn load_with_no_accounts_errors() {
     let file = TempToml::write(r#"log_level = "info""#);
-    let err = load_with(
-      file.path(),
-      PartialConfig::default(),
-      PartialConfig::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(err, ConfigError::NoAccounts));
+    let err = load_config(&cli_for(&file), None, no_env()).unwrap_err();
+    assert!(matches!(err, ConfigError::NoAccounts), "{err:?}");
   }
 
   #[test]
   fn no_accounts_reports_a_missing_default_config() {
-    let err = load_with(
-      Path::new(DEFAULT_CONFIG_PATH),
-      PartialConfig::default(),
-      PartialConfig::default(),
-    )
-    .unwrap_err();
+    let file = ConfigFile {
+      path: unused_temp_path(),
+      required: false,
+    };
+    let err = resolve_layers(defaults_partial(), &file).unwrap_err();
     assert!(
-      matches!(err, ConfigError::NoAccountsMissingConfig(ref p) if p == Path::new(DEFAULT_CONFIG_PATH)),
+      matches!(err, ConfigError::NoAccountsMissingConfig(ref p) if *p == file.path),
       "{err}"
     );
   }
 
   #[test]
-  fn env_overwrites_file_scalars() {
-    let file = TempToml::write("log_level = \"warn\"\ntoken = \"t\"\n");
-    let app = load_with(
-      file.path(),
-      env_src::from_env_map(&env_map(&[("LOG_LEVEL", "debug")])),
-      PartialConfig::default(),
-    )
-    .unwrap();
-    assert_eq!(app.log_level, "debug");
+  fn defaults_layer_supplies_the_default_log_level() {
+    let file = ConfigFile {
+      path: unused_temp_path(),
+      required: false,
+    };
+    let env_layer = env_src::from_env_map(&env_map(&[("TOKEN", "t")]));
+    let mut partial = defaults_partial();
+    merge_partial(&mut partial, env_layer);
+    let app = resolve_layers(partial, &file).unwrap();
+    assert_eq!(app.log_level, DEFAULT_LOG_LEVEL);
+    assert!(app.health_socket.is_none());
   }
 }

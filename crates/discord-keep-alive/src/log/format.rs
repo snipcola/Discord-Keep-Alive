@@ -162,4 +162,39 @@ mod tests {
       "{out}"
     );
   }
+
+  #[test]
+  fn account_is_taken_from_the_enclosing_span() {
+    let out = render(|| {
+      let outer = tracing::info_span!("session", account = "alt");
+      let _outer = outer.enter();
+      let inner = tracing::info_span!("heartbeat");
+      let _inner = inner.enter();
+      tracing::warn!(attempt = 2, "reconnecting");
+    });
+    assert!(
+      out.ends_with(" WARN alt: reconnecting attempt=2\n"),
+      "{out}"
+    );
+  }
+
+  #[test]
+  fn event_account_overrides_the_span_account() {
+    let out = render(|| {
+      let span = tracing::info_span!("session", account = "alt");
+      let _span = span.enter();
+      tracing::info!(account = "main", "ready");
+    });
+    assert!(out.ends_with(" INFO main: ready\n"), "{out}");
+  }
+
+  #[test]
+  fn no_prefix_without_an_account() {
+    let out = render(|| {
+      let span = tracing::info_span!("session");
+      let _span = span.enter();
+      tracing::info!("started");
+    });
+    assert!(out.ends_with(" INFO started\n"), "{out}");
+  }
 }

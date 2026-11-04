@@ -2,7 +2,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use dka_gateway::SessionParams;
 use dka_presence::{
-  ActivityType, Defaults, Status, build_presence_data, pin_default_activity_timestamps,
+  ActivityButton, ActivityConfig, ActivityParty, ActivityType, Defaults, ImageAsset, Status,
+  build_presence_data, pin_default_activity_timestamps,
 };
 use tracing::{debug, info};
 
@@ -17,26 +18,32 @@ pub fn session_params(mut account: AccountConfig, defaults: &Defaults) -> Sessio
 
   log_presence_summary(&account);
 
+  let AccountConfig {
+    name,
+    token,
+    kind,
+    device,
+    status,
+    custom_status,
+    activities,
+  } = account;
+
   let presence = build_presence_data(
-    account.status,
-    account.custom_status.as_ref(),
-    &account.activities,
+    status,
+    custom_status.as_ref(),
+    &activities,
     false,
     None,
-    account.kind,
+    kind,
   );
 
-  let properties = defaults
-    .client_properties(account.kind, account.device)
-    .clone();
-
   SessionParams {
-    name: account.name,
-    token: account.token.into_inner().into(),
-    kind: account.kind,
+    name,
+    token: token.into_inner().into(),
+    kind,
     presence,
-    properties,
-    user: defaults.user_options(account.kind),
+    properties: defaults.client_properties(kind, device).clone(),
+    user: defaults.user_options(kind),
   }
 }
 
@@ -68,25 +75,56 @@ fn log_presence_summary(account: &AccountConfig) {
   info!(account = %account_name, "{}", parts.join(", "));
 
   for (i, act) in account.activities.iter().enumerate() {
+    let ActivityConfig {
+      name,
+      activity_type,
+      platform,
+      timestamp,
+      application_id,
+      details,
+      url,
+      large_image: ImageAsset {
+        image: large_image,
+        text: large_image_text,
+      },
+      small_image: ImageAsset {
+        image: small_image,
+        text: small_image_text,
+      },
+      button: ActivityButton {
+        name: button,
+        url: button_url,
+      },
+      button_2: ActivityButton {
+        name: button_2,
+        url: button_2_url,
+      },
+      party:
+        ActivityParty {
+          id: party_id,
+          current: party_current,
+          max: party_max,
+        },
+    } = act;
     let fields = [
-      ("name", act.name.as_deref()),
-      ("type", act.activity_type.map(|t| t.as_str())),
-      ("platform", act.platform.map(|p| p.as_str())),
-      ("timestamp", act.timestamp.as_deref()),
-      ("application_id", Some(act.application_id.as_str())),
-      ("details", act.details.as_deref()),
-      ("url", act.url.as_deref()),
-      ("large_image", act.large_image.image.as_deref()),
-      ("large_image_text", act.large_image.text.as_deref()),
-      ("small_image", act.small_image.image.as_deref()),
-      ("small_image_text", act.small_image.text.as_deref()),
-      ("button", act.button.name.as_deref()),
-      ("button_url", act.button.url.as_deref()),
-      ("button_2", act.button_2.name.as_deref()),
-      ("button_2_url", act.button_2.url.as_deref()),
-      ("party_id", Some(act.party.id.as_str())),
-      ("party_current", act.party.current.as_deref()),
-      ("party_max", act.party.max.as_deref()),
+      ("name", name.as_deref()),
+      ("type", activity_type.map(|t| t.as_str())),
+      ("platform", platform.map(|p| p.as_str())),
+      ("timestamp", timestamp.as_deref()),
+      ("application_id", Some(application_id.as_str())),
+      ("details", details.as_deref()),
+      ("url", url.as_deref()),
+      ("large_image", large_image.as_deref()),
+      ("large_image_text", large_image_text.as_deref()),
+      ("small_image", small_image.as_deref()),
+      ("small_image_text", small_image_text.as_deref()),
+      ("button", button.as_deref()),
+      ("button_url", button_url.as_deref()),
+      ("button_2", button_2.as_deref()),
+      ("button_2_url", button_2_url.as_deref()),
+      ("party_id", Some(party_id.as_str())),
+      ("party_current", party_current.as_deref()),
+      ("party_max", party_max.as_deref()),
     ];
     let set: Vec<String> = fields
       .into_iter()

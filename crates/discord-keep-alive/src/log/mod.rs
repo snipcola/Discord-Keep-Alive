@@ -20,20 +20,10 @@ pub fn init(log_level: &str) {
 }
 
 fn default_filter(level: &str) -> String {
-  let level = normalise_level(level);
   format!(
     "{}={level},dka_gateway={level},dka_runtime={level},tokio=warn,tokio_tungstenite=warn,tungstenite=warn,rustls=warn",
     env!("CARGO_CRATE_NAME")
   )
-}
-
-fn normalise_level(level: &str) -> String {
-  let lower = level.to_ascii_lowercase();
-  if dka_config::LOG_LEVELS.contains(&lower.as_str()) {
-    lower
-  } else {
-    dka_config::DEFAULT_LOG_LEVEL.into()
-  }
 }
 
 mod util {

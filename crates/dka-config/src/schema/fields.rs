@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use clap::Args;
-use dka_presence::ActivityType;
+use clap::builder::PossibleValuesParser;
+use dka_presence::{AccountKind, ActivityPlatform, ActivityType, Device, Status};
 use serde::Deserialize;
 
 use crate::token::SecretString;
@@ -11,35 +12,40 @@ pub struct FieldSpec {
   pub toml: &'static str,
   pub env_suffix: Option<&'static str>,
   pub cli_long: Option<&'static str>,
-  pub set_suffix: &'static str,
 }
 
-/// Declares an enum of string fields with `ALL`, `spec` and `get_mut`.
-///
-/// Optional per-field keys: `serde_rename`, and `cli_field` with `help`.
-/// Optional flags: `env_opt`/`env_req`, `cli_req`, `partial`, `cli_args(ArgsStruct)`.
-macro_rules! string_fields {
+type FieldType<T = String> = T;
+
+macro_rules! fields {
   (
-    $(#[$meta:meta])*
-    $vis:vis enum $Name:ident => $Target:ident {
+    $vis:vis enum $Name:ident => $Target:ident $(, derive($Derive:path))? {
       $(
-        $Variant:ident($field:ident) {
-          toml: $toml:expr,
-          env_suffix: $env:expr,
-          cli_long: $cli:expr,
-          set_suffix: $set:expr
-          $(, serde_rename: $rename:expr)?
-          $(, cli_field: $cli_field:ident, help: $help:expr)?
+        $Variant:ident($field:ident $(: $ty:ty)?) {
+          toml: $toml:literal,
+          env: $env:expr
+          $(, cli: $cli:literal, help: $help:literal $(, choices: $choices:path)?)?
           $(,)?
         }
       ),* $(,)?
     }
-    $($flags:tt)*
   ) => {
-    $(#[$meta])*
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     $vis enum $Name {
       $($Variant,)*
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize $(, $Derive)?)]
+    $vis struct $Target {
+      $(
+        $(
+          #[arg(
+            id = $cli, long = $cli, help = $help
+            $(, value_parser = PossibleValuesParser::new($choices()), ignore_case = true)?
+          )]
+        )?
+        #[serde(default, rename = $toml)]
+        pub $field: Option<FieldType<$($ty)?>>,
+      )*
     }
 
     impl $Name {
@@ -49,154 +55,32 @@ macro_rules! string_fields {
         Self::ALL.iter().map(|f| f.spec().toml)
       }
 
-      pub const fn spec(self) -> FieldSpec {
+      pub fn from_toml(raw: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|f| f.spec().toml == raw)
+      }
+
+      pub fn spec(self) -> FieldSpec {
         match self {
-          $(
-            Self::$Variant => FieldSpec {
-              toml: $toml,
-              env_suffix: $env,
-              cli_long: $cli,
-              set_suffix: $set,
-            },
-          )*
+          $(Self::$Variant => FieldSpec {
+            toml: $toml,
+            env_suffix: $env,
+            cli_long: None $(.or(Some($cli)))?,
+          },)*
         }
       }
 
-      pub fn get_mut(self, target: &mut $Target) -> &mut Option<String> {
+      pub fn set(self, target: &mut $Target, value: String) {
         match self {
-          $(Self::$Variant => &mut target.$field,)*
+          $(Self::$Variant => target.$field = Some(value.into()),)*
         }
       }
-    }
 
-    string_fields!(@flags $vis $Name $Target {
-      $(
-        $Variant($field) {
-          toml: $toml,
-          env_suffix: $env,
-          cli_long: $cli,
-          set_suffix: $set
-          $(, serde_rename: $rename)?
-          $(, cli_field: $cli_field, help: $help)?
-        }
-      ),*
-    } $($flags)*);
-  };
-
-  (@flags $vis:vis $Name:ident $Target:ident $body:tt) => {};
-
-  (@flags $vis:vis $Name:ident $Target:ident $body:tt env_opt $($rest:tt)*) => {
-    impl $Name {
-      pub fn env_suffix(self) -> Option<&'static str> {
-        self.spec().env_suffix
-      }
-    }
-    string_fields!(@flags $vis $Name $Target $body $($rest)*);
-  };
-
-  (@flags $vis:vis $Name:ident $Target:ident $body:tt env_req $($rest:tt)*) => {
-    impl $Name {
-      pub fn env_suffix(self) -> &'static str {
-        self.spec().env_suffix.unwrap()
-      }
-    }
-    string_fields!(@flags $vis $Name $Target $body $($rest)*);
-  };
-
-  (@flags $vis:vis $Name:ident $Target:ident $body:tt cli_req $($rest:tt)*) => {
-    impl $Name {
-      pub const fn cli_long(self) -> &'static str {
-        match self.spec().cli_long {
-          Some(v) => v,
-          None => unreachable!(),
-        }
-      }
-    }
-    string_fields!(@flags $vis $Name $Target $body $($rest)*);
-  };
-
-  (@flags $vis:vis $Name:ident $Target:ident {
-    $(
-      $Variant:ident($field:ident) {
-        toml: $toml:expr,
-        env_suffix: $env:expr,
-        cli_long: $cli:expr,
-        set_suffix: $set:expr
-        $(, serde_rename: $rename:expr)?
-        $(, cli_field: $cli_field:ident, help: $help:expr)?
-        $(,)?
-      }
-    ),* $(,)?
-  } partial $($rest:tt)*) => {
-    #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-    $vis struct $Target {
-      $(
-        $(#[serde(rename = $rename)])?
-        #[serde(default)]
-        pub $field: Option<String>,
-      )*
-    }
-    string_fields!(@flags $vis $Name $Target {
-      $(
-        $Variant($field) {
-          toml: $toml,
-          env_suffix: $env,
-          cli_long: $cli,
-          set_suffix: $set
-          $(, serde_rename: $rename)?
-          $(, cli_field: $cli_field, help: $help)?
-        }
-      ),*
-    } $($rest)*);
-  };
-
-  // Emits a clap `Args` struct for `#[command(flatten)]` (macros can't expand into
-  // struct fields), plus `cli_get` so apply_*_cli can loop over the catalogue.
-  (@flags $vis:vis $Name:ident $Target:ident {
-    $(
-      $Variant:ident($field:ident) {
-        toml: $toml:expr,
-        env_suffix: $env:expr,
-        cli_long: $cli:expr,
-        set_suffix: $set:expr
-        $(, serde_rename: $rename:expr)?
-        $(, cli_field: $cli_field:ident, help: $help:expr)?
-        $(,)?
-      }
-    ),* $(,)?
-  } cli_args($ArgsName:ident) $($rest:tt)*) => {
-    #[derive(Debug, Default, Args)]
-    $vis struct $ArgsName {
-      $(
-        $(
-          #[arg(long = $Name::$Variant.cli_long(), help = $help)]
-          pub $cli_field: Option<String>,
-        )?
-      )*
-    }
-
-    impl $Name {
-      pub fn cli_get(self, args: &$ArgsName) -> Option<&str> {
+      pub fn take(self, target: &mut $Target) -> Option<String> {
         match self {
-          $(
-            $(Self::$Variant => args.$cli_field.as_deref(),)?
-          )*
+          $(Self::$Variant => target.$field.take().map(|v| (*v).to_owned()),)*
         }
       }
     }
-
-    string_fields!(@flags $vis $Name $Target {
-      $(
-        $Variant($field) {
-          toml: $toml,
-          env_suffix: $env,
-          cli_long: $cli,
-          set_suffix: $set
-          $(, serde_rename: $rename)?
-          $(, cli_field: $cli_field, help: $help)?
-        }
-      ),*
-    } $($rest)*);
   };
 }
 
@@ -258,94 +142,29 @@ pub enum ClientPropEmptyPolicy {
   AssignEvenEmpty,
 }
 
-string_fields! {
+fields! {
   pub enum ClientPropField => PartialClientProperties {
-    Os(os) {
-      toml: "os",
-      env_suffix: Some("OS"),
-      cli_long: None,
-      set_suffix: "os",
-    },
-    Browser(browser) {
-      toml: "browser",
-      env_suffix: Some("BROWSER"),
-      cli_long: None,
-      set_suffix: "browser",
-    },
-    Device(device) {
-      toml: "device",
-      env_suffix: Some("DEVICE"),
-      cli_long: None,
-      set_suffix: "device",
-    },
-    UserAgent(user_agent) {
-      toml: "user_agent",
-      env_suffix: Some("USER_AGENT"),
-      cli_long: None,
-      set_suffix: "user_agent",
-    },
-    ClientVersion(client_version) {
-      toml: "client_version",
-      env_suffix: Some("CLIENT_VERSION"),
-      cli_long: None,
-      set_suffix: "client_version",
-    },
-    OsVersion(os_version) {
-      toml: "os_version",
-      env_suffix: Some("OS_VERSION"),
-      cli_long: None,
-      set_suffix: "os_version",
-    },
-    OsArch(os_arch) {
-      toml: "os_arch",
-      env_suffix: Some("OS_ARCH"),
-      cli_long: None,
-      set_suffix: "os_arch",
-    },
-    AppArch(app_arch) {
-      toml: "app_arch",
-      env_suffix: Some("APP_ARCH"),
-      cli_long: None,
-      set_suffix: "app_arch",
-    },
-    SystemLocale(system_locale) {
-      toml: "system_locale",
-      env_suffix: Some("SYSTEM_LOCALE"),
-      cli_long: None,
-      set_suffix: "system_locale",
-    },
-    ReleaseChannel(release_channel) {
-      toml: "release_channel",
-      env_suffix: Some("RELEASE_CHANNEL"),
-      cli_long: None,
-      set_suffix: "release_channel",
-    },
-    BrowserVersion(browser_version) {
-      toml: "browser_version",
-      env_suffix: Some("BROWSER_VERSION"),
-      cli_long: None,
-      set_suffix: "browser_version",
-    },
-    OsSdkVersion(os_sdk_version) {
-      toml: "os_sdk_version",
-      env_suffix: Some("OS_SDK_VERSION"),
-      cli_long: None,
-      set_suffix: "os_sdk_version",
-    },
+    Os(os) { toml: "os", env: Some("OS") },
+    Browser(browser) { toml: "browser", env: Some("BROWSER") },
+    Device(device) { toml: "device", env: Some("DEVICE") },
+    UserAgent(user_agent) { toml: "user_agent", env: Some("USER_AGENT") },
+    ClientVersion(client_version) { toml: "client_version", env: Some("CLIENT_VERSION") },
+    OsVersion(os_version) { toml: "os_version", env: Some("OS_VERSION") },
+    OsArch(os_arch) { toml: "os_arch", env: Some("OS_ARCH") },
+    AppArch(app_arch) { toml: "app_arch", env: Some("APP_ARCH") },
+    SystemLocale(system_locale) { toml: "system_locale", env: Some("SYSTEM_LOCALE") },
+    ReleaseChannel(release_channel) { toml: "release_channel", env: Some("RELEASE_CHANNEL") },
+    BrowserVersion(browser_version) { toml: "browser_version", env: Some("BROWSER_VERSION") },
+    OsSdkVersion(os_sdk_version) { toml: "os_sdk_version", env: Some("OS_SDK_VERSION") },
     ClientBuildNumber(client_build_number) {
       toml: "client_build_number",
-      env_suffix: Some("CLIENT_BUILD_NUMBER"),
-      cli_long: None,
-      set_suffix: "client_build_number",
+      env: Some("CLIENT_BUILD_NUMBER"),
     },
     NativeBuildNumber(native_build_number) {
       toml: "native_build_number",
-      env_suffix: Some("NATIVE_BUILD_NUMBER"),
-      cli_long: None,
-      set_suffix: "native_build_number",
+      env: Some("NATIVE_BUILD_NUMBER"),
     },
   }
-  env_req partial
 }
 
 pub(crate) fn empty_to_none(value: String) -> Option<String> {
@@ -405,22 +224,14 @@ pub struct PartialDefaults {
   pub global: PartialGlobalDefaults,
 }
 
-string_fields! {
+fields! {
   pub enum GlobalDefaultField => PartialGlobalDefaults {
     HeartbeatVersion(heartbeat_version) {
       toml: "heartbeat_version",
-      env_suffix: Some("HEARTBEAT_VERSION"),
-      cli_long: None,
-      set_suffix: "heartbeat_version",
+      env: Some("HEARTBEAT_VERSION"),
     },
-    Capabilities(capabilities) {
-      toml: "capabilities",
-      env_suffix: Some("CAPABILITIES"),
-      cli_long: None,
-      set_suffix: "capabilities",
-    },
+    Capabilities(capabilities) { toml: "capabilities", env: Some("CAPABILITIES") },
   }
-  env_req partial
 }
 
 impl GlobalDefaultField {
@@ -432,7 +243,7 @@ impl GlobalDefaultField {
   }
 }
 
-pub const ROOT_KEYS: [&str; 4] = ["log_level", "health_socket", "defaults", "accounts"];
+pub const ROOT_TABLES: [&str; 2] = ["defaults", "accounts"];
 pub const ACCOUNT_KEYS: [&str; 3] = ["custom_status", "activity", "activities"];
 
 pub fn activity_type_names() -> impl Iterator<Item = &'static str> {
@@ -442,310 +253,176 @@ pub fn activity_type_names() -> impl Iterator<Item = &'static str> {
     .map(|t| t.as_str())
 }
 
-// Hand-written: Token is a SecretString, and Name uses the bare ACCOUNT env var and --account.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccountScalarField {
-  Token,
-  Name,
-  Kind,
-  Device,
-  Status,
-}
-
-impl AccountScalarField {
-  pub const ALL: &[Self] = &[
-    Self::Token,
-    Self::Name,
-    Self::Kind,
-    Self::Device,
-    Self::Status,
-  ];
-
-  pub fn keys() -> impl Iterator<Item = &'static str> {
-    Self::ALL.iter().map(|f| f.spec().toml)
-  }
-
-  pub fn set_suffixes() -> impl Iterator<Item = &'static str> {
-    Self::ALL.iter().map(|f| f.spec().set_suffix)
-  }
-
-  pub const fn spec(self) -> FieldSpec {
-    match self {
-      Self::Token => FieldSpec {
-        toml: "token",
-        env_suffix: Some("TOKEN"),
-        cli_long: Some("token"),
-        set_suffix: "token",
-      },
-      // No env_suffix: the env var is ACCOUNT or ACCOUNT_<id>, not ACCOUNT_NAME.
-      Self::Name => FieldSpec {
-        toml: "name",
-        env_suffix: None,
-        cli_long: Some("account"),
-        set_suffix: "name",
-      },
-      Self::Kind => FieldSpec {
-        toml: "kind",
-        env_suffix: Some("KIND"),
-        cli_long: Some("kind"),
-        set_suffix: "kind",
-      },
-      Self::Device => FieldSpec {
-        toml: "device",
-        env_suffix: Some("DEVICE"),
-        cli_long: Some("device"),
-        set_suffix: "device",
-      },
-      Self::Status => FieldSpec {
-        toml: "status",
-        env_suffix: Some("STATUS"),
-        cli_long: Some("status"),
-        set_suffix: "status",
-      },
-    }
-  }
-
-  pub fn env_suffix(self) -> Option<&'static str> {
-    self.spec().env_suffix
-  }
-
-  pub const fn cli_long(self) -> &'static str {
-    match self.spec().cli_long {
-      Some(v) => v,
-      None => unreachable!(),
-    }
-  }
-
-  pub fn set(self, account: &mut PartialAccount, value: String) {
-    match self {
-      Self::Token => account.token = Some(SecretString::new(value)),
-      Self::Name => account.name = Some(value),
-      Self::Kind => account.kind = Some(value),
-      Self::Device => account.device = Some(value),
-      Self::Status => account.status = Some(value),
-    }
-  }
-
-  pub fn take(self, account: &mut PartialAccount) -> Option<String> {
-    match self {
-      Self::Token => account.token.take().map(SecretString::into_inner),
-      Self::Name => account.name.take(),
-      Self::Kind => account.kind.take(),
-      Self::Device => account.device.take(),
-      Self::Status => account.status.take(),
-    }
+fields! {
+  pub enum RootField => RootScalars {
+    LogLevel(log_level) { toml: "log_level", env: Some("LOG_LEVEL") },
+    HealthSocket(health_socket) { toml: "health_socket", env: Some("HEALTH_SOCKET") },
   }
 }
 
-/// Clap group for account scalars. Long names come from the catalogue.
-#[derive(Debug, Default, Args)]
-pub struct AccountScalarCliArgs {
-  /// Account token.
-  #[arg(long = AccountScalarField::Token.cli_long())]
-  pub token: Option<SecretString>,
-
-  /// Account name, used in logs.
-  #[arg(long = AccountScalarField::Name.cli_long())]
-  pub name: Option<String>,
-
-  /// Account kind.
-  #[arg(long = AccountScalarField::Kind.cli_long())]
-  pub kind: Option<String>,
-
-  /// Device to appear as (users only).
-  #[arg(long = AccountScalarField::Device.cli_long())]
-  pub device: Option<String>,
-
-  /// Online status.
-  #[arg(long = AccountScalarField::Status.cli_long())]
-  pub status: Option<String>,
+fields! {
+  pub enum AccountScalarField => AccountScalars, derive(Args) {
+    Token(token: SecretString) {
+      toml: "token",
+      env: Some("TOKEN"),
+      cli: "token",
+      help: "Account token",
+    },
+    Name(name) {
+      toml: "name",
+      env: None,
+      cli: "account",
+      help: "Account name, used in logs",
+    },
+    Kind(kind) {
+      toml: "kind",
+      env: Some("KIND"),
+      cli: "kind",
+      help: "Account kind",
+      choices: AccountKind::names,
+    },
+    Device(device) {
+      toml: "device",
+      env: Some("DEVICE"),
+      cli: "device",
+      help: "Device to appear as (users only)",
+      choices: Device::names,
+    },
+    Status(status) {
+      toml: "status",
+      env: Some("STATUS"),
+      cli: "status",
+      help: "Online status",
+      choices: Status::names,
+    },
+  }
 }
 
-string_fields! {
-  pub enum CustomStatusField => PartialCustomStatus {
+fields! {
+  pub enum CustomStatusField => PartialCustomStatus, derive(Args) {
     Text(text) {
       toml: "text",
-      env_suffix: Some("CUSTOM_STATUS"),
-      cli_long: Some("custom-status"),
-      set_suffix: "text",
-      cli_field: custom_status,
+      env: Some("CUSTOM_STATUS"),
+      cli: "custom-status",
       help: "Custom status text (users only)",
     },
     Emoji(emoji) {
       toml: "emoji",
-      env_suffix: Some("CUSTOM_STATUS_EMOJI"),
-      cli_long: Some("custom-status-emoji"),
-      set_suffix: "emoji",
-      cli_field: custom_status_emoji,
+      env: Some("CUSTOM_STATUS_EMOJI"),
+      cli: "custom-status-emoji",
       help: "Custom status emoji (users only)",
     },
   }
-  env_req cli_req partial cli_args(CustomStatusCliArgs)
 }
 
-string_fields! {
-  pub enum ActivityField => PartialActivity {
-    Name(name) {
-      toml: "name",
-      env_suffix: None,
-      cli_long: Some("activity"),
-      set_suffix: "name",
-      cli_field: activity,
-      help: "Activity name",
-    },
+fields! {
+  pub enum ActivityField => PartialActivity, derive(Args) {
+    Name(name) { toml: "name", env: None, cli: "activity", help: "Activity name" },
     Type(activity_type) {
       toml: "type",
-      env_suffix: Some("TYPE"),
-      cli_long: Some("activity-type"),
-      set_suffix: "type",
-      serde_rename: "type",
-      cli_field: activity_type,
+      env: Some("TYPE"),
+      cli: "activity-type",
       help: "Activity type",
+      choices: activity_type_names,
     },
     Platform(platform) {
       toml: "platform",
-      env_suffix: Some("PLATFORM"),
-      cli_long: Some("activity-platform"),
-      set_suffix: "platform",
-      cli_field: activity_platform,
+      env: Some("PLATFORM"),
+      cli: "activity-platform",
       help: "Platform shown on the activity",
+      choices: ActivityPlatform::names,
     },
     Timestamp(timestamp) {
       toml: "timestamp",
-      env_suffix: Some("TIMESTAMP"),
-      cli_long: Some("activity-timestamp"),
-      set_suffix: "timestamp",
-      cli_field: activity_timestamp,
+      env: Some("TIMESTAMP"),
+      cli: "activity-timestamp",
       help: "Activity start time (Unix seconds)",
     },
     ApplicationId(application_id) {
       toml: "application_id",
-      env_suffix: Some("APPLICATION_ID"),
-      cli_long: Some("activity-application-id"),
-      set_suffix: "application_id",
-      cli_field: activity_application_id,
+      env: Some("APPLICATION_ID"),
+      cli: "activity-application-id",
       help: "Application ID",
     },
     Details(details) {
       toml: "details",
-      env_suffix: Some("DETAILS"),
-      cli_long: Some("activity-details"),
-      set_suffix: "details",
-      cli_field: activity_details,
+      env: Some("DETAILS"),
+      cli: "activity-details",
       help: "Details line",
     },
     Url(url) {
       toml: "url",
-      env_suffix: Some("URL"),
-      cli_long: Some("activity-url"),
-      set_suffix: "url",
-      cli_field: activity_url,
+      env: Some("URL"),
+      cli: "activity-url",
       help: "Stream URL (required for `streaming`)",
     },
     LargeImage(large_image) {
       toml: "large_image",
-      env_suffix: Some("LARGE_IMAGE"),
-      cli_long: Some("activity-large-image"),
-      set_suffix: "large_image",
-      cli_field: activity_large_image,
+      env: Some("LARGE_IMAGE"),
+      cli: "activity-large-image",
       help: "Large image asset key",
     },
     LargeImageText(large_image_text) {
       toml: "large_image_text",
-      env_suffix: Some("LARGE_IMAGE_TEXT"),
-      cli_long: Some("activity-large-image-text"),
-      set_suffix: "large_image_text",
-      cli_field: activity_large_image_text,
+      env: Some("LARGE_IMAGE_TEXT"),
+      cli: "activity-large-image-text",
       help: "Large image hover text",
     },
     SmallImage(small_image) {
       toml: "small_image",
-      env_suffix: Some("SMALL_IMAGE"),
-      cli_long: Some("activity-small-image"),
-      set_suffix: "small_image",
-      cli_field: activity_small_image,
+      env: Some("SMALL_IMAGE"),
+      cli: "activity-small-image",
       help: "Small image asset key",
     },
     SmallImageText(small_image_text) {
       toml: "small_image_text",
-      env_suffix: Some("SMALL_IMAGE_TEXT"),
-      cli_long: Some("activity-small-image-text"),
-      set_suffix: "small_image_text",
-      cli_field: activity_small_image_text,
+      env: Some("SMALL_IMAGE_TEXT"),
+      cli: "activity-small-image-text",
       help: "Small image hover text",
     },
     Button(button) {
       toml: "button",
-      env_suffix: Some("BUTTON"),
-      cli_long: Some("activity-button"),
-      set_suffix: "button",
-      cli_field: activity_button,
+      env: Some("BUTTON"),
+      cli: "activity-button",
       help: "Button 1 label",
     },
     ButtonUrl(button_url) {
       toml: "button_url",
-      env_suffix: Some("BUTTON_URL"),
-      cli_long: Some("activity-button-url"),
-      set_suffix: "button_url",
-      cli_field: activity_button_url,
+      env: Some("BUTTON_URL"),
+      cli: "activity-button-url",
       help: "Button 1 URL",
     },
     Button2(button_2) {
       toml: "button_2",
-      env_suffix: Some("BUTTON_2"),
-      cli_long: Some("activity-button-2"),
-      set_suffix: "button_2",
-      cli_field: activity_button_2,
+      env: Some("BUTTON_2"),
+      cli: "activity-button-2",
       help: "Button 2 label",
     },
     Button2Url(button_2_url) {
       toml: "button_2_url",
-      env_suffix: Some("BUTTON_2_URL"),
-      cli_long: Some("activity-button-2-url"),
-      set_suffix: "button_2_url",
-      cli_field: activity_button_2_url,
+      env: Some("BUTTON_2_URL"),
+      cli: "activity-button-2-url",
       help: "Button 2 URL",
     },
     PartyId(party_id) {
       toml: "party_id",
-      env_suffix: Some("PARTY_ID"),
-      cli_long: Some("activity-party-id"),
-      set_suffix: "party_id",
-      cli_field: activity_party_id,
+      env: Some("PARTY_ID"),
+      cli: "activity-party-id",
       help: "Party ID",
     },
     PartyCurrent(party_current) {
       toml: "party_current",
-      env_suffix: Some("PARTY_CURRENT"),
-      cli_long: Some("activity-party-current"),
-      set_suffix: "party_current",
-      cli_field: activity_party_current,
+      env: Some("PARTY_CURRENT"),
+      cli: "activity-party-current",
       help: "Current party size",
     },
     PartyMax(party_max) {
       toml: "party_max",
-      env_suffix: Some("PARTY_MAX"),
-      cli_long: Some("activity-party-max"),
-      set_suffix: "party_max",
-      cli_field: activity_party_max,
+      env: Some("PARTY_MAX"),
+      cli: "activity-party-max",
       help: "Maximum party size",
     },
   }
-  env_opt cli_req partial cli_args(ActivityCliArgs)
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct AccountScalars {
-  #[serde(default)]
-  pub name: Option<String>,
-  #[serde(default)]
-  pub token: Option<SecretString>,
-  #[serde(default)]
-  pub kind: Option<String>,
-  #[serde(default)]
-  pub device: Option<String>,
-  #[serde(default)]
-  pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -782,82 +459,9 @@ impl From<AccountScalars> for PartialAccount {
   }
 }
 
-pub fn apply_custom_status_cli(
-  partial: &mut crate::model::partial::PartialConfig,
-  args: &CustomStatusCliArgs,
-) {
-  for &field in CustomStatusField::ALL {
-    if let Some(v) = crate::util::trim_to_string(field.cli_get(args)) {
-      crate::schema::path::apply_path(
-        partial,
-        &crate::schema::path::custom_status_path(crate::schema::id::ACCOUNT_FLAT, field),
-        v,
-      );
-    }
-  }
-}
-
-pub fn apply_activity_cli(
-  partial: &mut crate::model::partial::PartialConfig,
-  args: &ActivityCliArgs,
-) {
-  for &field in ActivityField::ALL {
-    if let Some(v) = crate::util::trim_to_string(field.cli_get(args)) {
-      crate::schema::path::apply_path(
-        partial,
-        &crate::schema::path::activity_field_path(
-          crate::schema::id::ACCOUNT_FLAT,
-          crate::schema::id::ACTIVITY_SINGULAR,
-          field,
-        ),
-        v,
-      );
-    }
-  }
-}
-
-pub fn apply_account_scalar_cli(
-  partial: &mut crate::model::partial::PartialConfig,
-  args: &AccountScalarCliArgs,
-) {
-  for (field, raw) in [
-    (AccountScalarField::Token, args.token.as_deref()),
-    (AccountScalarField::Name, args.name.as_deref()),
-    (AccountScalarField::Kind, args.kind.as_deref()),
-    (AccountScalarField::Device, args.device.as_deref()),
-    (AccountScalarField::Status, args.status.as_deref()),
-  ] {
-    if let Some(v) = crate::util::trim_to_string(raw) {
-      crate::schema::path::apply_path(
-        partial,
-        &crate::schema::path::account_scalar_path(crate::schema::id::ACCOUNT_FLAT, field),
-        v,
-      );
-    }
-  }
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  #[test]
-  fn field_spec_name_special_cases() {
-    let name = AccountScalarField::Name.spec();
-    assert_eq!(name.env_suffix, None);
-    assert_eq!(name.cli_long, Some("account"));
-    assert_eq!(name.toml, "name");
-
-    let act_name = ActivityField::Name.spec();
-    assert_eq!(act_name.env_suffix, None);
-    assert_eq!(act_name.cli_long, Some("activity"));
-    assert_eq!(ActivityField::Type.spec().toml, "type");
-
-    let cs_text = CustomStatusField::Text.spec();
-    assert_eq!(cs_text.env_suffix, Some("CUSTOM_STATUS"));
-    assert_eq!(cs_text.cli_long, Some("custom-status"));
-    assert_eq!(cs_text.toml, "text");
-  }
 
   #[test]
   fn partial_activity_type_renames_for_serde() {

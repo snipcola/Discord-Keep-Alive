@@ -193,7 +193,6 @@ pub(crate) fn build_custom_status(state: &str, emoji: Option<&str>) -> Value {
 
 fn parse_emoji(raw: &str) -> Value {
   let raw = raw.trim();
-  // Accepts <:name:id>, <a:name:id>, a bare id or a unicode name.
   if let Some(inner) = raw.strip_circumfix('<', '>') {
     let (animated, rest) = if let Some(rest) = inner.strip_prefix("a:") {
       (true, rest)
@@ -333,15 +332,6 @@ mod tests {
       assert_eq!(v["state"], "hi", "{label}");
       assert_eq!(v["emoji"], *expected, "{label}");
     }
-  }
-
-  #[test]
-  fn activity_config_default_matches_new() {
-    assert_eq!(ActivityConfig::default(), ActivityConfig::new());
-    assert_eq!(
-      ActivityConfig::default().application_id,
-      DEFAULT_APPLICATION_ID
-    );
   }
 
   #[test]

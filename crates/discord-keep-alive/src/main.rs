@@ -5,10 +5,10 @@ mod term;
 use std::time::Duration;
 
 use clap::Parser;
-use dka_config::{Cli, Command, load, load_health_endpoint};
+use dka_config::{Cli, Command, LoadedConfig, load, load_health_endpoint};
 use dka_runtime::HealthState;
 use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -28,8 +28,11 @@ async fn main() {
     .install_default()
     .expect("install rustls CryptoProvider");
 
-  let app = match load(&cli) {
-    Ok(cfg) => cfg,
+  let LoadedConfig {
+    config: app,
+    warnings,
+  } = match load(&cli) {
+    Ok(loaded) => loaded,
     Err(err) => {
       term::report_error(err);
       std::process::exit(1);
@@ -37,6 +40,9 @@ async fn main() {
   };
 
   log::init(&app.log_level);
+  for warning in &warnings {
+    warn!("{warning}");
+  }
 
   if *shutdown_rx.borrow() {
     log_shutting_down(&reason_rx);
@@ -123,7 +129,7 @@ async fn main() {
 }
 
 async fn run_health_probe(cli: &Cli) -> i32 {
-  let endpoint = match load_health_endpoint(&cli.config, cli.health_socket.as_deref()) {
+  let endpoint = match load_health_endpoint(cli) {
     Ok(Some(endpoint)) => endpoint,
     Ok(None) => {
       term::report_error(

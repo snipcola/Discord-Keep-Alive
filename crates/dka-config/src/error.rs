@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::util::hint;
+use crate::util::{hint, nearest};
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -19,6 +19,8 @@ pub enum ConfigError {
   MissingToken(String),
   #[error("account '{0}': {1}")]
   Invalid(String, String),
+  #[error("{0}")]
+  InvalidValue(String),
   #[error("{0}")]
   InvalidPath(String),
   #[error("{0}")]
@@ -39,6 +41,16 @@ impl ConfigError {
     hint: impl Display,
   ) -> Self {
     Self::invalid(account, format!("invalid {field} '{value}' ({hint})"))
+  }
+
+  pub(crate) fn invalid_value(key: &str, value: &str, allowed: &[&str]) -> Self {
+    let suggestion = nearest(value, allowed)
+      .map(|name| format!("did you mean '{name}'? "))
+      .unwrap_or_default();
+    Self::InvalidValue(format!(
+      "invalid {key} '{value}' ({suggestion}allowed: {})",
+      allowed.join(", ")
+    ))
   }
 
   pub(crate) fn invalid_id(id: &str, reason: &str) -> Self {

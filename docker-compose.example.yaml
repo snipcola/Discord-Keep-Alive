@@ -24,6 +24,7 @@ services:
       # ACTIVITY_0: Spotify          # extra activities
       # ACTIVITY_0_TYPE: listening
       LOG_LEVEL: info # error | warn | info | debug | trace
+      # CONFIG_PATH: /config.toml    # with the config file volume below
 
       # Extra accounts (ids can also be names, e.g. ACCOUNT_TEST_TOKEN)
       # ACCOUNT_0_TOKEN: ${ACCOUNT_0_TOKEN:?set ACCOUNT_0_TOKEN}
@@ -45,6 +46,3 @@ services:
     # To use only a config file, remove TOKEN above; otherwise compose still requires it.
     # volumes:
     #   - ./config.toml:/config.toml:ro,z
-    # environment:
-    #   CONFIG_PATH: /config.toml
-    #   LOG_LEVEL: info

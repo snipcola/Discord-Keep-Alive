@@ -4,16 +4,13 @@ use serde::Deserialize;
 
 pub use crate::schema::fields::{
   AccountScalars, PartialAccount, PartialActivity, PartialClientProperties, PartialCustomStatus,
-  PartialDefaults,
+  PartialDefaults, RootScalars,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PartialConfig {
-  #[serde(default)]
-  pub log_level: Option<String>,
-
-  #[serde(default)]
-  pub health_socket: Option<String>,
+  #[serde(flatten)]
+  pub root: RootScalars,
 
   #[serde(default)]
   pub defaults: PartialDefaults,
