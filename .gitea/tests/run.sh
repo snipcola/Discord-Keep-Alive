@@ -84,8 +84,8 @@ init_repo() {
 
 SHIPPED_LIST="crates Cargo.toml Cargo.lock rust-toolchain.toml Dockerfile config.example.toml"
 SHIPPED_LINES="${SHIPPED_LIST// /$'\n'}"
-DOCS_ONLY_LINES="$(lines .editorconfig .gitignore about.hbs about.toml docker-compose.example.yaml LICENSE README.md)"
-SCRIPT_LINES="$(lines .gitea deny.toml about.toml)"
+DOCS_ONLY_LINES="$(lines .editorconfig .gitignore .config/about.hbs .config/about.toml docker-compose.example.yaml LICENSE README.md)"
+SCRIPT_LINES="$(lines .gitea .config/deny.toml .config/about.toml)"
 
 awk_run() {
   gawk -v repo=https://r.test -v "BREAKING_SHAS= $1" -v "BUMP_SHAS= $2" -v "SHIPPED=${SHIPPED_LIST}" \
@@ -587,7 +587,7 @@ run_changes() {
   : >"${out}"
   (
     cd "${dir}"
-    env BASE="${base}" GITEA_OUTPUT="${out}" DOCS_ONLY="$(lines README.md about.toml Dockerfile config.example.toml)" \
+    env BASE="${base}" GITEA_OUTPUT="${out}" DOCS_ONLY="$(lines README.md .config/about.toml Dockerfile config.example.toml)" \
       SHIPPED_PATHS="${SHIPPED_LINES}" SCRIPT_PATHS="${SCRIPT_LINES}" "$@" \
       bash "${SCRIPTS}/changes.sh"
   ) >/dev/null 2>&1
@@ -617,12 +617,13 @@ test_changes() {
   expect_eq "README-only change skips the checks and the script tests" \
     "$(lines checks=false scripts=false)" "$(<"${out}")"
 
-  printf 'x\n' >"${repo}/about.toml"
+  mkdir -p "${repo}/.config"
+  printf 'x\n' >"${repo}/.config/about.toml"
   git -C "${repo}" add -A
   git -C "${repo}" commit -q -m 'docs: about'
   fourth="$(git -C "${repo}" rev-parse HEAD)"
   run_changes "${repo}" "${third}" "${out}"
-  expect_eq "about.toml-only change skips the checks but runs the script tests" \
+  expect_eq ".config/about.toml-only change skips the checks but runs the script tests" \
     "$(lines checks=false scripts=true)" "$(<"${out}")"
 
   mkdir -p "${repo}/crates"
@@ -798,10 +799,10 @@ licence_list() {
 
 test_licence_sync() {
   local deny about
-  deny="$(licence_list "${ROOT}/deny.toml" allow)"
-  about="$(licence_list "${ROOT}/about.toml" accepted)"
-  if [ -n "${deny}" ]; then pass; else fail "deny.toml licences.allow was not found"; fi
-  expect_eq "about.toml accepted matches deny.toml allow" "${deny}" "${about}"
+  deny="$(licence_list "${ROOT}/.config/deny.toml" allow)"
+  about="$(licence_list "${ROOT}/.config/about.toml" accepted)"
+  if [ -n "${deny}" ]; then pass; else fail ".config/deny.toml licences.allow was not found"; fi
+  expect_eq ".config/about.toml accepted matches .config/deny.toml allow" "${deny}" "${about}"
 }
 
 test_shellcheck() {

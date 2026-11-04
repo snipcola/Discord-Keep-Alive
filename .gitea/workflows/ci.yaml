@@ -78,7 +78,7 @@ jobs:
         uses: ./.gitea/actions/setup-env
         with:
           targets: ${{ env.TARGETS }}
-          tools: cargo-deny, cargo-shear
+          tools: cargo-deny, cargo-shear, cargo-nextest
 
       - name: Version & publish decision
         id: meta
@@ -102,15 +102,15 @@ jobs:
           DOCS_ONLY: |
             .editorconfig
             .gitignore
-            about.hbs
-            about.toml
+            .config/about.hbs
+            .config/about.toml
             docker-compose.example.yaml
             LICENSE
             README.md
           SCRIPT_PATHS: |
             .gitea
-            deny.toml
-            about.toml
+            .config/deny.toml
+            .config/about.toml
         run: bash "${{ gitea.workspace }}/.gitea/scripts/changes.sh"
 
       - name: Script tests
@@ -135,7 +135,7 @@ jobs:
 
       - name: Test
         if: steps.changes.outputs.checks == 'true'
-        run: cargo t
+        run: cargo nt --profile ci
 
       - name: Prune host target
         if: steps.host-cache.outputs.cache-hit == 'false'

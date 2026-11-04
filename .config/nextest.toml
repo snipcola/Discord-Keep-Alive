@@ -1,0 +1,9 @@
+nextest-version = "0.9.55"
+
+[profile.default]
+slow-timeout = "10s"
+
+[profile.ci]
+fail-fast = false
+slow-timeout = { period = "10s", terminate-after = 6 }
+status-level = "slow"

@@ -23,6 +23,7 @@ inputs:
       cargo-about=0.9.3
       cargo-deny=0.20.2
       cargo-shear=1.14.0
+      cargo-nextest=0.9.151
       cargo-zigbuild=0.24.0
   zig-version:
     description: Version bundled by the matching cargo-zigbuild release
