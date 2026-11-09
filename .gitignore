@@ -1,7 +1,6 @@
 /target
 /build
 /NOTICE
-
+/config.toml
 .env*
 !.env.example
-/config.toml
