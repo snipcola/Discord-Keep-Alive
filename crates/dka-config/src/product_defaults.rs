@@ -3,7 +3,7 @@ use dka_presence::{ClientProperties, Defaults};
 const LOCALE: &str = "en-US";
 const CHANNEL: &str = "stable";
 const ARCH: &str = "x64";
-const CLIENT_BUILD: &str = "649389";
+const CLIENT_BUILD: &str = "667580";
 const QOS_HEARTBEAT_VERSION: &str = "31";
 const CAPABILITIES: &str = "1734653";
 const WINDOWS_UA_PLATFORM: &str = "Windows NT 10.0; Win64; x64";
@@ -21,17 +21,17 @@ const WEB_OS_VERSION: &str = "10";
 const DESKTOP_OS: &str = "Windows";
 const DESKTOP_BROWSER: &str = "Discord Client";
 const DESKTOP_DEVICE: &str = "Discord Client";
-const DESKTOP_CLIENT: &str = "1.0.9265";
-const DESKTOP_NATIVE_BUILD: &str = "96160";
-const DESKTOP_ELECTRON: &str = "42.11.15";
-const DESKTOP_CHROME: &str = "148.0.7778.280";
+const DESKTOP_CLIENT: &str = "1.0.9267";
+const DESKTOP_NATIVE_BUILD: &str = "97793";
+const DESKTOP_ELECTRON: &str = "44.10.0";
+const DESKTOP_CHROME: &str = "152.0.7977.169";
 const DESKTOP_OS_VERSION: &str = "10.0.26200";
 const DESKTOP_SDK: &str = "26200";
 
 const MOBILE_OS: &str = "iOS";
 const MOBILE_BROWSER: &str = "Discord iOS";
 const MOBILE_DEVICE: &str = "iPhone";
-const MOBILE_OS_VERSION: &str = "27.0.1";
+const MOBILE_OS_VERSION: &str = "27.2";
 
 fn web_ua() -> String {
   format!(

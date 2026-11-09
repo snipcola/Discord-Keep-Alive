@@ -68,8 +68,8 @@ log_level = "info"
 # type = "playing"
 
 # [defaults]
-# heartbeat_version = "31"                    # user QoS heartbeats; empty sends plain heartbeats
-# capabilities = "1734653"                    # user identify capabilities; empty omits
+# heartbeat_version = "12"                    # user QoS heartbeats; empty sends plain heartbeats
+# capabilities = "123456"                     # user identify capabilities; empty omits
 
 # [defaults.bot]                              # identify properties and gateway user agent
 # os = "linux"
@@ -81,34 +81,34 @@ log_level = "info"
 # os = "Windows"
 # browser = "Firefox"
 # device = ""
-# user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0"
+# user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0"
 # os_version = "10"
 # system_locale = "en-US"
 # release_channel = "stable"
-# browser_version = "156.0"
-# client_build_number = "649389"
+# browser_version = "123.0"
+# client_build_number = "123456"
 
 # [defaults.desktop]
 # os = "Windows"
 # browser = "Discord Client"
 # device = "Discord Client"
-# user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36"
-# client_version = "1.0.9265"
-# os_version = "10.0.26200"
+# user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.2.3456 Chrome/123.0.4567.890 Electron/12.3.4 Safari/537.36"
+# client_version = "1.2.3456"
+# os_version = "10.0.12345"
 # os_arch = "x64"
 # app_arch = "x64"
 # system_locale = "en-US"
 # release_channel = "stable"
-# browser_version = "42.11.15"
-# os_sdk_version = "26200"
-# client_build_number = "649389"
-# native_build_number = "96160"
+# browser_version = "12.3.4"
+# os_sdk_version = "12345"
+# client_build_number = "123456"
+# native_build_number = "12345"
 
 # [defaults.mobile]
 # os = "iOS"
 # browser = "Discord iOS"
 # device = "iPhone"
 # user_agent = ""
-# os_version = "27.0.1"
+# os_version = "12.3.4"
 # system_locale = "en-US"
 # release_channel = "stable"
